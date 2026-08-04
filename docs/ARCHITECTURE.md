@@ -1,6 +1,7 @@
-# TradingBot - Architecture Specification (Stage 01)
+# TradingBot - Architecture Specification
+## Telegram Signal Trading Bot
 
-This document describes the foundational Clean Architecture design implemented for the **Telegram Signal Trading Bot** during Stage 01.
+This document describes the foundational Clean Architecture design, component responsibilities, database mappings, stream handlers, and resilience strategies implemented for the **Telegram Signal Trading Bot**.
 
 ---
 
@@ -13,13 +14,19 @@ The system is built on **Clean Architecture** principles to enforce domain indep
 The core rule of Clean Architecture is that **dependencies only point inwards**:
 
 ```
-TradingBot.Domain (Central Domain)
-   ↑
-TradingBot.Application (Use Cases & Contracts)
-   ↑
-TradingBot.Infrastructure (Persistence & Cross-cutting)  ←  TradingBot.Exchange.Bybit (Exchange Provider)
-   ↑
-TradingBot.Worker (Hosting & Application Entrypoint)
+           TradingBot.Domain (Central Domain)
+                        ▲
+                        │ (Referenced by)
+       TradingBot.Application (Use Cases & Contracts)
+            ▲                                ▲
+            │ (Implements)                   │ (Implements)
+TradingBot.Infrastructure        TradingBot.Exchange.Bybit
+ (Persistence & Cross-cutting)    (Exchange REST & WebSocket)
+            ▲                                ▲
+            │                                │
+            +---------------+----------------+
+                            │
+                    TradingBot.Worker (Runtime Host)
 ```
 
 - **Domain** is completely independent.
@@ -35,67 +42,60 @@ TradingBot.Worker (Hosting & Application Entrypoint)
 - **Role**: Contains enterprise entities, value objects, domain enums, domain exceptions, and business rules.
 - **Components**:
   - `Signal`: Validates incoming trading signals (symbol, action type, price, quantity).
-  - `Order`: Enforces trade state transitions (e.g., preventing state changes on closed or cancelled orders).
+  - `Order`: Enforces trade state transitions (e.g., preventing state changes on closed or cancelled orders) using an internal state machine.
   - `Trade`: Represents a filled transaction.
-  - `DomainException`: Central exception model for domain-specific errors.
-- **Restrictions**: Zero external dependencies, no database references, no API or serialization references.
+  - `Value Objects`: `Symbol`, `Quantity`, and `Money` enforce mathematical constraints (e.g. strict positive sizes, non-negative amounts) on creation.
+  - `DomainException`: Central exception model for domain-specific business rule violations.
 
 ### 2.2 TradingBot.Application
 - **Role**: Coordinates business workflows, defines contracts (interfaces) for external providers, and manages application use cases.
 - **Components**:
-  - `ISignalProcessor` / `SignalProcessor`: Coordinates the pipeline of receiving a signal, creating/saving an order, dispatching to exchange, and updating order status.
-  - `IExchangeClient`: Abstract contract for exchange operations (e.g., place order, get status, ping).
+  - `ISignalProcessor` / `SignalProcessor`: Coordinates receiving a signal, saving it, placing a corresponding order, and dispatching to exchange.
+  - `IOrderService` / `OrderService`: Manages order creation workflows transactionalized with the exchange using a Unit of Work.
+  - `IExchangeClient`: Abstract contract for exchange REST operations (e.g., place order, get status, ping).
+  - `IExchangeStreamClient`: Abstraction for starting/stopping the private and public live stream connections.
+  - `IMarketStream`, `IOrderStream`, `IPositionStream`: Stream channel buffers utilized to consume event feeds asynchronously via `IAsyncEnumerable`.
   - `ISignalRepository`, `IOrderRepository`, `ITradeRepository`: Abstractions for persistence.
-  - `DependencyInjection.cs` (`AddApplication`): Registers application services.
-- **Restrictions**: No references to Bybit, databases, or infrastructure implementations.
+  - `IUnitOfWork`: Abstraction for coordinating database transaction boundaries.
 
 ### 2.3 TradingBot.Infrastructure
-- **Role**: Provides implementations for application contracts, persistence foundations, logging setups, security utilities, and health checks.
+- **Role**: Provides implementations for database context, persistence foundations, Polly resilience strategies, security utilities, and logging configurations.
 - **Components**:
-  - `InMemorySignalRepository`, `InMemoryOrderRepository`, `InMemoryTradeRepository`: Thread-safe, in-memory repository implementations for Stage 01.
-  - `DatabaseHealthCheck`, `ExchangeHealthCheck`: Placeholder health check implementations.
-  - `TradingBotSettings`: Binds configurations for Application, Database, Exchange, Logging, and Security sections.
-  - `SerilogConfiguration`: Sets up structured logging with environment-specific levels and formats.
-  - `DependencyInjection.cs` (`AddInfrastructure`): Registers settings, repos, and health checks.
+  - `TradingBotDbContext`: PostgreSQL EF Core context mapping domains to physical schemas.
+  - `UnitOfWork` / `OrderRepository` / `TradeRepository` / `SignalRepository`: Production implementation of database access using Postgres.
+  - `InMemoryRepositories`: In-memory thread-safe fallbacks for mock profiles.
+  - `ResilienceService`: Holds Polly resilience pipelines for both REST (Timeout -> Retry with backoff/jitter on HTTP 429/Transient -> Circuit Breaker) and WebSockets.
+  - `DatabaseHealthCheck`, `ExchangeHealthCheck`, `WebSocketHealthCheck`: Implements ASP.NET Core Health Checks.
 
 ### 2.4 TradingBot.Exchange.Bybit
-- **Role**: Isolated exchange provider module. At Stage 01, it defines the boundaries and mock client responses for exchange operations.
+- **Role**: Isolated exchange provider module implementing Bybit V5 endpoints.
 - **Components**:
-  - `BybitExchangeClient`: Simulates order placement and status updates without making real network calls.
-  - `ExchangeException`: Custom exception model for Bybit-specific errors.
-  - `DependencyInjection.cs` (`AddBybitExchange`): Registers the client implementation.
+  - `BybitExchangeClient`: Communicates with Bybit V5 REST endpoints, signing queries using HMAC SHA-256 signatures passed through `X-BAPI` headers.
+  - `BybitWebSocketClient`: Manages concurrent public and private `ClientWebSocket` handshakes.
+  - `SubscriptionManager`: Thread-safe collection tracking active subscriptions to restore on reconnects.
+  - `MessageHandler`: Decodes incoming JSON frames, filters heartbeats, and pushes updates to active streams.
 
 ### 2.5 TradingBot.Worker
-- **Role**: Serves as the Application Entrypoint (Composition Root), hosting environment, background execution lifecycle manager, and web server for health endpoints.
+- **Role**: Serves as the Application Entrypoint (Composition Root), background execution lifecycle manager, and web host.
 - **Components**:
-  - `Program.cs`: Sets up WebApplication builder, binds configurations, wires up Serilog, and exposes the `/health` checks.
-  - `TradingBotWorkerService`: Hosted background service running the trading bot polling/message loops.
-  - `appsettings.json` / `appsettings.Development.json`: External configurations with placeholders.
+  - `Program.cs`: Bootstraps configurations, configures Serilog, and exposes the `/health` endpoint.
+  - `ConnectionMonitorService`: Manages WebSocket client lifecycle, establishing connection on startup and disconnecting on shutdown.
+  - `MarketDataBackgroundService`: Non-blocking worker consuming and logging public ticker updates.
+  - `OrderSyncBackgroundService`: Non-blocking worker consuming private order execution reports and updating relational DB transactions.
 
 ---
 
-## 3. Configuration Security
+## 3. Database Persistence Schema
 
-To prevent security breaches:
-- No real credentials, API keys, or database passwords exist in source files or `appsettings` files.
-- Configuration parameters (like API keys, Secrets, and Connection Strings) are injected at runtime using environment variables.
-- A template `.env.example` is provided to demonstrate required environment variables without committing actual secrets.
-
----
-
-## 4. Current Stage Limitations
-
-During Stage 01, the system is designed to establish the core architectural boundary. The following limitations are expected:
-1. **Mock Exchange Behavior**: `BybitExchangeClient` simulates successful order fills and does not communicate with the Bybit API.
-2. **InMemory Persistence**: Repositories persist data in thread-safe dictionaries. Data will not persist across application restarts.
-3. **Placeholder Health Checks**: DB and Exchange health checks return healthy mock states.
-4. **Nested Docker Build Restrictions**: Due to standard nesting of Docker daemons inside some sandbox container overlayfs structures, nesting of overlay filesystem layers may result in permission/mount errors during local image compilation. However, the Docker configuration files are syntactically and architecturally complete and correct for normal production environments.
+The PostgreSQL schema is structured precisely around domain invariants:
+- **Value Objects Mapping**: Value objects (`Symbol`, `Quantity`, `Money`) are mapped directly to table columns (e.g. `PriceAmount`, `PriceCurrency`) using EF Core owned entity configurations.
+- **Indexes**: Indexed columns (`ClientOrderId`, `Symbol`, `Status`) guarantee high-efficiency operations during real-time order lookups.
+- **Migrations**: EF Core Migrations are fully automated, ensuring schemas are synchronized with domain changes smoothly.
 
 ---
 
-## 5. Future Extension Points (Stage 02+)
+## 4. Resilience Strategy (Polly)
 
-- **Entity Framework Core & PostgreSQL**: Introduce real database context in `TradingBot.Infrastructure` implementing the repository contracts.
-- **Real Bybit API**: Implement Bybit REST & WebSocket clients utilizing `HttpClient` and signature-based authentication in `TradingBot.Exchange.Bybit`.
-- **Telegram Signal Parsing**: Set up Telegram client or webhook to parse messages and construct `Signal` domain entities.
-- **Health Checks**: Update `DatabaseHealthCheck` and `ExchangeHealthCheck` to query real PostgreSQL connections and Bybit ping endpoints.
+Resilience pipelines protect the bot against external networking failures:
+- **REST requests**: Timeout (10 seconds) -> Exponential Backoff Jitter Retry (3 attempts on transient/429 limits) -> Circuit Breaker (opens if 50% fail within 10s window).
+- **WebSockets**: Handshake timeout (15s) and automatic exponential reconnection with backoff if a socket drop is detected.
