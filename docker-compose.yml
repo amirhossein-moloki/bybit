@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  tradingbot-worker:
+    image: tradingbot-worker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tradingbot-worker
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Database__ConnectionString=Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}
+      - Exchange__ApiKey=${BYBIT_API_KEY}
+      - Exchange__ApiSecret=${BYBIT_API_SECRET}
+      - Security__EncryptionKey=${ENCRYPTION_KEY}
+    ports:
+      - "5000:80"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - tradingbot-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradingbot-postgres
+    environment:
+      POSTGRES_DB: tradingbot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - tradingbot-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradingbot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - tradingbot-network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  tradingbot-network:
+    driver: bridge
