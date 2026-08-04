@@ -1,0 +1,30 @@
+# .gitignore
+[Bb]in/
+[Oo]bj/
+**/bin/
+**/obj/
+src/**/bin/
+src/**/obj/
+tests/**/bin/
+tests/**/obj/
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.assets.json
+*.nuget.cache
+
+# VS
+.vs/
+.vscode/
+.idea/
+*.user
+*.userprefs
+*.suo
+
+# Build artifacts
+Debug/
+Release/
+**/Debug/
+**/Release/
