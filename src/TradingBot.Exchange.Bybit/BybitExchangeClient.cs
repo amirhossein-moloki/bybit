@@ -22,6 +22,7 @@ public class BybitExchangeClient : IExchangeClient
 {
     private readonly HttpClient _httpClient;
     private readonly BybitSettings _settings;
+    private readonly IResilienceService _resilienceService;
     private readonly ILogger<BybitExchangeClient> _logger;
 
     public string ExchangeName => "Bybit";
@@ -29,10 +30,12 @@ public class BybitExchangeClient : IExchangeClient
     public BybitExchangeClient(
         HttpClient httpClient,
         BybitSettings settings,
+        IResilienceService resilienceService,
         ILogger<BybitExchangeClient> logger)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Configure Base Address if not configured externally
@@ -53,8 +56,9 @@ public class BybitExchangeClient : IExchangeClient
         _logger.LogInformation("PingAsync: Checking connectivity to Bybit...");
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(
-                "/v5/market/time", cancellationToken);
+            var response = await _resilienceService.ExecuteHttpAsync(async ct =>
+                await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(
+                    "/v5/market/time", ct), cancellationToken);
 
             if (response == null || response.RetCode != 0)
             {
@@ -226,8 +230,9 @@ public class BybitExchangeClient : IExchangeClient
         var symbolUpper = symbol.ToUpperInvariant();
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(
-                $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}", cancellationToken);
+            var response = await _resilienceService.ExecuteHttpAsync(async ct =>
+                await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(
+                    $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}", ct), cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null)
             {
@@ -255,8 +260,9 @@ public class BybitExchangeClient : IExchangeClient
         var symbolUpper = symbol.ToUpperInvariant();
         try
         {
-            var response = await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(
-                $"/v5/market/tickers?category=spot&symbol={symbolUpper}", cancellationToken);
+            var response = await _resilienceService.ExecuteHttpAsync(async ct =>
+                await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(
+                    $"/v5/market/tickers?category=spot&symbol={symbolUpper}", ct), cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null || !response.Result.List.Any())
             {
@@ -289,63 +295,66 @@ public class BybitExchangeClient : IExchangeClient
         object? payloadOrParams,
         CancellationToken cancellationToken)
     {
-        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-        var recvWindow = "5000";
-        var apiKey = GetApiKey();
-        var apiSecret = GetApiSecret();
-
-        string requestPayload = string.Empty;
-        string requestPathAndQuery = path;
-
-        if (method == HttpMethod.Get && payloadOrParams is IDictionary<string, string> queryParams)
+        return await _resilienceService.ExecuteHttpAsync(async ct =>
         {
-            var queryString = string.Join("&", queryParams.Select(p => $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value)}"));
-            requestPayload = queryString;
-            requestPathAndQuery = $"{path}?{queryString}";
-        }
-        else if (method == HttpMethod.Post && payloadOrParams is string jsonBody)
-        {
-            requestPayload = jsonBody;
-        }
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var recvWindow = "5000";
+            var apiKey = GetApiKey();
+            var apiSecret = GetApiSecret();
 
-        var signature = BybitSignatureGenerator.GenerateSignature(apiSecret, apiKey, timestamp, recvWindow, requestPayload);
+            string requestPayload = string.Empty;
+            string requestPathAndQuery = path;
 
-        var request = new HttpRequestMessage(method, requestPathAndQuery);
-        request.Headers.Add("X-BAPI-API-KEY", apiKey);
-        request.Headers.Add("X-BAPI-SIGN", signature);
-        request.Headers.Add("X-BAPI-SIGN-TYPE", "2");
-        request.Headers.Add("X-BAPI-TIMESTAMP", timestamp);
-        request.Headers.Add("X-BAPI-RECV-WINDOW", recvWindow);
+            if (method == HttpMethod.Get && payloadOrParams is IDictionary<string, string> queryParams)
+            {
+                var queryString = string.Join("&", queryParams.Select(p => $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value)}"));
+                requestPayload = queryString;
+                requestPathAndQuery = $"{path}?{queryString}";
+            }
+            else if (method == HttpMethod.Post && payloadOrParams is string jsonBody)
+            {
+                requestPayload = jsonBody;
+            }
 
-        if (method == HttpMethod.Post && !string.IsNullOrEmpty(requestPayload))
-        {
-            request.Content = new StringContent(requestPayload, Encoding.UTF8, "application/json");
-        }
+            var signature = BybitSignatureGenerator.GenerateSignature(apiSecret, apiKey, timestamp, recvWindow, requestPayload);
 
-        var responseMessage = await _httpClient.SendAsync(request, cancellationToken);
-        var responseContent = await responseMessage.Content.ReadAsStringAsync(cancellationToken);
+            var request = new HttpRequestMessage(method, requestPathAndQuery);
+            request.Headers.Add("X-BAPI-API-KEY", apiKey);
+            request.Headers.Add("X-BAPI-SIGN", signature);
+            request.Headers.Add("X-BAPI-SIGN-TYPE", "2");
+            request.Headers.Add("X-BAPI-TIMESTAMP", timestamp);
+            request.Headers.Add("X-BAPI-RECV-WINDOW", recvWindow);
 
-        if (!responseMessage.IsSuccessStatusCode)
-        {
-            _logger.LogError("Bybit Private Request returned error status code {StatusCode}. Content: {Content}",
-                responseMessage.StatusCode, responseContent);
-            throw new ExchangeException($"Bybit Private Request failed with status {responseMessage.StatusCode}. Response: {responseContent}");
-        }
+            if (method == HttpMethod.Post && !string.IsNullOrEmpty(requestPayload))
+            {
+                request.Content = new StringContent(requestPayload, Encoding.UTF8, "application/json");
+            }
 
-        var response = JsonSerializer.Deserialize<BybitResponse<T>>(responseContent);
-        if (response == null)
-        {
-            throw new ExchangeException("Bybit Private Request returned null or invalid JSON.");
-        }
+            var responseMessage = await _httpClient.SendAsync(request, ct);
+            var responseContent = await responseMessage.Content.ReadAsStringAsync(ct);
 
-        if (response.RetCode != 0)
-        {
-            _logger.LogWarning("Bybit Private Request returned non-zero code. Path={Path}, RetCode={RetCode}, Msg={Msg}",
-                path, response.RetCode, response.RetMsg);
-            throw new ExchangeException($"Bybit API Error (RetCode={response.RetCode}): {response.RetMsg}");
-        }
+            if (!responseMessage.IsSuccessStatusCode)
+            {
+                _logger.LogError("Bybit Private Request returned error status code {StatusCode}. Content: {Content}",
+                    responseMessage.StatusCode, responseContent);
+                throw new ExchangeException($"Bybit Private Request failed with status {responseMessage.StatusCode}. Response: {responseContent}");
+            }
 
-        return response;
+            var response = JsonSerializer.Deserialize<BybitResponse<T>>(responseContent);
+            if (response == null)
+            {
+                throw new ExchangeException("Bybit Private Request returned null or invalid JSON.");
+            }
+
+            if (response.RetCode != 0)
+            {
+                _logger.LogWarning("Bybit Private Request returned non-zero code. Path={Path}, RetCode={RetCode}, Msg={Msg}",
+                    path, response.RetCode, response.RetMsg);
+                throw new ExchangeException($"Bybit API Error (RetCode={response.RetCode}): {response.RetMsg}");
+            }
+
+            return response;
+        }, cancellationToken);
     }
 
     private OrderStatus MapStatus(string bybitStatus)

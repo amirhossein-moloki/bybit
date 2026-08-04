@@ -17,7 +17,7 @@ try
 
     // 2. Logging Infrastructure (Serilog)
     Log.Logger = SerilogConfiguration.CreateLoggerConfiguration(settings)
-        .CreateBootstrapLogger();
+        .CreateLogger();
 
     builder.Host.UseSerilog((context, services, configuration) =>
     {
@@ -36,8 +36,10 @@ try
         options.UseSandbox = settings.Exchange.UseSandbox;
     });
 
-    // 4. Background Hosted Service
-    builder.Services.AddHostedService<TradingBotWorkerService>();
+    // 4. Background Hosted Services
+    builder.Services.AddHostedService<ConnectionMonitorService>();
+    builder.Services.AddHostedService<MarketDataBackgroundService>();
+    builder.Services.AddHostedService<OrderSyncBackgroundService>();
 
     var app = builder.Build();
 

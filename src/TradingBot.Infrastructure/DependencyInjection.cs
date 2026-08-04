@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Infrastructure.Configuration;
 using TradingBot.Infrastructure.Health;
 using TradingBot.Infrastructure.Persistence;
+using TradingBot.Infrastructure.Resilience;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -30,6 +32,9 @@ public static class DependencyInjection
             options.UseNpgsql(settings.Database.ConnectionString);
         });
 
+        // Register Resilience Service
+        services.AddSingleton<IResilienceService, ResilienceService>();
+
         // Register Repositories and Unit Of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<ISignalRepository, SignalRepository>();
@@ -39,7 +44,10 @@ public static class DependencyInjection
         // Register Health Checks
         services.AddHealthChecks()
             .AddCheck<DatabaseHealthCheck>("Database")
-            .AddCheck<ExchangeHealthCheck>("Exchange");
+            .AddCheck<ExchangeHealthCheck>("Exchange")
+            .AddCheck<ExchangeConnectionHealthCheck>("ExchangeConnection")
+            .AddCheck<WebSocketHealthCheck>("WebSocket")
+            .AddCheck<TradingEngineHealthCheck>("TradingEngine");
 
         return services;
     }
