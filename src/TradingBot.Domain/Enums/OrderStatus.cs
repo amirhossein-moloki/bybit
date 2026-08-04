@@ -2,7 +2,9 @@ namespace TradingBot.Domain.Enums;
 
 public enum OrderStatus
 {
-    New,
+    Created,
+    Submitted,
+    Accepted,
     PartiallyFilled,
     Filled,
     Cancelled,

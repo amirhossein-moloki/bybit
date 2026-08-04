@@ -12,6 +12,7 @@ using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Application.Services;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
+using TradingBot.Domain.ValueObjects;
 using TradingBot.Infrastructure.Configuration;
 using Xunit;
 
@@ -35,8 +36,10 @@ public class WorkflowAndDITests
             .Setup(x => x.PlaceOrderAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Order o, CancellationToken ct) =>
             {
-                var placed = new Order(o.ClientOrderId, o.Symbol, o.Type, o.Side, o.Price, o.Quantity);
-                placed.UpdateStatus(OrderStatus.Filled);
+                var placed = new Order(o.ClientOrderId, o.Symbol, o.Side, o.Type, o.Quantity, o.Price);
+                placed.Submit();
+                placed.Accept("EXCHANGE-ORDER-ID");
+                placed.MarkFilled();
                 return placed;
             });
 
@@ -54,7 +57,8 @@ public class WorkflowAndDITests
 
         // Assert
         mockSignalRepo.Verify(x => x.SaveAsync(signal, It.IsAny<CancellationToken>()), Times.Once);
-        mockOrderRepo.Verify(x => x.SaveAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        mockOrderRepo.Verify(x => x.AddAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Once);
+        mockOrderRepo.Verify(x => x.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Once);
         mockExchangeClient.Verify(x => x.PlaceOrderAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -110,5 +114,77 @@ public class WorkflowAndDITests
         settings!.Application.BotName.Should().Be("TestBot");
         settings.Database.ConnectionString.Should().Be("Host=localhost;Database=testdb");
         settings.Exchange.ApiKey.Should().Be("test-key");
+    }
+
+    [Fact]
+    public async Task OrderService_ShouldAtomicallyCreateOrderAndSaveOnExchange()
+    {
+        // Arrange
+        var mockOrderRepo = new Mock<IOrderRepository>();
+        var mockExchangeClient = new Mock<IExchangeClient>();
+        var mockUnitOfWork = new Mock<IUnitOfWork>();
+        var mockLogger = new Mock<ILogger<OrderService>>();
+
+        mockExchangeClient.Setup(x => x.ExchangeName).Returns("Bybit");
+        mockExchangeClient
+            .Setup(x => x.PlaceOrderAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Order o, CancellationToken ct) =>
+            {
+                var placed = new Order(o.ClientOrderId, o.Symbol, o.Side, o.Type, o.Quantity, o.Price);
+                placed.Submit();
+                placed.Accept("EXCHANGE-111");
+                return placed;
+            });
+
+        var orderService = new OrderService(
+            mockOrderRepo.Object,
+            mockExchangeClient.Object,
+            mockUnitOfWork.Object,
+            mockLogger.Object
+        );
+
+        // Act
+        var order = await orderService.CreateOrderAsync("BTCUSDT", OrderSide.Buy, OrderType.Limit, 0.05m, 42000m);
+
+        // Assert
+        order.Should().NotBeNull();
+        order.Symbol.Value.Should().Be("BTCUSDT");
+        order.Status.Should().Be(OrderStatus.Accepted);
+        order.ExchangeOrderId.Should().Be("EXCHANGE-111");
+
+        mockUnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        mockUnitOfWork.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        mockOrderRepo.Verify(r => r.AddAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.Once);
+        mockOrderRepo.Verify(r => r.UpdateAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()), Times.AtLeast(2));
+    }
+
+    [Fact]
+    public async Task OrderService_ShouldRollbackAndReject_WhenExchangeFails()
+    {
+        // Arrange
+        var mockOrderRepo = new Mock<IOrderRepository>();
+        var mockExchangeClient = new Mock<IExchangeClient>();
+        var mockUnitOfWork = new Mock<IUnitOfWork>();
+        var mockLogger = new Mock<ILogger<OrderService>>();
+
+        mockExchangeClient.Setup(x => x.ExchangeName).Returns("Bybit");
+        mockExchangeClient
+            .Setup(x => x.PlaceOrderAsync(It.IsAny<Order>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("Exchange down"));
+
+        var orderService = new OrderService(
+            mockOrderRepo.Object,
+            mockExchangeClient.Object,
+            mockUnitOfWork.Object,
+            mockLogger.Object
+        );
+
+        // Act & Assert
+        Func<Task> act = async () => await orderService.CreateOrderAsync("BTCUSDT", OrderSide.Buy, OrderType.Limit, 0.05m, 42000m);
+        await act.Should().ThrowAsync<Exception>().WithMessage("Exchange down");
+
+        mockUnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        mockUnitOfWork.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        mockUnitOfWork.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }
