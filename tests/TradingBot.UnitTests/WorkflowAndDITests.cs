@@ -87,7 +87,12 @@ public class WorkflowAndDITests
         // Act
         services.AddApplication();
         services.AddInfrastructure(configuration);
-        services.AddBybitExchange();
+        services.AddBybitExchange(options =>
+        {
+            options.ApiKey = "test-key";
+            options.ApiSecret = "test-secret";
+            options.UseSandbox = true;
+        });
 
         var provider = services.BuildServiceProvider();
 

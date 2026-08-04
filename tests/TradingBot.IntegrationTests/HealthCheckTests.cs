@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Moq;
+using TradingBot.Application.Interfaces;
 using TradingBot.Worker;
 using Xunit;
 
@@ -21,7 +26,18 @@ public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task HealthEndpoint_ShouldReturnHealthyAndStatus200_WhenAppIsRunning()
     {
         // Arrange
-        var client = _factory.CreateClient();
+        var client = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                var mockExchangeClient = new Mock<IExchangeClient>();
+                mockExchangeClient.Setup(x => x.ExchangeName).Returns("Bybit");
+                mockExchangeClient.Setup(x => x.PingAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+                // Register mock to override the real ExchangeClient in testing
+                services.AddSingleton(mockExchangeClient.Object);
+            });
+        }).CreateClient();
 
         // Act
         var response = await client.GetAsync("/health");
