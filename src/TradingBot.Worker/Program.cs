@@ -29,7 +29,12 @@ try
     // 3. Service Registrations
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
-    builder.Services.AddBybitExchange();
+    builder.Services.AddBybitExchange(options =>
+    {
+        options.ApiKey = settings.Exchange.ApiKey;
+        options.ApiSecret = settings.Exchange.ApiSecret;
+        options.UseSandbox = settings.Exchange.UseSandbox;
+    });
 
     // 4. Background Hosted Service
     builder.Services.AddHostedService<TradingBotWorkerService>();
