@@ -10,6 +10,7 @@ using Moq;
 using Moq.Protected;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
+using TradingBot.Domain.ValueObjects;
 using TradingBot.Exchange.Bybit;
 using TradingBot.Exchange.Bybit.Dtos;
 using TradingBot.Exchange.Bybit.Exceptions;
@@ -207,7 +208,7 @@ public class BybitClientTests
         SetupMockResponse(HttpStatusCode.OK, JsonSerializer.Serialize(mockResponse));
 
         var client = CreateClient();
-        var order = new Order("test-link-id", "BTCUSDT", OrderType.Limit, SignalType.Buy, 28000m, 0.01m);
+        var order = new Order("test-link-id", new Symbol("BTCUSDT"), OrderSide.Buy, OrderType.Limit, new Quantity(0.01m), new Money(28000m));
 
         // Act
         Func<Task> act = async () => await client.PlaceOrderAsync(order, CancellationToken.None);
@@ -234,7 +235,7 @@ public class BybitClientTests
         SetupMockResponse(HttpStatusCode.OK, JsonSerializer.Serialize(mockResponse));
 
         var client = CreateClient();
-        var order = new Order("test-link-id", "BTCUSDT", OrderType.Limit, SignalType.Buy, 28000m, 0.01m);
+        var order = new Order("test-link-id", new Symbol("BTCUSDT"), OrderSide.Buy, OrderType.Limit, new Quantity(0.01m), new Money(28000m));
 
         // Act
         var result = await client.PlaceOrderAsync(order, CancellationToken.None);
@@ -242,6 +243,7 @@ public class BybitClientTests
         // Assert
         result.Should().NotBeNull();
         result.ClientOrderId.Should().Be("test-link-id");
-        result.Status.Should().Be(OrderStatus.New);
+        result.Status.Should().Be(OrderStatus.Accepted);
+        result.ExchangeOrderId.Should().Be("1321003749386327552");
     }
 }

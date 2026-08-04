@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -5,9 +6,12 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using TradingBot.Application.Interfaces;
+using TradingBot.Infrastructure.Persistence;
 using TradingBot.Worker;
 using Xunit;
 
@@ -26,7 +30,10 @@ public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task HealthEndpoint_ShouldReturnHealthyAndStatus200_WhenAppIsRunning()
     {
         // Arrange
-        var client = _factory.WithWebHostBuilder(builder =>
+        var sqliteConnection = new SqliteConnection("DataSource=:memory:");
+        await sqliteConnection.OpenAsync();
+
+        var factoryWithSqlite = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
             {
@@ -36,8 +43,29 @@ public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
 
                 // Register mock to override the real ExchangeClient in testing
                 services.AddSingleton(mockExchangeClient.Object);
+
+                // Override DbContext to use SQLite In-Memory for testing
+                var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingBotDbContext>));
+                if (descriptor != null)
+                {
+                    services.Remove(descriptor);
+                }
+
+                services.AddDbContext<TradingBotDbContext>(options =>
+                {
+                    options.UseSqlite(sqliteConnection);
+                });
             });
-        }).CreateClient();
+        });
+
+        // Initialize schema using the host's actual service provider
+        using (var scope = factoryWithSqlite.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<TradingBotDbContext>();
+            dbContext.Database.EnsureCreated();
+        }
+
+        var client = factoryWithSqlite.CreateClient();
 
         // Act
         var response = await client.GetAsync("/health");

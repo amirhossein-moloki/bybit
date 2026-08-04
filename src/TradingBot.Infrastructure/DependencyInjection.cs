@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces.Persistence;
@@ -23,10 +24,17 @@ public static class DependencyInjection
         services.Configure<LoggingSettings>(configuration.GetSection("Logging"));
         services.Configure<SecuritySettings>(configuration.GetSection("Security"));
 
-        // Register Repositories
-        services.AddScoped<ISignalRepository, InMemorySignalRepository>();
-        services.AddScoped<IOrderRepository, InMemoryOrderRepository>();
-        services.AddScoped<ITradeRepository, InMemoryTradeRepository>();
+        // Register DbContext
+        services.AddDbContext<TradingBotDbContext>(options =>
+        {
+            options.UseNpgsql(settings.Database.ConnectionString);
+        });
+
+        // Register Repositories and Unit Of Work
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<ISignalRepository, SignalRepository>();
+        services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<ITradeRepository, TradeRepository>();
 
         // Register Health Checks
         services.AddHealthChecks()

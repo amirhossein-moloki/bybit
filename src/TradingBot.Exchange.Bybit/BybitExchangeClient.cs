@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using TradingBot.Application.Interfaces;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
+using TradingBot.Domain.ValueObjects;
 using TradingBot.Exchange.Bybit.Dtos;
 using TradingBot.Exchange.Bybit.Exceptions;
 using TradingBot.Exchange.Bybit.Services;
@@ -75,26 +76,26 @@ public class BybitExchangeClient : IExchangeClient
     public async Task<Order> PlaceOrderAsync(Order order, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("PlaceOrderAsync: Placing order {ClientOrderId} for symbol {Symbol}...",
-            order.ClientOrderId, order.Symbol);
+            order.ClientOrderId, order.Symbol.Value);
 
         // Map domain side to Bybit side
-        var sideStr = order.Side == SignalType.Buy ? "Buy" : "Sell";
+        var sideStr = order.Side == OrderSide.Buy ? "Buy" : "Sell";
         // Map domain order type to Bybit order type
         var orderTypeStr = order.Type == OrderType.Limit ? "Limit" : "Market";
 
         var payload = new Dictionary<string, object>
         {
             { "category", "spot" },
-            { "symbol", order.Symbol },
+            { "symbol", order.Symbol.Value },
             { "side", sideStr },
             { "orderType", orderTypeStr },
-            { "qty", order.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+            { "qty", order.Quantity.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) },
             { "orderLinkId", order.ClientOrderId }
         };
 
         if (order.Type == OrderType.Limit)
         {
-            payload.Add("price", order.Price.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            payload.Add("price", order.Price.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         var jsonPayload = JsonSerializer.Serialize(payload);
@@ -112,14 +113,15 @@ public class BybitExchangeClient : IExchangeClient
         var updatedOrder = new Order(
             order.ClientOrderId,
             order.Symbol,
-            order.Type,
             order.Side,
-            order.Price,
-            order.Quantity
+            order.Type,
+            order.Quantity,
+            order.Price
         );
 
-        // Mark as New or fetch latest status from Exchange
-        updatedOrder.UpdateStatus(OrderStatus.New);
+        // Mark as Submitted then Accept using the exchange order id
+        updatedOrder.Submit();
+        updatedOrder.Accept(response.Result.OrderId ?? "BYBIT_PLACEHOLDER_ID");
         return updatedOrder;
     }
 
@@ -148,23 +150,33 @@ public class BybitExchangeClient : IExchangeClient
             bybitOrder.OrderStatus, bybitOrder.Qty, bybitOrder.CumExecQty);
 
         var orderType = Enum.TryParse<OrderType>(bybitOrder.OrderStatus, true, out var ot) ? ot : OrderType.Limit;
-        var side = string.Equals(bybitOrder.Side, "Buy", StringComparison.OrdinalIgnoreCase) ? SignalType.Buy : SignalType.Sell;
+        var side = string.Equals(bybitOrder.Side, "Buy", StringComparison.OrdinalIgnoreCase) ? OrderSide.Buy : OrderSide.Sell;
 
         decimal.TryParse(bybitOrder.Price, System.Globalization.CultureInfo.InvariantCulture, out var price);
         decimal.TryParse(bybitOrder.Qty, System.Globalization.CultureInfo.InvariantCulture, out var quantity);
 
         var order = new Order(
             bybitOrder.OrderLinkId,
-            bybitOrder.Symbol,
-            orderType,
+            new Symbol(bybitOrder.Symbol),
             side,
-            price,
-            quantity
+            orderType,
+            new Quantity(quantity),
+            new Money(price)
         );
 
         // Map Bybit OrderStatus to Domain OrderStatus
         var status = MapStatus(bybitOrder.OrderStatus);
-        order.UpdateStatus(status);
+        if (status == OrderStatus.Accepted)
+        {
+            order.Submit();
+            order.Accept(bybitOrder.OrderId);
+        }
+        else
+        {
+            order.Submit();
+            order.Accept(bybitOrder.OrderId);
+            order.UpdateStatus(status);
+        }
 
         return order;
     }
@@ -340,12 +352,12 @@ public class BybitExchangeClient : IExchangeClient
     {
         return bybitStatus.ToUpperInvariant() switch
         {
-            "NEW" => OrderStatus.New,
+            "NEW" => OrderStatus.Accepted,
             "PARTIALLYFILLED" => OrderStatus.PartiallyFilled,
             "FILLED" => OrderStatus.Filled,
             "CANCELLED" => OrderStatus.Cancelled,
             "REJECTED" => OrderStatus.Rejected,
-            _ => OrderStatus.New
+            _ => OrderStatus.Created
         };
     }
 

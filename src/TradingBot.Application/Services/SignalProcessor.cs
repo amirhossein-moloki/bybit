@@ -6,6 +6,7 @@ using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
+using TradingBot.Domain.ValueObjects;
 using AppExcept = TradingBot.Application.Exceptions.ApplicationException;
 
 namespace TradingBot.Application.Services;
@@ -41,16 +42,17 @@ public class SignalProcessor : ISignalProcessor
 
             // 2. Create Order
             var clientOrderId = $"BOT-{Guid.NewGuid():N}";
+            var orderSide = signal.Type == SignalType.Buy ? OrderSide.Buy : OrderSide.Sell;
             var order = new Order(
                 clientOrderId,
-                signal.Symbol,
+                new Symbol(signal.Symbol),
+                orderSide,
                 OrderType.Limit,
-                signal.Type,
-                signal.Price,
-                signal.Quantity
+                new Quantity(signal.Quantity),
+                new Money(signal.Price)
             );
 
-            await _orderRepository.SaveAsync(order, cancellationToken);
+            await _orderRepository.AddAsync(order, cancellationToken);
 
             // 3. Dispatch to Exchange
             _logger.LogInformation("Placing order on exchange {ExchangeName} for client order id {ClientOrderId}",
@@ -60,7 +62,7 @@ public class SignalProcessor : ISignalProcessor
 
             // 4. Update status and save
             order.UpdateStatus(placedOrder.Status);
-            await _orderRepository.SaveAsync(order, cancellationToken);
+            await _orderRepository.UpdateAsync(order, cancellationToken);
 
             _logger.LogInformation("Successfully processed signal, order status is now {Status}", order.Status);
         }
