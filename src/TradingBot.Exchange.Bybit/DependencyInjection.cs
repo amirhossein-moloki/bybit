@@ -1,7 +1,10 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces;
+using TradingBot.Application.Interfaces.Streams;
 using TradingBot.Exchange.Bybit;
+using TradingBot.Exchange.Bybit.Streams;
+using TradingBot.Exchange.Bybit.WebSocket;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +22,16 @@ public static class DependencyInjection
         services.AddSingleton(settings);
 
         services.AddHttpClient<IExchangeClient, BybitExchangeClient>();
+
+        // Register WebSockets and Stream Clients
+        services.AddSingleton<SubscriptionManager>();
+        services.AddSingleton<MessageHandler>();
+
+        services.AddSingleton<IMarketStream, BybitMarketStream>();
+        services.AddSingleton<IOrderStream, BybitOrderStream>();
+        services.AddSingleton<IPositionStream, BybitPositionStream>();
+
+        services.AddSingleton<IExchangeStreamClient, BybitWebSocketClient>();
 
         return services;
     }

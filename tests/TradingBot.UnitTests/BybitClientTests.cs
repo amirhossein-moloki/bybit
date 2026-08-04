@@ -11,6 +11,7 @@ using Moq.Protected;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
+using TradingBot.Application.Interfaces;
 using TradingBot.Exchange.Bybit;
 using TradingBot.Exchange.Bybit.Dtos;
 using TradingBot.Exchange.Bybit.Exceptions;
@@ -19,11 +20,25 @@ using Xunit;
 
 namespace TradingBot.UnitTests;
 
+public class FakeResilienceService : IResilienceService
+{
+    public Task<T> ExecuteHttpAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
+    {
+        return action(cancellationToken);
+    }
+
+    public Task ExecuteWebSocketAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
+    {
+        return action(cancellationToken);
+    }
+}
+
 public class BybitClientTests
 {
     private readonly Mock<HttpMessageHandler> _httpMessageHandlerMock;
     private readonly HttpClient _httpClient;
     private readonly BybitSettings _settings;
+    private readonly FakeResilienceService _resilienceService;
     private readonly Mock<ILogger<BybitExchangeClient>> _loggerMock;
 
     public BybitClientTests()
@@ -41,12 +56,13 @@ public class BybitClientTests
             UseSandbox = true
         };
 
+        _resilienceService = new FakeResilienceService();
         _loggerMock = new Mock<ILogger<BybitExchangeClient>>();
     }
 
     private BybitExchangeClient CreateClient()
     {
-        return new BybitExchangeClient(_httpClient, _settings, _loggerMock.Object);
+        return new BybitExchangeClient(_httpClient, _settings, _resilienceService, _loggerMock.Object);
     }
 
     private void SetupMockResponse(HttpStatusCode statusCode, string content)
