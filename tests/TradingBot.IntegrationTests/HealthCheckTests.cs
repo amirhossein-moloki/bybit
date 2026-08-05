@@ -2,7 +2,7 @@ using System.Net;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
-using TradingBot.Infrastructure.Persistence;
+using TradingBot.Persistence.Context;
 using Xunit;
 
 namespace TradingBot.IntegrationTests;
@@ -17,7 +17,7 @@ public class HealthCheckTests : IClassFixture<CustomWebApplicationFactory>
 
         using (var scope = _factory.Services.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<TradingBotDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
             dbContext.Database.EnsureCreated();
         }
     }

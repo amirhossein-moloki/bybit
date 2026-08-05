@@ -3,14 +3,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Domain.Entities;
+using TradingBot.Persistence.Context;
 
 namespace TradingBot.Infrastructure.Persistence;
 
 public class SignalRepository : ISignalRepository
 {
-    private readonly TradingBotDbContext _dbContext;
+    private readonly TradingDbContext _dbContext;
 
-    public SignalRepository(TradingBotDbContext dbContext)
+    public SignalRepository(TradingDbContext dbContext)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }

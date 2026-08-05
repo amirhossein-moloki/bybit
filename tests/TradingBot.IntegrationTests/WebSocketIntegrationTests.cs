@@ -15,7 +15,7 @@ using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
 using Symbol = TradingBot.Domain.ValueObjects.Symbol;
-using TradingBot.Infrastructure.Persistence;
+using TradingBot.Persistence.Context;
 using Xunit;
 
 namespace TradingBot.IntegrationTests;
@@ -56,7 +56,7 @@ public class WebSocketIntegrationTests : IClassFixture<CustomWebApplicationFacto
 
         using (var scope = _factory.Services.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<TradingBotDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
             dbContext.Database.EnsureCreated();
 
             // Clear any old record
@@ -104,7 +104,7 @@ public class WebSocketIntegrationTests : IClassFixture<CustomWebApplicationFacto
         // Verify state is successfully transitioned to Filled in DB!
         using (var scope = _factory.Services.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<TradingBotDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
             var retrievedOrder = await dbContext.Orders.FirstOrDefaultAsync(o => o.ClientOrderId == "BOT-SYNC-999");
 
             retrievedOrder.Should().NotBeNull();

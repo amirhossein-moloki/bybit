@@ -7,6 +7,8 @@ using TradingBot.Infrastructure.Configuration;
 using TradingBot.Infrastructure.Health;
 using TradingBot.Infrastructure.Persistence;
 using TradingBot.Infrastructure.Resilience;
+using TradingBot.Persistence;
+using TradingBot.Persistence.Context;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -26,11 +28,8 @@ public static class DependencyInjection
         services.Configure<LoggingSettings>(configuration.GetSection("Logging"));
         services.Configure<SecuritySettings>(configuration.GetSection("Security"));
 
-        // Register DbContext
-        services.AddDbContext<TradingBotDbContext>(options =>
-        {
-            options.UseNpgsql(settings.Database.ConnectionString);
-        });
+        // Register DbContext (delegated to Persistence layer registration)
+        services.AddPersistence(configuration);
 
         // Register Resilience Service
         services.AddSingleton<IResilienceService, ResilienceService>();
