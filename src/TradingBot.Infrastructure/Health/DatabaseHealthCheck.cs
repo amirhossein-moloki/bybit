@@ -2,15 +2,15 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using TradingBot.Infrastructure.Persistence;
+using TradingBot.Persistence.Context;
 
 namespace TradingBot.Infrastructure.Health;
 
 public class DatabaseHealthCheck : IHealthCheck
 {
-    private readonly TradingBotDbContext _dbContext;
+    private readonly TradingDbContext _dbContext;
 
-    public DatabaseHealthCheck(TradingBotDbContext dbContext)
+    public DatabaseHealthCheck(TradingDbContext dbContext)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }

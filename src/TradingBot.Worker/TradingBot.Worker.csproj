@@ -3,9 +3,14 @@
   <ItemGroup>
     <ProjectReference Include="..\TradingBot.Infrastructure\TradingBot.Infrastructure.csproj" />
     <ProjectReference Include="..\TradingBot.Exchange.Bybit\TradingBot.Exchange.Bybit.csproj" />
+    <ProjectReference Include="..\TradingBot.Persistence\TradingBot.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
   </ItemGroup>
 

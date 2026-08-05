@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Streams;
-using TradingBot.Infrastructure.Persistence;
+using TradingBot.Persistence.Context;
 using TradingBot.Worker;
 
 namespace TradingBot.IntegrationTests;
@@ -68,13 +68,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             services.AddSingleton<IExchangeStreamClient, FakeExchangeStreamClient>();
 
-            var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingBotDbContext>));
+            var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));
             if (descriptor != null)
             {
                 services.Remove(descriptor);
             }
 
-            services.AddDbContext<TradingBotDbContext>(options =>
+            services.AddDbContext<TradingDbContext>(options =>
             {
                 options.UseSqlite(SqliteConnection);
             });

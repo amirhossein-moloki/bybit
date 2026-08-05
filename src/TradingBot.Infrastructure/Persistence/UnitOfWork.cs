@@ -3,15 +3,16 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore.Storage;
 using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Persistence.Context;
 
 namespace TradingBot.Infrastructure.Persistence;
 
 public class UnitOfWork : IUnitOfWork
 {
-    private readonly TradingBotDbContext _dbContext;
+    private readonly TradingDbContext _dbContext;
     private IDbContextTransaction? _currentTransaction;
 
-    public UnitOfWork(TradingBotDbContext dbContext)
+    public UnitOfWork(TradingDbContext dbContext)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }

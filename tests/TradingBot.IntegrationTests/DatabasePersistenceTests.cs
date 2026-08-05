@@ -10,6 +10,7 @@ using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
 using Symbol = TradingBot.Domain.ValueObjects.Symbol;
+using TradingBot.Persistence.Context;
 using TradingBot.Infrastructure.Persistence;
 using Xunit;
 
@@ -84,24 +85,24 @@ public class DatabasePersistenceTests : IAsyncLifetime
         }
     }
 
-    private TradingBotDbContext CreateDbContext()
+    private TradingDbContext CreateDbContext()
     {
-        DbContextOptions<TradingBotDbContext> options;
+        DbContextOptions<TradingDbContext> options;
 
         if (_useSqlite)
         {
-            options = new DbContextOptionsBuilder<TradingBotDbContext>()
+            options = new DbContextOptionsBuilder<TradingDbContext>()
                 .UseSqlite(_sqliteConnection!)
                 .Options;
         }
         else
         {
-            options = new DbContextOptionsBuilder<TradingBotDbContext>()
+            options = new DbContextOptionsBuilder<TradingDbContext>()
                 .UseNpgsql(_postgresContainer!.GetConnectionString())
                 .Options;
         }
 
-        var context = new TradingBotDbContext(options);
+        var context = new TradingDbContext(options);
         context.Database.EnsureCreated();
         return context;
     }

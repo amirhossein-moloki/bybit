@@ -5,14 +5,15 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Domain.Entities;
+using TradingBot.Persistence.Context;
 
 namespace TradingBot.Infrastructure.Persistence;
 
 public class OrderRepository : IOrderRepository
 {
-    private readonly TradingBotDbContext _dbContext;
+    private readonly TradingDbContext _dbContext;
 
-    public OrderRepository(TradingBotDbContext dbContext)
+    public OrderRepository(TradingDbContext dbContext)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
     }

@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using System;
 using TradingBot.Infrastructure.Configuration;
 using TradingBot.Infrastructure.Logging;
+using TradingBot.Persistence.Context;
 using TradingBot.Worker;
 
 try
@@ -60,7 +62,37 @@ try
 
     var app = builder.Build();
 
-    // 5. Health Monitoring Foundation
+    // 5. Apply Migrations and Seed Database (Development/Production)
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            var context = services.GetRequiredService<TradingDbContext>();
+            if (context.Database.IsRelational())
+            {
+                Log.Information("Applying pending migrations...");
+                await context.Database.MigrateAsync();
+                Log.Information("Migrations applied successfully.");
+            }
+            else
+            {
+                Log.Information("Database is not relational. Ensuring database created...");
+                await context.Database.EnsureCreatedAsync();
+            }
+
+            Log.Information("Seeding database...");
+            var logger = services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TradingDbContext>>();
+            await DatabaseSeeder.SeedAsync(context, logger);
+            Log.Information("Database seeding completed.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An error occurred while migrating or seeding the database.");
+        }
+    }
+
+    // 6. Health Monitoring Foundation
     app.MapHealthChecks("/health");
 
     // Root status check
