@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\TradingBot.Domain\TradingBot.Domain.csproj" />
+    <ProjectReference Include="..\TradingBot.Application\TradingBot.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
