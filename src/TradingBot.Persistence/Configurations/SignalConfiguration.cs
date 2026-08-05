@@ -9,7 +9,12 @@ public class SignalConfiguration : IEntityTypeConfiguration<Signal>
 {
     public void Configure(EntityTypeBuilder<Signal> builder)
     {
-        builder.ToTable("Signals");
+        builder.ToTable("Signals", t =>
+        {
+            t.HasCheckConstraint("CK_Signals_Quantity", "\"Quantity\" > 0");
+            t.HasCheckConstraint("CK_Signals_EntryPrice", "\"EntryPrice\" >= 0");
+            t.HasCheckConstraint("CK_Signals_Price", "\"Price\" >= 0");
+        });
 
         builder.HasKey(x => x.Id);
 
@@ -68,7 +73,8 @@ public class SignalConfiguration : IEntityTypeConfiguration<Signal>
 
         // Shadow property for UpdatedAt
         builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
 
         // Indexes
         builder.HasIndex(x => x.Symbol);

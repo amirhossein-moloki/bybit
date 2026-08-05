@@ -42,6 +42,7 @@ public class ExchangeAccountConfiguration : IEntityTypeConfiguration<ExchangeAcc
             .IsRequired();
 
         builder.Property(x => x.UpdatedAt)
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
     }
 }

@@ -34,6 +34,7 @@ public class RiskRuleConfiguration : IEntityTypeConfiguration<RiskRule>
 
         // Shadow property for UpdatedAt
         builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
     }
 }

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.Repositories;
 using TradingBot.Application.Interfaces.Streams;
 
 namespace TradingBot.Worker;

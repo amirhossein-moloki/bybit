@@ -9,7 +9,11 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
 {
     public void Configure(EntityTypeBuilder<Trade> builder)
     {
-        builder.ToTable("Trades");
+        builder.ToTable("Trades", t =>
+        {
+            t.HasCheckConstraint("CK_Trades_Quantity", "\"Quantity\" > 0");
+            t.HasCheckConstraint("CK_Trades_Price", "\"Price\" >= 0");
+        });
 
         builder.HasKey(x => x.Id);
 
@@ -73,7 +77,8 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
             .IsRequired();
 
         builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
 
         // One Position has One Trade
         builder.HasOne<Position>()
@@ -84,5 +89,6 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
         // Indexes
         builder.HasIndex(x => x.PositionId);
         builder.HasIndex(x => x.TradeId);
+        builder.HasIndex(x => x.ClosedAt);
     }
 }
