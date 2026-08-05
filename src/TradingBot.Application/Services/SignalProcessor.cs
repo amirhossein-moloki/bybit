@@ -45,7 +45,7 @@ public class SignalProcessor : ISignalProcessor
             var orderSide = signal.Type == SignalType.Buy ? OrderSide.Buy : OrderSide.Sell;
             var order = new Order(
                 clientOrderId,
-                new Symbol(signal.Symbol),
+                new TradingBot.Domain.ValueObjects.Symbol(signal.Symbol),
                 orderSide,
                 OrderType.Limit,
                 new Quantity(signal.Quantity),

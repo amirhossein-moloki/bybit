@@ -51,7 +51,7 @@ public class OrderService : IOrderService
             var clientOrderId = $"BOT-{Guid.NewGuid():N}";
             order = new Order(
                 clientOrderId,
-                new Symbol(symbol),
+                new TradingBot.Domain.ValueObjects.Symbol(symbol),
                 side,
                 type,
                 new Quantity(quantity),

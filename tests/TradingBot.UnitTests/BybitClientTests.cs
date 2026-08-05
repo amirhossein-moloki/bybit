@@ -11,6 +11,7 @@ using Moq.Protected;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
+using Symbol = TradingBot.Domain.ValueObjects.Symbol;
 using TradingBot.Application.Interfaces;
 using TradingBot.Exchange.Bybit;
 using TradingBot.Exchange.Bybit.Dtos;

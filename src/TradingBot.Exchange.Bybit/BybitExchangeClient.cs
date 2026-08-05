@@ -161,7 +161,7 @@ public class BybitExchangeClient : IExchangeClient
 
         var order = new Order(
             bybitOrder.OrderLinkId,
-            new Symbol(bybitOrder.Symbol),
+            new TradingBot.Domain.ValueObjects.Symbol(bybitOrder.Symbol),
             side,
             orderType,
             new Quantity(quantity),

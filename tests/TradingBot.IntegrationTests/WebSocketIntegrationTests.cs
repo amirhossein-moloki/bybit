@@ -14,6 +14,7 @@ using TradingBot.Application.Models.Events;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
+using Symbol = TradingBot.Domain.ValueObjects.Symbol;
 using TradingBot.Infrastructure.Persistence;
 using Xunit;
 
