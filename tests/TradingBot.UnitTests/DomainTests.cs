@@ -5,6 +5,7 @@ using TradingBot.Domain.Enums;
 using TradingBot.Domain.Exceptions;
 using TradingBot.Domain.ValueObjects;
 using Xunit;
+using Symbol = TradingBot.Domain.ValueObjects.Symbol;
 
 namespace TradingBot.UnitTests;
 

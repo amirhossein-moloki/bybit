@@ -7,6 +7,8 @@ namespace TradingBot.Domain.Entities;
 public class Trade
 {
     public Guid Id { get; private set; }
+
+    // Existing fields for individual fills
     public string TradeId { get; private set; }
     public string OrderId { get; private set; }
     public string Symbol { get; private set; }
@@ -17,6 +19,26 @@ public class Trade
     public string FeeAsset { get; private set; }
     public DateTime ExecutedAt { get; private set; }
 
+    // New fields for Phase 2: realized execution/closure history
+    public Guid? PositionId { get; private set; }
+    public decimal EntryPrice { get; private set; }
+    public decimal? ExitPrice { get; private set; }
+    public decimal? ProfitLoss { get; private set; }
+    public DateTime? ClosedAt { get; private set; }
+
+    // Required for EF Core
+    private Trade()
+    {
+        Id = Guid.Empty;
+        TradeId = string.Empty;
+        OrderId = string.Empty;
+        Symbol = string.Empty;
+        Side = SignalType.Buy;
+        FeeAsset = string.Empty;
+        ExecutedAt = DateTime.UtcNow;
+    }
+
+    // Existing constructor (retained for backward compatibility)
     public Trade(string tradeId, string orderId, string symbol, SignalType side, decimal price, decimal quantity, decimal fee, string feeAsset)
     {
         if (string.IsNullOrWhiteSpace(tradeId))
@@ -54,5 +76,54 @@ public class Trade
         Fee = fee;
         FeeAsset = feeAsset;
         ExecutedAt = DateTime.UtcNow;
+
+        // Map to Phase 2 equivalent properties
+        EntryPrice = price;
+        ExitPrice = null;
+        ProfitLoss = null;
+        ClosedAt = null;
+        PositionId = null;
+    }
+
+    // New constructor representing completed realized position closure/execution history
+    public Trade(Guid positionId, decimal entryPrice, decimal exitPrice, decimal quantity, decimal profitLoss, decimal fee, DateTime closedAt)
+    {
+        if (positionId == Guid.Empty)
+        {
+            throw new DomainException("PositionId cannot be empty.");
+        }
+
+        if (entryPrice <= 0)
+        {
+            throw new DomainException("EntryPrice must be greater than zero.");
+        }
+
+        if (exitPrice <= 0)
+        {
+            throw new DomainException("ExitPrice must be greater than zero.");
+        }
+
+        if (quantity <= 0)
+        {
+            throw new DomainException("Quantity must be greater than zero.");
+        }
+
+        Id = Guid.NewGuid();
+        PositionId = positionId;
+        EntryPrice = entryPrice;
+        ExitPrice = exitPrice;
+        Quantity = quantity;
+        ProfitLoss = profitLoss;
+        Fee = fee;
+        ClosedAt = closedAt;
+
+        // Map to backward-compatible fields
+        TradeId = "COMPLETED-" + Id.ToString("N")[..8].ToUpperInvariant();
+        OrderId = string.Empty;
+        Symbol = string.Empty;
+        Side = SignalType.Buy;
+        Price = exitPrice;
+        FeeAsset = "USDT";
+        ExecutedAt = closedAt;
     }
 }

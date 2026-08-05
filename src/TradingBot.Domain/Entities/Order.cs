@@ -8,8 +8,9 @@ namespace TradingBot.Domain.Entities;
 public class Order
 {
     public Guid Id { get; private set; }
+    public Guid? SignalId { get; private set; }
     public string ClientOrderId { get; private set; }
-    public Symbol Symbol { get; private set; }
+    public TradingBot.Domain.ValueObjects.Symbol Symbol { get; private set; }
     public OrderSide Side { get; private set; }
     public OrderType Type { get; private set; }
     public Quantity Quantity { get; private set; }
@@ -31,7 +32,7 @@ public class Order
         CreatedAt = DateTime.UtcNow;
     }
 
-    public Order(string clientOrderId, Symbol symbol, OrderSide side, OrderType type, Quantity quantity, Money price)
+    public Order(string clientOrderId, TradingBot.Domain.ValueObjects.Symbol symbol, OrderSide side, OrderType type, Quantity quantity, Money price, Guid? signalId = null)
     {
         if (string.IsNullOrWhiteSpace(clientOrderId))
         {
@@ -39,6 +40,7 @@ public class Order
         }
 
         Id = Guid.NewGuid();
+        SignalId = signalId;
         ClientOrderId = clientOrderId;
         Symbol = symbol ?? throw new DomainException("Symbol cannot be null.");
         Side = side;
@@ -52,6 +54,20 @@ public class Order
         {
             throw new DomainException("Price must be greater than zero for Limit orders.");
         }
+    }
+
+    public void LinkSignal(Guid signalId)
+    {
+        if (signalId == Guid.Empty)
+        {
+            throw new DomainException("SignalId cannot be empty.");
+        }
+        if (SignalId.HasValue && SignalId.Value != signalId)
+        {
+            throw new DomainException("Order is already linked to another signal.");
+        }
+        SignalId = signalId;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void Submit()
