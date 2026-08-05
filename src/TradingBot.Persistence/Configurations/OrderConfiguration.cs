@@ -9,7 +9,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
     public void Configure(EntityTypeBuilder<Order> builder)
     {
-        builder.ToTable("Orders");
+        builder.ToTable("Orders", t =>
+        {
+            t.HasCheckConstraint("CK_Orders_Quantity", "\"Quantity\" > 0");
+            t.HasCheckConstraint("CK_Orders_Price", "\"Price\" >= 0");
+        });
 
         builder.HasKey(x => x.Id);
 
@@ -37,6 +41,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
                 .HasColumnName("Symbol")
                 .HasMaxLength(20)
                 .IsRequired();
+            symbol.HasIndex(s => s.Value);
         });
 
         // Owned Value Object: Quantity
@@ -76,7 +81,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .IsRequired();
 
         builder.Property(x => x.UpdatedAt)
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
 
         // Foreign Key property for relationship Signal -> Order
         builder.Property(x => x.SignalId);
@@ -90,6 +96,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         // Indexes
         builder.HasIndex(x => x.ClientOrderId).IsUnique();
         builder.HasIndex(x => x.ExchangeOrderId);
+        builder.HasIndex(x => x.Status);
+        builder.HasIndex(x => x.CreatedAt);
         builder.HasIndex(x => new { x.Status, x.CreatedAt });
     }
 }

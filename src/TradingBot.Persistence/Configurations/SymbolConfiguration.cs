@@ -48,6 +48,7 @@ public class SymbolConfiguration : IEntityTypeConfiguration<Symbol>
 
         // Add shadow property for UpdatedAt to satisfy the requirement: "All tables: Required: CreatedAt, UpdatedAt"
         builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
     }
 }

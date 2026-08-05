@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using TradingBot.Application.Interfaces;
-using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.Repositories;
 using TradingBot.Application.Services;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;

@@ -2,10 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces;
-using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.Repositories;
 using TradingBot.Infrastructure.Configuration;
+using TradingBot.Infrastructure.Security;
+using TradingBot.Persistence.Repositories;
+using TradingBot.Persistence.UnitOfWork;
 using TradingBot.Infrastructure.Health;
-using TradingBot.Infrastructure.Persistence;
 using TradingBot.Infrastructure.Resilience;
 using TradingBot.Persistence;
 using TradingBot.Persistence.Context;
@@ -31,6 +33,9 @@ public static class DependencyInjection
         // Register DbContext (delegated to Persistence layer registration)
         services.AddPersistence(configuration);
 
+        // Register Encryption Service
+        services.AddSingleton<IEncryptionService, EncryptionService>();
+
         // Register Resilience Service
         services.AddSingleton<IResilienceService, ResilienceService>();
 
@@ -39,6 +44,9 @@ public static class DependencyInjection
         services.AddScoped<ISignalRepository, SignalRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<ITradeRepository, TradeRepository>();
+        services.AddScoped<IPositionRepository, PositionRepository>();
+        services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
+        services.AddScoped<ISystemLogRepository, SystemLogRepository>();
 
         // Register Health Checks
         services.AddHealthChecks()

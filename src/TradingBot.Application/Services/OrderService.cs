@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TradingBot.Application.Interfaces;
-using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.Repositories;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;

@@ -11,7 +11,8 @@ using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
 using Symbol = TradingBot.Domain.ValueObjects.Symbol;
 using TradingBot.Persistence.Context;
-using TradingBot.Infrastructure.Persistence;
+using TradingBot.Persistence.Repositories;
+using TradingBot.Persistence.UnitOfWork;
 using Xunit;
 
 namespace TradingBot.IntegrationTests;
@@ -188,7 +189,7 @@ public class DatabasePersistenceTests : IAsyncLifetime
         // Arrange
         using var context = CreateDbContext();
         var orderRepository = new OrderRepository(context);
-        var unitOfWork = new UnitOfWork(context);
+        var unitOfWork = new UnitOfWork(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<UnitOfWork>.Instance);
 
         var order = new Order(
             clientOrderId: "INT-33333",
@@ -250,5 +251,149 @@ public class DatabasePersistenceTests : IAsyncLifetime
         retrievedTrade.Quantity.Should().Be(0.025m);
         retrievedTrade.Fee.Should().Be(0.000025m);
         retrievedTrade.FeeAsset.Should().Be("BTC");
+    }
+
+    [Fact]
+    public async Task Database_ShouldThrowException_WhenOrderQuantityIsZeroOrNegative()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var orderRepository = new OrderRepository(context);
+
+        // Act & Assert
+        // We bypass Domain rules (which already block <= 0 quantity) by writing directly using reflection, or
+        // by creating an Order and altering its private backing field / using EF shadow or reflection.
+        var order = new Order(
+            clientOrderId: "INT-INVALID-QTY",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(1m), // initially valid
+            price: new Money(40000m)
+        );
+
+        // Modify backing value to violate check constraint
+        var quantityField = typeof(Quantity).GetField("<Value>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        quantityField?.SetValue(order.Quantity, -0.5m);
+
+        await orderRepository.AddAsync(order, CancellationToken.None);
+
+        Func<Task> saveAct = async () => await context.SaveChangesAsync();
+
+        // Should throw DbUpdateException due to check constraint CK_Orders_Quantity
+        await saveAct.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task Database_ShouldThrowException_WhenOrderPriceIsNegative()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var orderRepository = new OrderRepository(context);
+
+        var order = new Order(
+            clientOrderId: "INT-INVALID-PRICE",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(0.1m),
+            price: new Money(40000m)
+        );
+
+        // Modify backing value to violate check constraint
+        var priceField = typeof(Money).GetField("<Amount>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        priceField?.SetValue(order.Price, -500m);
+
+        await orderRepository.AddAsync(order, CancellationToken.None);
+
+        Func<Task> saveAct = async () => await context.SaveChangesAsync();
+
+        // Should throw DbUpdateException due to check constraint CK_Orders_Price
+        await saveAct.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task Database_ShouldThrowException_WhenOptimisticConcurrencyConflictOccurs()
+    {
+        // Arrange
+        // Create and save an initial order
+        var initialId = Guid.NewGuid();
+        {
+            using var initContext = CreateDbContext();
+            var initRepo = new OrderRepository(initContext);
+            var order = new Order(
+                clientOrderId: "CONC-111",
+                symbol: new Symbol("BTCUSDT"),
+                side: OrderSide.Buy,
+                type: OrderType.Limit,
+                quantity: new Quantity(1m),
+                price: new Money(40000m)
+            );
+            // set id using reflection so we know it
+            typeof(Order).GetProperty("Id")?.SetValue(order, initialId);
+
+            await initRepo.AddAsync(order);
+            await initContext.SaveChangesAsync();
+        }
+
+        // Act - Simulate concurrency by loading the same entity in two separate contexts
+        using var context1 = CreateDbContext();
+        using var context2 = CreateDbContext();
+
+        var repo1 = new OrderRepository(context1);
+        var repo2 = new OrderRepository(context2);
+
+        var order1 = await repo1.GetByIdAsync(initialId);
+        var order2 = await repo2.GetByIdAsync(initialId);
+
+        order1.Should().NotBeNull();
+        order2.Should().NotBeNull();
+
+        // Update 1 and Save (this succeeds and advances the UpdatedAt timestamp / concurrency token)
+        order1!.Submit();
+        await repo1.UpdateAsync(order1);
+        await context1.SaveChangesAsync();
+
+        // Update 2 and Save (this should fail because context2 still has the old UpdatedAt timestamp)
+        order2!.Submit();
+        await repo2.UpdateAsync(order2);
+
+        Func<Task> concurrentSaveAct = async () => await context2.SaveChangesAsync();
+
+        // Assert - Expecting DbUpdateConcurrencyException
+        await concurrentSaveAct.Should().ThrowAsync<DbUpdateConcurrencyException>();
+    }
+
+    [Fact]
+    public async Task Database_ShouldSupportLargeCollectionPagination()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var repo = new OrderRepository(context);
+
+        // Seed some unique orders
+        for (int i = 0; i < 15; i++)
+        {
+            var order = new Order(
+                clientOrderId: $"PAG-{Guid.NewGuid():N}",
+                symbol: new Symbol("BTCUSDT"),
+                side: OrderSide.Buy,
+                type: OrderType.Limit,
+                quantity: new Quantity(0.01m),
+                price: new Money(40000m)
+            );
+            await repo.AddAsync(order);
+        }
+        await context.SaveChangesAsync();
+
+        // Act
+        var pagedResult = await repo.GetPagedOrdersAsync(pageNumber: 2, pageSize: 5);
+
+        // Assert
+        pagedResult.Should().NotBeNull();
+        pagedResult.PageNumber.Should().Be(2);
+        pagedResult.PageSize.Should().Be(5);
+        pagedResult.TotalCount.Should().BeGreaterThanOrEqualTo(15);
+        pagedResult.Items.Should().HaveCount(5);
     }
 }

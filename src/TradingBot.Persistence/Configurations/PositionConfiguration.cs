@@ -9,7 +9,11 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
 {
     public void Configure(EntityTypeBuilder<Position> builder)
     {
-        builder.ToTable("Positions");
+        builder.ToTable("Positions", t =>
+        {
+            t.HasCheckConstraint("CK_Positions_Quantity", "\"Quantity\" > 0");
+            t.HasCheckConstraint("CK_Positions_EntryPrice", "\"EntryPrice\" >= 0");
+        });
 
         builder.HasKey(x => x.Id);
 
@@ -67,7 +71,8 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .IsRequired();
 
         builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
 
         // One Order has One Position
         builder.HasOne<Order>()
@@ -76,6 +81,8 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .OnDelete(DeleteBehavior.Restrict);
 
         // Indexes
+        builder.HasIndex(x => x.Symbol);
+        builder.HasIndex(x => x.Status);
         builder.HasIndex(x => new { x.Symbol, x.Status });
     }
 }
