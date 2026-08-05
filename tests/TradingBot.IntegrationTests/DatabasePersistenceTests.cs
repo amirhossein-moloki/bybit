@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6,6 +7,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
+using TradingBot.Application.Exceptions;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
@@ -55,6 +57,9 @@ public class DatabasePersistenceTests : IAsyncLifetime
         {
             _sqliteConnection = new SqliteConnection("DataSource=:memory:");
             await _sqliteConnection.OpenAsync();
+            using var command = _sqliteConnection.CreateCommand();
+            command.CommandText = "PRAGMA foreign_keys = ON;";
+            await command.ExecuteNonQueryAsync();
         }
     }
 
@@ -395,5 +400,228 @@ public class DatabasePersistenceTests : IAsyncLifetime
         pagedResult.PageSize.Should().Be(5);
         pagedResult.TotalCount.Should().BeGreaterThanOrEqualTo(15);
         pagedResult.Items.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public async Task Database_ShouldPreventDeletionOfSignal_WhenLinkedToOrder()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var signal = new Signal("TELEGRAM", "BUY BTCUSDT @ 45000", "BTCUSDT", OrderSide.Buy, 45000m, 1m);
+        context.Signals.Add(signal);
+        await context.SaveChangesAsync();
+
+        var order = new Order(
+            clientOrderId: "INT-CASCADE-1",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(1m),
+            price: new Money(45000m)
+        );
+        typeof(Order).GetProperty("SignalId")?.SetValue(order, signal.Id);
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        // Act - Attempt to delete the signal in a separate context to test DB constraint
+        using var deleteContext = CreateDbContext();
+        var signalToDelete = await deleteContext.Signals.FindAsync(signal.Id);
+        deleteContext.Signals.Remove(signalToDelete!);
+        Func<Task> act = async () => await deleteContext.SaveChangesAsync();
+
+        // Assert - Should throw due to Restrict behavior
+        await act.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task Database_ShouldPreventDeletionOfOrder_WhenLinkedToPosition()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var order = new Order(
+            clientOrderId: "INT-CASCADE-2",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(1m),
+            price: new Money(45000m)
+        );
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        var position = new Position(order.Id, "BTCUSDT", OrderSide.Buy, 45000m, 1m);
+        context.Positions.Add(position);
+        await context.SaveChangesAsync();
+
+        // Act - Attempt to delete the order in a separate context to test DB constraint
+        using var deleteContext = CreateDbContext();
+        var orderToDelete = await deleteContext.Orders.FindAsync(order.Id);
+        deleteContext.Orders.Remove(orderToDelete!);
+        Func<Task> act = async () => await deleteContext.SaveChangesAsync();
+
+        // Assert - Should throw due to Restrict behavior
+        await act.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task Database_ShouldPreventDeletionOfPosition_WhenLinkedToTrade()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var order = new Order(
+            clientOrderId: "INT-CASCADE-3",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(1m),
+            price: new Money(45000m)
+        );
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        var position = new Position(order.Id, "BTCUSDT", OrderSide.Buy, 45000m, 1m);
+        context.Positions.Add(position);
+        await context.SaveChangesAsync();
+
+        var trade = new Trade(position.Id, 45000m, 46000m, 1m, 1000m, 10m, DateTime.UtcNow);
+        context.Trades.Add(trade);
+        await context.SaveChangesAsync();
+
+        // Act - Attempt to delete the position in a separate context to test DB constraint
+        using var deleteContext = CreateDbContext();
+        var positionToDelete = await deleteContext.Positions.FindAsync(position.Id);
+        deleteContext.Positions.Remove(positionToDelete!);
+        Func<Task> act = async () => await deleteContext.SaveChangesAsync();
+
+        // Assert - Should throw due to Restrict behavior
+        await act.Should().ThrowAsync<DbUpdateException>();
+    }
+
+    [Fact]
+    public async Task Transaction_ShouldRollbackEntireChain_WhenSubsequentEntityCreationFails()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var orderRepository = new OrderRepository(context);
+        var positionRepository = new PositionRepository(context);
+        var unitOfWork = new UnitOfWork(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<UnitOfWork>.Instance);
+
+        var order = new Order(
+            clientOrderId: "INT-CHAIN-1",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(0.5m),
+            price: new Money(40000m)
+        );
+
+        // Act - Begin Transaction and attempt multi-entity operation
+        await unitOfWork.BeginTransactionAsync();
+        await orderRepository.AddAsync(order);
+        await unitOfWork.SaveChangesAsync(); // save order changes inside transaction
+
+        // Add an invalid position to trigger validation/database error, or manually throw exception
+        Func<Task> multiEntityWorkflowAct = async () =>
+        {
+            var invalidPosition = new Position(order.Id, "BTCUSDT", OrderSide.Buy, 40000m, 0.5m);
+            // invalidate position EntryPrice via reflection to trigger check constraint
+            var entryPriceField = typeof(Position).GetField("<EntryPrice>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            entryPriceField?.SetValue(invalidPosition, -100m);
+
+            await positionRepository.AddAsync(invalidPosition);
+            await unitOfWork.SaveChangesAsync(); // Should throw and cause rollback
+            await unitOfWork.CommitTransactionAsync();
+        };
+
+        // Assert
+        await multiEntityWorkflowAct.Should().ThrowAsync<DatabaseException>();
+        await unitOfWork.RollbackTransactionAsync();
+
+        // Verify that the order was rolled back completely and does not exist in DB
+        using var context2 = CreateDbContext();
+        var retrievedOrder = await context2.Orders.FirstOrDefaultAsync(o => o.ClientOrderId == "INT-CHAIN-1");
+        retrievedOrder.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Database_ShouldHandleLargeDatasetPagination_ExtremelyFast()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        context.Database.EnsureCreated();
+
+        // Fast bulk generate using EF Change Tracker disabled for adding or AddRange
+        var orders = new List<Order>();
+        var signals = new List<Signal>();
+        var trades = new List<Trade>();
+
+        for (int i = 0; i < 10000; i++)
+        {
+            var ord = new Order(
+                clientOrderId: $"LARGE-ORD-{i}",
+                symbol: new Symbol("BTCUSDT"),
+                side: OrderSide.Buy,
+                type: OrderType.Limit,
+                quantity: new Quantity(0.1m),
+                price: new Money(40000m)
+            );
+            orders.Add(ord);
+
+            var sig = new Signal("TELEGRAM", $"RAW MESSAGE {i}", "BTCUSDT", OrderSide.Buy, 40000m, 0.1m);
+            signals.Add(sig);
+
+            var trd = new Trade($"LARGE-TRD-ID-{i}", $"LARGE-ORD-{i}", "BTCUSDT", SignalType.Buy, 40000m, 0.1m, 1m, "USDT");
+            trades.Add(trd);
+        }
+
+        // Add everything at once to keep it ultra-fast
+        await context.Orders.AddRangeAsync(orders);
+        await context.Signals.AddRangeAsync(signals);
+        await context.Trades.AddRangeAsync(trades);
+        await context.SaveChangesAsync();
+
+        var orderRepository = new OrderRepository(context);
+
+        // Act - Measure Page Query Speed
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var pagedOrders = await orderRepository.GetPagedOrdersAsync(pageNumber: 50, pageSize: 20);
+        stopwatch.Stop();
+
+        // Assert
+        pagedOrders.Should().NotBeNull();
+        pagedOrders.TotalCount.Should().Be(10000);
+        pagedOrders.Items.Should().HaveCount(20);
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(200, "Pagination query should be extremely fast, typically sub-100ms");
+    }
+
+    [Fact]
+    public async Task Database_ShouldThrowWrappedDatabaseException_WhenSaveOperationFails()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var orderRepository = new OrderRepository(context);
+        var unitOfWork = new UnitOfWork(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<UnitOfWork>.Instance);
+
+        var order = new Order(
+            clientOrderId: "INT-ERR-WRAP",
+            symbol: new Symbol("BTCUSDT"),
+            side: OrderSide.Buy,
+            type: OrderType.Limit,
+            quantity: new Quantity(1m),
+            price: new Money(40000m)
+        );
+
+        // modify price directly via reflection to violate CK constraint
+        var priceField = typeof(Money).GetField("<Amount>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        priceField?.SetValue(order.Price, -500m);
+
+        await orderRepository.AddAsync(order);
+
+        // Act
+        Func<Task> act = async () => await unitOfWork.SaveChangesAsync();
+
+        // Assert
+        var exceptionAssertion = await act.Should().ThrowAsync<DatabaseException>();
+        exceptionAssertion.Which.InnerException.Should().BeOfType<DbUpdateException>();
     }
 }
