@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\TradingBot.Application\TradingBot.Application.csproj" />
     <ProjectReference Include="..\..\src\TradingBot.Infrastructure\TradingBot.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\TradingBot.Exchange.Bybit\TradingBot.Exchange.Bybit.csproj" />
+    <ProjectReference Include="..\..\src\TradingBot.Persistence\TradingBot.Persistence.csproj" />
   </ItemGroup>
 
 </Project>
