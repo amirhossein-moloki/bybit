@@ -48,6 +48,7 @@ try
     // 3. Service Registrations
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddInfrastructure(builder.Configuration);
+    builder.Services.AddParser(builder.Configuration);
     builder.Services.AddBybitExchange(options =>
     {
         options.ApiKey = settings.Exchange.ApiKey;
