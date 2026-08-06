@@ -43,12 +43,14 @@ Future Session Restore (Automatic Session Reuse)
 
 ---
 
-## 3. Reconnection Strategy
+## 3. Reconnection and Resilience Strategy
 
-The background listener (`TelegramListenerWorker`) manages the resilience of the Telegram client connection:
+The background listener (`TelegramListenerWorker`) manages the resilience of the Telegram client connection using an enterprise-ready Polly `ResiliencePipeline`:
 
 - **Automatic Reconnection**: Active connection and state monitoring triggers recovery on interruptions.
-- **Exponential Backoff**: Starts at a base of 2 seconds, doubling up to a maximum of 60 seconds.
+- **Exponential Backoff with Jitter (Polly Retry)**: Reconnect attempts use exponential backoff starting at 2 seconds, up to a maximum of 60 seconds, with a maximum of 10 retries. During retries, the state is thread-safely changed to `Reconnecting`.
+- **Active Timeout (Polly Timeout)**: Connect, Authenticate, and Listening Initialization operations are protected by a 30-second timeout policy.
+- **Circuit Breaker (Polly Circuit Breaker)**: Handles transient failures gracefully with a circuit breaker that transitions to an open state if failure rates exceed 50% within a 2-minute sampling window and at least 3 attempts, preventing cascading failures or rate-limiting.
 - **Graceful Shutdown**: The background worker listens for CancellationToken cancellation and safely disposes of the connection using standard client shutdown methods.
 
 ---

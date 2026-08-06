@@ -22,9 +22,14 @@ public class TelegramHealthCheck : IHealthCheck
 
         return state switch
         {
-            TelegramConnectionState.Connected => Task.FromResult(HealthCheckResult.Healthy("Telegram connection is healthy and connected.")),
-            TelegramConnectionState.Connecting or TelegramConnectionState.Authenticating => Task.FromResult(HealthCheckResult.Degraded($"Telegram connection is in state: {state}.")),
-            _ => Task.FromResult(HealthCheckResult.Unhealthy($"Telegram connection is in unhealthy state: {state}."))
+            TelegramConnectionState.Connected or TelegramConnectionState.Listening =>
+                Task.FromResult(HealthCheckResult.Healthy(state == TelegramConnectionState.Listening
+                    ? "Telegram connection is healthy and listening."
+                    : "Telegram connection is healthy and connected.")),
+            TelegramConnectionState.Connecting or TelegramConnectionState.Authenticating or TelegramConnectionState.Reconnecting =>
+                Task.FromResult(HealthCheckResult.Degraded($"Telegram connection is in state: {state}.")),
+            _ =>
+                Task.FromResult(HealthCheckResult.Unhealthy($"Telegram connection is in unhealthy state: {state}."))
         };
     }
 }
