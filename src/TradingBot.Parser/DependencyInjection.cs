@@ -6,6 +6,8 @@ using TradingBot.Parser.Pipeline;
 using TradingBot.Parser.Parsers;
 using TradingBot.Parser.Extractors;
 using TradingBot.Parser.Templates;
+using TradingBot.Parser.Validation;
+using TradingBot.Parser.Validation.Rules;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -17,11 +19,13 @@ public static class ParserDependencyInjection
         {
             services.Configure<ParserOptions>(configuration.GetSection(ParserOptions.SectionName));
             services.Configure<ParserTemplatesOptions>(configuration.GetSection(ParserTemplatesOptions.SectionName));
+            services.Configure<ValidationOptions>(configuration.GetSection(ValidationOptions.SectionName));
         }
         else
         {
             services.Configure<ParserOptions>(_ => { });
             services.Configure<ParserTemplatesOptions>(_ => { });
+            services.Configure<ValidationOptions>(_ => { });
         }
 
         // Register individual extractors in sequence
@@ -38,6 +42,16 @@ public static class ParserDependencyInjection
 
         services.AddScoped<IParserPipeline, SignalParserPipeline>();
         services.AddScoped<ISignalParser, DefaultSignalParser>();
+
+        // Register Validation Engine and Rules
+        services.AddScoped<IValidationRule, SymbolValidationRule>();
+        services.AddScoped<IValidationRule, DirectionValidationRule>();
+        services.AddScoped<IValidationRule, EntryValidationRule>();
+        services.AddScoped<IValidationRule, StopLossValidationRule>();
+        services.AddScoped<IValidationRule, TakeProfitValidationRule>();
+        services.AddScoped<IValidationRule, LeverageValidationRule>();
+        services.AddScoped<IValidationRule, BusinessConsistencyValidationRule>();
+        services.AddScoped<ISignalValidator, ValidationEngine>();
 
         return services;
     }

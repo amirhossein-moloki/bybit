@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
         services.AddScoped<ISystemLogRepository, SystemLogRepository>();
         services.AddScoped<TradingBot.Domain.Repositories.IParserTemplateRepository, ParserTemplateRepository>();
+        services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
 
         // Register Health Checks
         services.AddHealthChecks()

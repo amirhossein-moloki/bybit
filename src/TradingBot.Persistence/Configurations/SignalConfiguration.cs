@@ -51,6 +51,18 @@ public class SignalConfiguration : IEntityTypeConfiguration<Signal>
 
         builder.Property(x => x.Leverage);
 
+        builder.Property(x => x.ValidationStatus)
+            .HasMaxLength(50);
+
+        builder.Property(x => x.ValidationMessage)
+            .HasColumnType("text");
+
+        builder.Property(x => x.ParserVersion)
+            .HasMaxLength(50);
+
+        builder.Property(x => x.ValidatedAt)
+            .HasColumnType("timestamp with time zone");
+
         builder.Property(x => x.Status)
             .HasConversion<string>()
             .HasMaxLength(20)
