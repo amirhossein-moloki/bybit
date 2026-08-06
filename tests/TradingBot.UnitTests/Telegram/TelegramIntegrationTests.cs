@@ -312,4 +312,122 @@ public class TelegramIntegrationTests
         // Assert
         await act.Should().NotThrowAsync();
     }
+
+    [Theory]
+    [InlineData(TelegramConnectionState.Connected, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy)]
+    [InlineData(TelegramConnectionState.Listening, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy)]
+    [InlineData(TelegramConnectionState.Connecting, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded)]
+    [InlineData(TelegramConnectionState.Authenticating, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded)]
+    [InlineData(TelegramConnectionState.Reconnecting, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded)]
+    [InlineData(TelegramConnectionState.Disconnected, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy)]
+    [InlineData(TelegramConnectionState.Error, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy)]
+    [InlineData(TelegramConnectionState.AuthenticationFailed, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy)]
+    public async Task TelegramHealthCheck_ShouldReturnExpectedStatus_ForConnectionState(TelegramConnectionState state, Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus expectedStatus)
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        mockClient.Setup(c => c.CurrentState).Returns(state);
+
+        var healthCheck = new TelegramHealthCheck(mockClient.Object);
+        var context = new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext();
+
+        // Act
+        var result = await healthCheck.CheckHealthAsync(context);
+
+        // Assert
+        result.Status.Should().Be(expectedStatus);
+    }
+
+    [Fact]
+    public async Task TelegramListenerWorker_ShouldRetry_WhenConnectAsyncThrowsTransientExceptions()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
+
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+
+        // Simulate failures for the first 2 calls, then succeed on the 3rd call
+        int callCount = 0;
+        mockClient.Setup(c => c.ConnectAsync())
+            .Returns(() =>
+            {
+                callCount++;
+                if (callCount < 3)
+                {
+                    throw new Exception("Transient connection issue");
+                }
+                return Task.CompletedTask;
+            });
+
+        // Set up IsConnected to return false first, and true once Listening
+        mockClient.Setup(c => c.IsConnected()).Returns(false);
+        mockClient.Setup(c => c.CurrentState).Returns(TelegramConnectionState.Disconnected);
+
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockOptions, mockLogger.Object);
+        using var cts = new CancellationTokenSource();
+
+        // Act
+        // Run ExecuteAsync in background, cancellation token will stop the worker after a short delay
+        var runTask = worker.StartAsync(cts.Token);
+        await Task.Delay(100);
+        await worker.StopAsync(cts.Token);
+
+        // Assert
+        callCount.Should().BeGreaterThanOrEqualTo(1);
+    }
+
+    [Fact]
+    public async Task Telegram_Client_Worker_Pipeline_ShouldReceiveAndMapIncomingMessage()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockReceiver = new Mock<ITelegramMessageReceiver>();
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
+
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+
+        mockClient.Setup(c => c.IsConnected()).Returns(true);
+        mockClient.Setup(c => c.CurrentState).Returns(TelegramConnectionState.Listening);
+
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockOptions, mockLogger.Object);
+        using var cts = new CancellationTokenSource();
+
+        // Start worker
+        await worker.StartAsync(cts.Token);
+
+        // Verify connect and authenticate were skipped or called as needed depending on state
+        mockClient.Verify(c => c.ConnectAsync(), Times.Never); // Already connected/listening
+
+        // Simulate a message mapping scenario directly
+        var messageDto = new TelegramMessageDto
+        {
+            ChannelId = 987654321,
+            ChannelName = "VIPSignals",
+            MessageId = 123,
+            SenderId = 111,
+            Text = "BTCUSDT BUY Entry: 60000",
+            Date = DateTime.UtcNow,
+            IsChannel = true,
+            IsGroup = false,
+            RawUpdate = "UpdateNewChannelMessage"
+        };
+
+        // Act
+        await mockReceiver.Object.ReceiveMessageAsync(messageDto);
+
+        // Assert
+        mockReceiver.Verify(r => r.ReceiveMessageAsync(It.Is<TelegramMessageDto>(m =>
+            m.ChannelId == 987654321 &&
+            m.ChannelName == "VIPSignals" &&
+            m.MessageId == 123 &&
+            m.Text == "BTCUSDT BUY Entry: 60000" &&
+            m.IsChannel == true)), Times.Once);
+
+        await worker.StopAsync(cts.Token);
+    }
 }

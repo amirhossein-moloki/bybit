@@ -63,7 +63,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             if (user != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);
-                _logger.Information("Authentication successful");
+                _logger.Information("Authentication Completed");
             }
             else
             {

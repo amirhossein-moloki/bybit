@@ -4,6 +4,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
+using Polly.Timeout;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
@@ -17,6 +21,7 @@ public class TelegramListenerWorker : BackgroundService
     private readonly ITelegramAuthenticationService _authService;
     private readonly TelegramOptions _options;
     private readonly ILogger<TelegramListenerWorker> _logger;
+    private readonly ResiliencePipeline _resiliencePipeline;
 
     public TelegramListenerWorker(
         ITelegramClient client,
@@ -28,6 +33,56 @@ public class TelegramListenerWorker : BackgroundService
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        _resiliencePipeline = new ResiliencePipelineBuilder()
+            .AddTimeout(new TimeoutStrategyOptions
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+                OnTimeout = args =>
+                {
+                    _logger.LogWarning("Telegram Connection: Operation timed out.");
+                    return default;
+                }
+            })
+            .AddRetry(new RetryStrategyOptions
+            {
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                MaxRetryAttempts = 10,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = TimeSpan.FromSeconds(2),
+                MaxDelay = TimeSpan.FromSeconds(60),
+                OnRetry = args =>
+                {
+                    if (_client is TelegramClientService cs)
+                    {
+                        cs.SetState(TelegramConnectionState.Reconnecting);
+                    }
+                    _logger.LogWarning("Reconnect Attempt {Count}/10 in {Delay} seconds due to: {Exception}",
+                        args.AttemptNumber + 1, args.RetryDelay.TotalSeconds, args.Outcome.Exception?.Message);
+                    return default;
+                }
+            })
+            .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+            {
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                FailureRatio = 0.5,
+                SamplingDuration = TimeSpan.FromMinutes(2),
+                MinimumThroughput = 3,
+                BreakDuration = TimeSpan.FromSeconds(30),
+                OnOpened = args =>
+                {
+                    _logger.LogError("Resilience: Telegram Connection Circuit Breaker OPENED for {BreakDuration} due to: {Exception}",
+                        args.BreakDuration, args.Outcome.Exception?.Message);
+                    return default;
+                },
+                OnClosed = args =>
+                {
+                    _logger.LogInformation("Resilience: Telegram Connection Circuit Breaker CLOSED.");
+                    return default;
+                }
+            })
+            .Build();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,49 +95,31 @@ public class TelegramListenerWorker : BackgroundService
 
         _logger.LogInformation("Telegram listener background worker starting...");
 
-        int retryCount = 0;
-        const int maxRetries = 10;
-        var backoffDelay = TimeSpan.FromSeconds(2);
-
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 if (!_client.IsConnected() || _client.CurrentState != TelegramConnectionState.Listening)
                 {
-                    if (retryCount > 0)
+                    await _resiliencePipeline.ExecuteAsync(async ct =>
                     {
-                        if (_client is TelegramClientService cs)
+                        _logger.LogInformation("Connecting to Telegram...");
+                        await _client.ConnectAsync();
+                        _logger.LogInformation("Telegram Connected");
+
+                        _logger.LogInformation("Authenticating with Telegram...");
+                        await _authService.AuthenticateAsync();
+                        _logger.LogInformation("Authentication Completed");
+
+                        _logger.LogInformation("Initializing Update Listener...");
+                        await _client.InitializeListeningAsync();
+
+                        if (_client is TelegramClientService service)
                         {
-                            cs.SetState(TelegramConnectionState.Reconnecting);
+                            service.SetState(TelegramConnectionState.Listening);
                         }
-                        _logger.LogInformation("Reconnect Attempt {Count}/{Max} in {Delay} seconds...", retryCount, maxRetries, backoffDelay.TotalSeconds);
-                        await Task.Delay(backoffDelay, stoppingToken);
-
-                        // Exponential backoff with a maximum delay of 60 seconds
-                        backoffDelay = TimeSpan.FromSeconds(Math.Min(backoffDelay.TotalSeconds * 2, 60));
-                    }
-
-                    _logger.LogInformation("Connecting to Telegram...");
-                    await _client.ConnectAsync();
-                    _logger.LogInformation("Telegram Connected");
-
-                    _logger.LogInformation("Authenticating with Telegram...");
-                    await _authService.AuthenticateAsync();
-                    _logger.LogInformation("Authentication Completed");
-
-                    _logger.LogInformation("Initializing Update Listener...");
-                    await _client.InitializeListeningAsync();
-
-                    if (_client is TelegramClientService service)
-                    {
-                        service.SetState(TelegramConnectionState.Listening);
-                    }
-                    _logger.LogInformation("Listening Started");
-
-                    // Connection succeeded, reset backoff parameters
-                    retryCount = 0;
-                    backoffDelay = TimeSpan.FromSeconds(2);
+                        _logger.LogInformation("Listening Started");
+                    }, stoppingToken);
                 }
 
                 // Wait / keep-alive loop step
@@ -102,12 +139,8 @@ public class TelegramListenerWorker : BackgroundService
                     service.SetState(TelegramConnectionState.Error);
                 }
 
-                retryCount++;
-                if (retryCount >= maxRetries)
-                {
-                    _logger.LogCritical("Telegram listener worker reached maximum reconnection retries ({Max}). Stopping.", maxRetries);
-                    break;
-                }
+                _logger.LogCritical("Telegram listener worker reached maximum reconnection retries (10) or encountered a critical error. Stopping.");
+                break;
             }
         }
 

@@ -91,7 +91,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
             await _client.ConnectAsync();
 
             SetState(TelegramConnectionState.Connected);
-            _logger.Information("Telegram connected successfully");
+            _logger.Information("Telegram Connected");
         }
         catch (Exception ex)
         {
@@ -112,7 +112,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
             }
             _updateManager = null;
             SetState(TelegramConnectionState.Disconnected);
-            _logger.Information("Telegram client disconnected.");
+            _logger.Information("Disconnected");
             await Task.CompletedTask;
         }
         catch (Exception ex)
@@ -158,6 +158,9 @@ public class TelegramClientService : ITelegramClient, IDisposable
         {
             switch (update)
             {
+                case TL.UpdateNewChannelMessage uncm:
+                    await HandleMessageBaseAsync(uncm.message, update);
+                    break;
                 case TL.UpdateNewMessage unm:
                     await HandleMessageBaseAsync(unm.message, update);
                     break;
@@ -242,7 +245,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
             RawUpdate = rawUpdate?.GetType().Name ?? "UpdateNewMessage"
         };
 
-        _logger.Information("Telegram Message Received: ID {MessageId} from channel {ChannelName} (ID: {ChannelId})", dto.MessageId, dto.ChannelName, dto.ChannelId);
+        _logger.Information("Message Received: ID {MessageId} from channel {ChannelName} (ID: {ChannelId})", dto.MessageId, dto.ChannelName, dto.ChannelId);
 
         // Pass to message receiver
         await _messageReceiver.ReceiveMessageAsync(dto);
