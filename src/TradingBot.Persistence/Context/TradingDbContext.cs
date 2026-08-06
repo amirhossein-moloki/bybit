@@ -16,6 +16,7 @@ public class TradingDbContext : DbContext
     public DbSet<Trade> Trades { get; set; } = null!;
     public DbSet<RiskRule> RiskRules { get; set; } = null!;
     public DbSet<SystemLog> SystemLogs { get; set; } = null!;
+    public DbSet<ParserTemplates> ParserTemplates { get; set; } = null!;
 
     public TradingDbContext(DbContextOptions<TradingDbContext> options) : base(options)
     {

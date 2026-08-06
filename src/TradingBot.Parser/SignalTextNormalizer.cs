@@ -28,4 +28,18 @@ public static class SignalTextNormalizer
         // Convert to uppercase and trim
         return collapsedNewlines.Trim().ToUpperInvariant();
     }
+
+    public static string PreparePattern(string rawPattern)
+    {
+        if (string.IsNullOrWhiteSpace(rawPattern)) return string.Empty;
+
+        var pattern = rawPattern.Trim(':');
+        // If it looks like a regex already (contains metacharacters like |, \, (, [, *, +), do not escape it.
+        if (pattern.Contains('|') || pattern.Contains('\\') || pattern.Contains('(') || pattern.Contains('[') || pattern.Contains('*') || pattern.Contains('+'))
+        {
+            return pattern;
+        }
+
+        return Regex.Escape(pattern);
+    }
 }
