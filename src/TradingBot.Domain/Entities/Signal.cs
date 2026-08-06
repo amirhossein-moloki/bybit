@@ -21,6 +21,12 @@ public class Signal
     public long? TelegramChannelId { get; private set; }
     public long? TelegramMessageId { get; private set; }
 
+    // Validation engine and processing fields
+    public string? ValidationStatus { get; private set; }
+    public string? ValidationMessage { get; private set; }
+    public string? ParserVersion { get; private set; }
+    public DateTime? ValidatedAt { get; private set; }
+
     // Backward compatibility properties
     public SignalType Type { get; private set; }
     public decimal Price { get; private set; }
@@ -125,22 +131,40 @@ public class Signal
     {
     }
 
-    public void MarkParsed()
+    public void MarkParsing()
     {
         if (Status != SignalStatus.Received)
         {
-            throw new DomainException($"Invalid transition: Cannot parse signal in {Status} status.");
+            throw new DomainException($"Invalid transition: Cannot set status to Parsing when current status is {Status}.");
+        }
+        Status = SignalStatus.Parsing;
+    }
+
+    public void MarkParsed()
+    {
+        if (Status != SignalStatus.Parsing && Status != SignalStatus.Received)
+        {
+            throw new DomainException($"Invalid transition: Cannot set status to Parsed when current status is {Status}.");
         }
         Status = SignalStatus.Parsed;
     }
 
     public void MarkValidated()
     {
-        if (Status != SignalStatus.Parsed && Status != SignalStatus.Received)
+        if (Status != SignalStatus.Parsed && Status != SignalStatus.Parsing && Status != SignalStatus.Received)
         {
-            throw new DomainException($"Invalid transition: Cannot validate signal in {Status} status.");
+            throw new DomainException($"Invalid transition: Cannot set status to Validated when current status is {Status}.");
         }
         Status = SignalStatus.Validated;
+    }
+
+    public void MarkReadyForRiskEngine()
+    {
+        if (Status != SignalStatus.Validated && Status != SignalStatus.Parsed && Status != SignalStatus.Parsing && Status != SignalStatus.Received)
+        {
+            throw new DomainException($"Invalid transition: Cannot set status to ReadyForRiskEngine when current status is {Status}.");
+        }
+        Status = SignalStatus.ReadyForRiskEngine;
     }
 
     public void MarkRejected()
@@ -154,10 +178,31 @@ public class Signal
 
     public void MarkExecuted()
     {
-        if (Status != SignalStatus.Validated && Status != SignalStatus.Parsed && Status != SignalStatus.Received)
+        if (Status != SignalStatus.ReadyForRiskEngine && Status != SignalStatus.Validated && Status != SignalStatus.Parsed && Status != SignalStatus.Received)
         {
             throw new DomainException($"Invalid transition: Cannot execute signal in {Status} status.");
         }
         Status = SignalStatus.Executed;
+    }
+
+    public void SetValidationResult(string status, string? message, string parserVersion)
+    {
+        ValidationStatus = status;
+        ValidationMessage = message;
+        ParserVersion = parserVersion;
+        ValidatedAt = DateTime.UtcNow;
+    }
+
+    // Setters to allow updating properties during/after parsing
+    public void UpdateParsedDetails(string symbol, OrderSide side, decimal entryPrice, decimal? stopLoss, decimal? takeProfit, int? leverage)
+    {
+        Symbol = symbol?.ToUpperInvariant() ?? Symbol;
+        Side = side;
+        Type = side == OrderSide.Buy ? SignalType.Buy : SignalType.Sell;
+        EntryPrice = entryPrice;
+        Price = entryPrice;
+        StopLoss = stopLoss;
+        TakeProfit = takeProfit;
+        Leverage = leverage;
     }
 }
