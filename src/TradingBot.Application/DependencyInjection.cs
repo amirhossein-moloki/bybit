@@ -23,6 +23,11 @@ public static class DependencyInjection
 
         services.AddScoped<IMessageFilter, MessageFilterService>();
 
+        // Register Signal Storage & Reliability services
+        services.AddSingleton<ISignalStorageMetrics, SignalStorageMetrics>();
+        services.AddSingleton<ISignalStorageQueue, SignalStorageQueue>();
+        services.AddScoped<ISignalStorageService, SignalStorageService>();
+
         return services;
     }
 }

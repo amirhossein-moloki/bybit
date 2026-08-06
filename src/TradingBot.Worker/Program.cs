@@ -60,6 +60,7 @@ try
     builder.Services.AddHostedService<ConnectionMonitorService>();
     builder.Services.AddHostedService<MarketDataBackgroundService>();
     builder.Services.AddHostedService<OrderSyncBackgroundService>();
+    builder.Services.AddHostedService<SignalStorageWorker>();
 
     var app = builder.Build();
 

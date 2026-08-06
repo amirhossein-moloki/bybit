@@ -18,6 +18,8 @@ public class Signal
     public int? Leverage { get; private set; }
     public SignalStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public long? TelegramChannelId { get; private set; }
+    public long? TelegramMessageId { get; private set; }
 
     // Backward compatibility properties
     public SignalType Type { get; private set; }
@@ -84,6 +86,37 @@ public class Signal
         Leverage = leverage;
         Status = SignalStatus.Received;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    // Constructor for Signal Storage Stage
+    public Signal(
+        long telegramChannelId,
+        long telegramMessageId,
+        string rawMessage,
+        string symbol,
+        OrderSide side,
+        DateTime createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            throw new DomainException("Symbol cannot be empty.");
+        }
+
+        Id = Guid.NewGuid();
+        Source = telegramChannelId.ToString();
+        TelegramChannelId = telegramChannelId;
+        TelegramMessageId = telegramMessageId;
+        RawMessage = rawMessage ?? string.Empty;
+        Symbol = symbol.ToUpperInvariant();
+        Side = side;
+        Type = side == OrderSide.Buy ? SignalType.Buy : SignalType.Sell;
+        Status = SignalStatus.Received;
+        CreatedAt = createdAt;
+
+        // Use default positive placeholder values for compatibility with domain validation rules
+        EntryPrice = 1.0m;
+        Price = 1.0m;
+        Quantity = 1.0m;
     }
 
     // Backward compatibility constructor

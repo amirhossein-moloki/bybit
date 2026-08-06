@@ -56,6 +56,10 @@ public class SignalConfiguration : IEntityTypeConfiguration<Signal>
             .HasMaxLength(20)
             .IsRequired();
 
+        // New nullable Telegram IDs
+        builder.Property(x => x.TelegramChannelId);
+        builder.Property(x => x.TelegramMessageId);
+
         // Backward compatibility properties
         builder.Property(x => x.Type)
             .HasConversion<string>()
@@ -80,5 +84,9 @@ public class SignalConfiguration : IEntityTypeConfiguration<Signal>
         builder.HasIndex(x => x.Symbol);
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.CreatedAt);
+
+        // Unique index for duplicate prevention on Telegram Channel ID and Telegram Message ID
+        builder.HasIndex(x => new { x.TelegramChannelId, x.TelegramMessageId })
+            .IsUnique();
     }
 }

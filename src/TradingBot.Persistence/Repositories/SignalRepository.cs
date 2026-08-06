@@ -83,4 +83,11 @@ public class SignalRepository : RepositoryBase<Signal>, ISignalRepository
     {
         return await GetPagedAsync(pageNumber, pageSize, cancellationToken);
     }
+
+    // Duplicate detection check
+    public async Task<bool> ExistsAsync(long channelId, long messageId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Signals
+            .AnyAsync(s => s.TelegramChannelId == channelId && s.TelegramMessageId == messageId, cancellationToken);
+    }
 }
