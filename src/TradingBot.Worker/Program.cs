@@ -54,6 +54,7 @@ try
         options.ApiSecret = settings.Exchange.ApiSecret;
         options.UseSandbox = settings.Exchange.UseSandbox;
     });
+    builder.Services.AddTelegramIntegration(builder.Configuration);
 
     // 4. Background Hosted Services
     builder.Services.AddHostedService<ConnectionMonitorService>();

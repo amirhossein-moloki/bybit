@@ -4,6 +4,7 @@
     <ProjectReference Include="..\TradingBot.Infrastructure\TradingBot.Infrastructure.csproj" />
     <ProjectReference Include="..\TradingBot.Exchange.Bybit\TradingBot.Exchange.Bybit.csproj" />
     <ProjectReference Include="..\TradingBot.Persistence\TradingBot.Persistence.csproj" />
+    <ProjectReference Include="..\TradingBot.Telegram\TradingBot.Telegram.csproj" />
   </ItemGroup>
 
   <ItemGroup>
