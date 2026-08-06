@@ -4,6 +4,7 @@ using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Interfaces;
 using TradingBot.Parser.Pipeline;
 using TradingBot.Parser.Parsers;
+using TradingBot.Parser.Extractors;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,14 @@ public static class ParserDependencyInjection
         {
             services.Configure<ParserOptions>(_ => { });
         }
+
+        // Register individual extractors in sequence
+        services.AddScoped<ISignalExtractor, SymbolExtractor>();
+        services.AddScoped<ISignalExtractor, DirectionExtractor>();
+        services.AddScoped<ISignalExtractor, EntryExtractor>();
+        services.AddScoped<ISignalExtractor, StopLossExtractor>();
+        services.AddScoped<ISignalExtractor, TakeProfitExtractor>();
+        services.AddScoped<ISignalExtractor, LeverageExtractor>();
 
         services.AddScoped<IParserPipeline, SignalParserPipeline>();
         services.AddScoped<ISignalParser, DefaultSignalParser>();

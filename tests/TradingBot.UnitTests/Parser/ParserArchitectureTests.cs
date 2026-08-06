@@ -213,7 +213,7 @@ public class ParserArchitectureTests
     }
 
     [Fact]
-    public async Task SignalParserPipeline_ShouldTranslateUnexpectedExceptionToParserExecutionException()
+    public async Task SignalParserPipeline_ShouldCaptureExtractorExceptionsInSignalErrors()
     {
         // Arrange
         var extractorMock = new Mock<ISignalExtractor>();
@@ -225,13 +225,11 @@ public class ParserArchitectureTests
         var context = new ParserContext(Guid.NewGuid(), "BTCUSDT BUY", "TelegramChannel1", DateTime.UtcNow, "1.0");
 
         // Act
-        Func<Task> act = async () => await pipeline.ExecuteAsync(context);
+        var result = await pipeline.ExecuteAsync(context);
 
         // Assert
-        var exceptionAssertion = await act.Should().ThrowAsync<ParserExecutionException>();
-        exceptionAssertion.WithMessage("An error occurred while executing the parser pipeline.");
-        exceptionAssertion.Which.InnerException.Should().BeOfType<InvalidOperationException>()
-            .Which.Message.Should().Be("Simulated unexpected failure");
+        result.Should().NotBeNull();
+        result.Errors.Should().ContainSingle().Which.Should().Contain("Simulated unexpected failure");
     }
 
     [Fact]
