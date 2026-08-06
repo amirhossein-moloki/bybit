@@ -9,4 +9,5 @@ public interface ITelegramClient
     Task DisconnectAsync();
     bool IsConnected();
     TelegramConnectionState CurrentState { get; }
+    Task InitializeListeningAsync();
 }

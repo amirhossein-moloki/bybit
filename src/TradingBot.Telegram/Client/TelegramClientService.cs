@@ -3,6 +3,8 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Serilog;
+using WTelegram;
+using TL;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Exceptions;
 using TradingBot.Telegram.Interfaces;
@@ -14,9 +16,12 @@ public class TelegramClientService : ITelegramClient, IDisposable
 {
     private readonly TelegramOptions _options;
     private readonly ITelegramSessionManager _sessionManager;
+    private readonly ITelegramMessageReceiver _messageReceiver;
     private readonly ILogger _logger;
     private WTelegram.Client? _client;
+    private WTelegram.UpdateManager? _updateManager;
     private TelegramConnectionState _currentState = TelegramConnectionState.Disconnected;
+    private readonly object _stateLock = new();
     private bool _disposed;
 
     public Func<string>? VerificationCodeProvider { get; set; }
@@ -24,19 +29,37 @@ public class TelegramClientService : ITelegramClient, IDisposable
 
     public TelegramClientService(
         IOptions<TelegramOptions> options,
-        ITelegramSessionManager sessionManager)
+        ITelegramSessionManager sessionManager,
+        ITelegramMessageReceiver messageReceiver)
     {
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+        _messageReceiver = messageReceiver ?? throw new ArgumentNullException(nameof(messageReceiver));
         _logger = Log.ForContext<TelegramClientService>();
     }
 
-    public TelegramConnectionState CurrentState => _currentState;
+    public TelegramConnectionState CurrentState
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _currentState;
+            }
+        }
+    }
 
     public void SetState(TelegramConnectionState state)
     {
-        _currentState = state;
-        _logger.Information("Telegram connection state changed to {State}", state);
+        lock (_stateLock)
+        {
+            var oldState = _currentState;
+            if (oldState != state)
+            {
+                _currentState = state;
+                _logger.Information("Telegram connection state changed from {OldState} to {NewState}", oldState, state);
+            }
+        }
     }
 
     public async Task ConnectAsync()
@@ -67,8 +90,6 @@ public class TelegramClientService : ITelegramClient, IDisposable
             // Connect to Telegram
             await _client.ConnectAsync();
 
-            // Note: LoginUserIfNeeded will be called during AuthenticateAsync inside TelegramAuthService,
-            // but just connecting establishes the socket. WTelegram.Client.ConnectAsync establishes the connection.
             SetState(TelegramConnectionState.Connected);
             _logger.Information("Telegram connected successfully");
         }
@@ -89,6 +110,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
                 _client.Dispose();
                 _client = null;
             }
+            _updateManager = null;
             SetState(TelegramConnectionState.Disconnected);
             _logger.Information("Telegram client disconnected.");
             await Task.CompletedTask;
@@ -103,10 +125,167 @@ public class TelegramClientService : ITelegramClient, IDisposable
 
     public bool IsConnected()
     {
-        return _currentState == TelegramConnectionState.Connected && _client != null;
+        lock (_stateLock)
+        {
+            return (_currentState == TelegramConnectionState.Connected || _currentState == TelegramConnectionState.Listening) && _client != null;
+        }
+    }
+
+    public async Task InitializeListeningAsync()
+    {
+        if (_client == null)
+        {
+            throw new TelegramConnectionException("WTelegram client is not initialized.");
+        }
+
+        _logger.Information("Subscribing to Telegram updates using UpdateManager...");
+
+        // Use WithUpdateManager to subscribe to update events
+        _updateManager = _client.WithUpdateManager(OnUpdateCallback);
+
+        // Fetch dialogs to populate UpdateManager.Users and UpdateManager.Chats cache
+        _logger.Information("Fetching Telegram dialogs to populate update manager cache...");
+        var dialogs = await _client.Messages_GetAllDialogs();
+        dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
+        _logger.Information("Loaded and cached {ChatCount} chats from Telegram dialogs.", _updateManager.Chats.Count);
     }
 
     public WTelegram.Client? UnderlyingClient => _client;
+
+    private async Task OnUpdateCallback(TL.Update update)
+    {
+        try
+        {
+            switch (update)
+            {
+                case TL.UpdateNewMessage unm:
+                    await HandleMessageBaseAsync(unm.message, update);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Error handling Telegram update of type {UpdateType}", update.GetType().Name);
+        }
+    }
+
+    private async Task HandleMessageBaseAsync(TL.MessageBase messageBase, TL.Update rawUpdate)
+    {
+        if (messageBase is not TL.Message m)
+        {
+            return; // Ignore MessageEmpty or MessageService
+        }
+
+        // Ignore edited or deleted messages (this is only for new messages)
+        // Ignore media-only events (i.e. message text is empty)
+        if (string.IsNullOrWhiteSpace(m.message))
+        {
+            _logger.Debug("Ignoring empty or media-only message ID {MessageId}", m.id);
+            return;
+        }
+
+        if (_updateManager == null)
+        {
+            _logger.Warning("Update manager is not initialized. Cannot resolve chat info.");
+            return;
+        }
+
+        var peerInfo = _updateManager.UserOrChat(m.peer_id);
+        if (peerInfo == null)
+        {
+            _logger.Warning("Could not resolve peer info for Peer {PeerId}", m.peer_id?.ID);
+            return;
+        }
+
+        if (peerInfo is not TL.ChatBase chat)
+        {
+            // Ignore direct messages (User peer) since we only monitor channels and groups
+            return;
+        }
+
+        // Check if the chat is monitored (Subscription Filter)
+        if (!IsChannelMonitored(chat))
+        {
+            // Ignore unknown/unmonitored chats
+            return;
+        }
+
+        bool isChannel = false;
+        bool isGroup = false;
+        string channelName = chat.Title ?? string.Empty;
+
+        if (chat is TL.Channel tlChannel)
+        {
+            isChannel = tlChannel.IsChannel;
+            isGroup = tlChannel.IsGroup;
+            if (!string.IsNullOrEmpty(tlChannel.username))
+            {
+                channelName = tlChannel.username;
+            }
+        }
+        else if (chat is TL.Chat tlChat)
+        {
+            isChannel = false;
+            isGroup = true;
+        }
+
+        var dto = new TelegramMessageDto
+        {
+            ChannelId = chat.ID,
+            ChannelName = channelName,
+            MessageId = m.id,
+            SenderId = m.from_id?.ID ?? 0,
+            Text = m.message,
+            Date = m.date.ToUniversalTime(),
+            IsChannel = isChannel,
+            IsGroup = isGroup,
+            RawUpdate = rawUpdate?.GetType().Name ?? "UpdateNewMessage"
+        };
+
+        _logger.Information("Telegram Message Received: ID {MessageId} from channel {ChannelName} (ID: {ChannelId})", dto.MessageId, dto.ChannelName, dto.ChannelId);
+
+        // Pass to message receiver
+        await _messageReceiver.ReceiveMessageAsync(dto);
+    }
+
+    private bool IsChannelMonitored(TL.ChatBase chat)
+    {
+        if (chat == null) return false;
+
+        var monitoredChannels = _options.Channels;
+        if (monitoredChannels == null || monitoredChannels.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var configuredChannel in monitoredChannels)
+        {
+            if (string.IsNullOrWhiteSpace(configuredChannel)) continue;
+
+            // 1. Check ID match
+            if (long.TryParse(configuredChannel, out var parsedId))
+            {
+                if (chat.ID == parsedId) return true;
+            }
+
+            // 2. Check title match
+            if (!string.IsNullOrEmpty(chat.Title) &&
+                chat.Title.Equals(configuredChannel, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // 3. Check username match (if it is a Channel)
+            if (chat is TL.Channel tlChannel &&
+                !string.IsNullOrEmpty(tlChannel.username) &&
+                tlChannel.username.Equals(configuredChannel, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private string? ConfigProvider(string what)
     {

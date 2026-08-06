@@ -7,5 +7,7 @@ public enum TelegramConnectionState
     Connected,
     Authenticating,
     AuthenticationFailed,
+    Listening,
+    Reconnecting,
     Error
 }

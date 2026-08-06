@@ -44,8 +44,11 @@ public static class DependencyInjection
         });
 
         services.AddSingleton<ITelegramSessionManager, TelegramSessionManager>();
+        services.AddSingleton<ITelegramMessageReceiver, DefaultTelegramMessageReceiver>();
         services.AddSingleton<ITelegramClient, TelegramClientService>();
         services.AddSingleton<ITelegramAuthenticationService, TelegramAuthService>();
+
+        services.AddHostedService<TelegramListenerWorker>();
 
         services.AddHealthChecks().AddCheck<TelegramHealthCheck>("Telegram");
 
