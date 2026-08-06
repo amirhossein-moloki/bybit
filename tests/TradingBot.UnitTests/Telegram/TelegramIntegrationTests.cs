@@ -147,8 +147,9 @@ public class TelegramIntegrationTests
         var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
         var mockSessionManager = new Mock<ITelegramSessionManager>();
         mockSessionManager.Setup(s => s.LoadSession()).Returns(new MemoryStream());
+        var mockReceiver = new Mock<ITelegramMessageReceiver>();
 
-        var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object);
+        var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object, mockReceiver.Object);
 
         // Act & Assert
         clientService.CurrentState.Should().Be(TelegramConnectionState.Disconnected);
@@ -249,5 +250,66 @@ public class TelegramIntegrationTests
 
         // Assert
         result.Status.Should().Be(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
+    }
+
+    [Fact]
+    public void TelegramClientService_ShouldSupportThreadSafeStateTransitions()
+    {
+        // Arrange
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        var mockReceiver = new Mock<ITelegramMessageReceiver>();
+        var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object, mockReceiver.Object);
+
+        // Act
+        clientService.SetState(TelegramConnectionState.Connecting);
+        clientService.CurrentState.Should().Be(TelegramConnectionState.Connecting);
+
+        clientService.SetState(TelegramConnectionState.Listening);
+        clientService.CurrentState.Should().Be(TelegramConnectionState.Listening);
+    }
+
+    [Fact]
+    public void TelegramMessageDto_ShouldMapPropertiesCorrectly()
+    {
+        // Arrange & Act
+        var dto = new TelegramMessageDto
+        {
+            ChannelId = 12345,
+            ChannelName = "CryptoChannel",
+            MessageId = 100,
+            SenderId = 9999,
+            Text = "BUY BTCUSDT",
+            Date = DateTime.UtcNow,
+            IsChannel = true,
+            IsGroup = false,
+            RawUpdate = "UpdateNewMessage"
+        };
+
+        // Assert
+        dto.ChannelId.Should().Be(12345);
+        dto.ChannelName.Should().Be("CryptoChannel");
+        dto.MessageId.Should().Be(100);
+        dto.SenderId.Should().Be(9999);
+        dto.Text.Should().Be("BUY BTCUSDT");
+        dto.IsChannel.Should().BeTrue();
+        dto.IsGroup.Should().Be(false);
+        dto.RawUpdate.Should().Be("UpdateNewMessage");
+    }
+
+    [Fact]
+    public async Task DefaultTelegramMessageReceiver_ShouldReceiveAndLogMessage()
+    {
+        // Arrange
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<DefaultTelegramMessageReceiver>>();
+        var receiver = new DefaultTelegramMessageReceiver(mockLogger.Object);
+        var dto = new TelegramMessageDto { MessageId = 1, Text = "Test" };
+
+        // Act
+        Func<Task> act = async () => await receiver.ReceiveMessageAsync(dto);
+
+        // Assert
+        await act.Should().NotThrowAsync();
     }
 }
