@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -42,9 +43,51 @@ public class DefaultSignalParser : ISignalParser
         {
             var parsedSignal = await _pipeline.ExecuteAsync(context);
 
+            // Compile missing data warnings
+            if (parsedSignal.Symbol == null)
+            {
+                parsedSignal.Warnings.Add("Symbol not detected");
+            }
+            if (parsedSignal.Side == null)
+            {
+                parsedSignal.Warnings.Add("Direction not detected");
+            }
+            if (parsedSignal.EntryPrice == null)
+            {
+                parsedSignal.Warnings.Add("Entry not detected");
+            }
+            if (parsedSignal.StopLoss == null)
+            {
+                parsedSignal.Warnings.Add("Stop loss not detected");
+            }
+            if (parsedSignal.TakeProfits == null || !parsedSignal.TakeProfits.Any())
+            {
+                parsedSignal.Warnings.Add("Take profits not detected");
+            }
+            if (parsedSignal.Leverage == null)
+            {
+                parsedSignal.Warnings.Add("Leverage not detected");
+            }
+
+            // Log warnings safely
+            foreach (var warning in parsedSignal.Warnings)
+            {
+                _logger.LogWarning("Extractor Warning: {Warning}", warning);
+            }
+
             _logger.LogInformation("Parsing Completed for SignalId: {SignalId}", context.SignalId);
 
-            return ParserResult.SuccessResult(parsedSignal, context.ParserVersion);
+            // If there are extraction errors, return Failure ParserResult
+            if (parsedSignal.Errors.Any())
+            {
+                return ParserResult.Failure(
+                    parsedSignal.Errors,
+                    context.ParserVersion,
+                    parsedSignal.Warnings
+                );
+            }
+
+            return ParserResult.SuccessResult(parsedSignal, context.ParserVersion, parsedSignal.Warnings);
         }
         catch (ParserException ex)
         {

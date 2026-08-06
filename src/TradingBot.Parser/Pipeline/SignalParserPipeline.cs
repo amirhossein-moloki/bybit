@@ -43,23 +43,30 @@ public class SignalParserPipeline : IParserPipeline
 
         var signal = new ParsedSignal();
 
-        try
+        foreach (var extractor in _extractors)
         {
-            foreach (var extractor in _extractors)
+            var extractorName = extractor.GetType().Name;
+            _logger.LogInformation("Extractor Started: {ExtractorName}", extractorName);
+
+            try
             {
-                _logger.LogDebug("Executing extractor {ExtractorName} for SignalId: {SignalId}", extractor.GetType().Name, context.SignalId);
                 await extractor.ExtractAsync(context, signal);
+
+                // Log allowed extraction information safely
+                if (extractorName == "SymbolExtractor" && signal.Symbol != null)
+                {
+                    _logger.LogInformation("Symbol Extracted: {Symbol}", signal.Symbol);
+                }
+                else if (extractorName == "EntryExtractor" && signal.EntryPrice != null)
+                {
+                    _logger.LogInformation("Price Extracted: {Price}", signal.EntryPrice);
+                }
             }
-        }
-        catch (ParserException)
-        {
-            // Rethrow parser exceptions directly
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error occurred during extractor pipeline execution for SignalId: {SignalId}", context.SignalId);
-            throw new ParserExecutionException("An error occurred while executing the parser pipeline.", ex);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Extractor {ExtractorName} failed for SignalId: {SignalId}", extractorName, context.SignalId);
+                signal.Errors.Add($"Extractor {extractorName} failed: {ex.Message}");
+            }
         }
 
         _logger.LogInformation("Pipeline execution completed for SignalId: {SignalId}", context.SignalId);

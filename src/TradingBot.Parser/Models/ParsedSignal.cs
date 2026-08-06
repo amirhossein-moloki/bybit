@@ -12,4 +12,7 @@ public class ParsedSignal
     public List<decimal> TakeProfits { get; set; } = new();
     public int? Leverage { get; set; }
     public double? ConfidenceScore { get; set; }
+
+    public List<string> Errors { get; } = new();
+    public List<string> Warnings { get; } = new();
 }
