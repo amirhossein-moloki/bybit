@@ -12,6 +12,8 @@ using Moq;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Streams;
 using TradingBot.Persistence.Context;
+using TradingBot.Telegram.Interfaces;
+using TradingBot.Telegram.Models;
 using TradingBot.Worker;
 
 namespace TradingBot.IntegrationTests;
@@ -67,6 +69,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton(mockExchangeClient.Object);
 
             services.AddSingleton<IExchangeStreamClient, FakeExchangeStreamClient>();
+
+            var mockTelegramClient = new Mock<ITelegramClient>();
+            mockTelegramClient.Setup(x => x.CurrentState).Returns(TelegramConnectionState.Connected);
+            services.AddSingleton(mockTelegramClient.Object);
 
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));
             if (descriptor != null)
