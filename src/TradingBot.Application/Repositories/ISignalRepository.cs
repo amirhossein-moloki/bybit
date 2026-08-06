@@ -19,4 +19,7 @@ public interface ISignalRepository : IRepository<Signal>
 
     // Pagination for Signal as requested by Stage 03 Section 9
     Task<PagedResult<Signal>> GetPagedSignalsAsync(int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+
+    // Duplicate detection check
+    Task<bool> ExistsAsync(long channelId, long messageId, CancellationToken cancellationToken = default);
 }
