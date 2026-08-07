@@ -185,6 +185,31 @@ public class Signal
         Status = SignalStatus.Executed;
     }
 
+    public void MarkRiskEvaluationStarted()
+    {
+        Status = SignalStatus.RiskEvaluationStarted;
+    }
+
+    public void MarkRiskEvaluated()
+    {
+        Status = SignalStatus.RiskEvaluated;
+    }
+
+    public void MarkTradeApproved()
+    {
+        Status = SignalStatus.TradeApproved;
+    }
+
+    public void MarkTradeRejected()
+    {
+        Status = SignalStatus.TradeRejected;
+    }
+
+    public void MarkManualReview()
+    {
+        Status = SignalStatus.ManualReview;
+    }
+
     public void SetValidationResult(string status, string? message, string parserVersion)
     {
         ValidationStatus = status;

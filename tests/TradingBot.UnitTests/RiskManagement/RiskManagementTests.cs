@@ -18,6 +18,7 @@ using TradingBot.Domain.RiskManagement.Enums;
 using TradingBot.Domain.RiskManagement.ValueObjects;
 using TradingBot.Infrastructure.RiskManagement.Services;
 using Xunit;
+using TradeDecision = TradingBot.Domain.RiskManagement.ValueObjects.TradeDecision;
 
 namespace TradingBot.UnitTests.RiskManagement;
 
@@ -164,7 +165,7 @@ public class RiskManagementTests
     [Theory]
     [InlineData(RiskRuleSeverity.Warning)]
     [InlineData(RiskRuleSeverity.Info)]
-    public void RiskDecisionService_ShouldReturnNeedsReview_WhenNoHighCriticalFailedButMediumOrLowFails(RiskRuleSeverity severity)
+    public void RiskDecisionService_ShouldReturnApproved_WhenNoHighCriticalFailedButMediumOrLowFails(RiskRuleSeverity severity)
     {
         // Arrange
         var service = new RiskDecisionService();
@@ -178,8 +179,8 @@ public class RiskManagementTests
         var decision = service.CreateDecision(results);
 
         // Assert
-        decision.NeedsReview.Should().BeTrue();
-        decision.Decision.Should().Be(RiskDecisionStatus.NeedsReview);
+        decision.Approved.Should().BeTrue();
+        decision.Decision.Should().Be(RiskDecisionStatus.Approved);
         decision.Reason.Should().Contain("Moderate exposure warning");
     }
 

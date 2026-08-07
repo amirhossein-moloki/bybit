@@ -48,6 +48,8 @@ public static class DependencyInjection
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
         services.AddScoped<ISystemLogRepository, SystemLogRepository>();
         services.AddScoped<IRiskEvaluationRepository, RiskEvaluationRepository>();
+        services.AddScoped<IRiskProfileRepository, RiskProfileRepository>();
+        services.AddScoped<ITradeDecisionRepository, TradeDecisionRepository>();
         services.AddScoped<TradingBot.Domain.Repositories.IParserTemplateRepository, ParserTemplateRepository>();
         services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
 
