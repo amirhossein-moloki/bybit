@@ -6,9 +6,12 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
+using TradingBot.Application.Repositories;
 using TradingBot.Application.RiskManagement.Interfaces;
 using TradingBot.Application.RiskManagement.Models;
 using TradingBot.Application.RiskManagement.Services;
+using TradingBot.Application.RiskManagement.Calculators;
+using TradingBot.Application.RiskManagement.Configuration;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.RiskManagement.Entities;
 using TradingBot.Domain.RiskManagement.Enums;
@@ -189,7 +192,16 @@ public class RiskManagementTests
         var options = Options.Create(new RiskManagementOptions { Enabled = true });
         var decisionServiceMock = new Mock<IRiskDecisionService>();
 
-        var context = new TradeRiskContext { SignalId = Guid.NewGuid(), Symbol = "BTCUSDT" };
+        var context = new TradeRiskContext
+        {
+            SignalId = Guid.NewGuid(),
+            Symbol = "BTCUSDT",
+            Side = OrderSide.Buy,
+            EntryPrice = 45000m,
+            StopLoss = 44000m,
+            TakeProfits = new List<decimal> { 47000m },
+            AccountBalance = 10000m
+        };
 
         var mockRule1 = new Mock<IRiskRule>();
         mockRule1.Setup(r => r.EvaluateAsync(context))
@@ -201,8 +213,22 @@ public class RiskManagementTests
         decisionServiceMock.Setup(d => d.CreateDecision(It.IsAny<IEnumerable<RiskRuleResult>>()))
             .Returns(expectedDecision);
 
+        var riskCalcMock = new Mock<RiskAmountCalculator>();
+        var slCalcMock = new Mock<StopLossDistanceCalculator>();
+        var posCalcMock = new Mock<PositionSizeCalculator>(riskCalcMock.Object, slCalcMock.Object, Options.Create(new RiskCalculationOptions()));
+        var rrCalcMock = new Mock<RiskRewardCalculator>(Options.Create(new RiskCalculationOptions()));
+        var calcServiceMock = new Mock<RiskCalculationService>(
+            riskCalcMock.Object,
+            slCalcMock.Object,
+            posCalcMock.Object,
+            rrCalcMock.Object,
+            Options.Create(new RiskCalculationOptions())
+        );
+        var evaluationRepoMock = new Mock<IRiskEvaluationRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+
         // Act
-        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules);
+        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules, calcServiceMock.Object, evaluationRepoMock.Object, uowMock.Object);
         var decision = await engine.EvaluateAsync(context);
 
         // Assert
@@ -248,8 +274,22 @@ public class RiskManagementTests
 
         var context = new TradeRiskContext { SignalId = Guid.NewGuid(), Symbol = "BTCUSDT" };
 
+        var riskCalcMock = new Mock<RiskAmountCalculator>();
+        var slCalcMock = new Mock<StopLossDistanceCalculator>();
+        var posCalcMock = new Mock<PositionSizeCalculator>(riskCalcMock.Object, slCalcMock.Object, Options.Create(new RiskCalculationOptions()));
+        var rrCalcMock = new Mock<RiskRewardCalculator>(Options.Create(new RiskCalculationOptions()));
+        var calcServiceMock = new Mock<RiskCalculationService>(
+            riskCalcMock.Object,
+            slCalcMock.Object,
+            posCalcMock.Object,
+            rrCalcMock.Object,
+            Options.Create(new RiskCalculationOptions())
+        );
+        var evaluationRepoMock = new Mock<IRiskEvaluationRepository>();
+        var uowMock = new Mock<IUnitOfWork>();
+
         // Act
-        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules);
+        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules, calcServiceMock.Object, evaluationRepoMock.Object, uowMock.Object);
         var decision = await engine.EvaluateAsync(context);
 
         // Assert
