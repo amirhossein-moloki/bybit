@@ -17,14 +17,11 @@ public class RiskEvaluation
     public string Reason { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // Extended Audit/Engine properties for Phase 05 Stage 03 - marked as [NotMapped] to preserve database schema integrity
-    [NotMapped]
+    // Extended Audit/Engine properties for Phase 05 Stage 04 - persistent in database
     public IReadOnlyList<string> ExecutedRules { get; set; } = Array.Empty<string>();
 
-    [NotMapped]
     public IReadOnlyList<string> PassedRules { get; set; } = Array.Empty<string>();
 
-    [NotMapped]
     public IReadOnlyList<string> FailedRules { get; set; } = Array.Empty<string>();
 
     [NotMapped]
@@ -33,10 +30,8 @@ public class RiskEvaluation
     [NotMapped]
     public IReadOnlyList<string> Errors { get; set; } = Array.Empty<string>();
 
-    [NotMapped]
     public TimeSpan ExecutionTime { get; set; }
 
-    [NotMapped]
     public RiskLevel RiskLevel { get; set; }
 
     public RiskEvaluation()

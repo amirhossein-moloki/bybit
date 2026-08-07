@@ -8,5 +8,10 @@ public enum SignalStatus
     Validated,
     ReadyForRiskEngine,
     Rejected,
-    Executed
+    Executed,
+    RiskEvaluationStarted,
+    RiskEvaluated,
+    TradeApproved,
+    TradeRejected,
+    ManualReview
 }

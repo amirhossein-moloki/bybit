@@ -6,6 +6,7 @@ using TradingBot.Application.RiskManagement.Services;
 using TradingBot.Application.RiskManagement.Configuration;
 using TradingBot.Application.RiskManagement.Engine;
 using TradingBot.Application.RiskManagement.Rules;
+using TradingBot.Application.RiskManagement.Workflow;
 using TradingBot.Infrastructure.RiskManagement.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,8 @@ public static class RiskManagementDependencyInjection
         // Register core Risk Engine and Support Services
         services.AddScoped<IRiskEngine, RiskEngineService>();
         services.AddScoped<IRiskDecisionService, RiskDecisionService>();
+        services.AddScoped<IRiskAuditService, RiskAuditService>();
+        services.AddScoped<ITradeDecisionWorkflow, TradeDecisionWorkflow>();
 
         // Register Calculators
         services.AddScoped<RiskAmountCalculator>();

@@ -41,6 +41,38 @@ public class RiskEvaluationConfiguration : IEntityTypeConfiguration<RiskEvaluati
             .HasMaxLength(1000)
             .IsRequired();
 
+        builder.Property(x => x.RiskLevel)
+            .HasConversion<string>()
+            .HasMaxLength(50)
+            .IsRequired();
+
+        builder.Property(x => x.ExecutedRules)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new System.Collections.Generic.List<string>()
+            )
+            .HasColumnType("text")
+            .IsRequired();
+
+        builder.Property(x => x.PassedRules)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new System.Collections.Generic.List<string>()
+            )
+            .HasColumnType("text")
+            .IsRequired();
+
+        builder.Property(x => x.FailedRules)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new System.Collections.Generic.List<string>()
+            )
+            .HasColumnType("text")
+            .IsRequired();
+
+        builder.Property(x => x.ExecutionTime)
+            .IsRequired();
+
         builder.Property(x => x.CreatedAt)
             .HasColumnType("timestamp with time zone")
             .HasDefaultValueSql("CURRENT_TIMESTAMP")

@@ -18,6 +18,8 @@ public class TradingDbContext : DbContext
     public DbSet<SystemLog> SystemLogs { get; set; } = null!;
     public DbSet<ParserTemplates> ParserTemplates { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> RiskEvaluations { get; set; } = null!;
+    public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskProfile> RiskProfiles { get; set; } = null!;
+    public DbSet<TradingBot.Domain.RiskManagement.Entities.TradeDecision> TradeDecisions { get; set; } = null!;
 
     public TradingDbContext(DbContextOptions<TradingDbContext> options) : base(options)
     {

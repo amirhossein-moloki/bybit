@@ -9,6 +9,7 @@ using TradingBot.Domain.RiskManagement.Entities;
 using TradingBot.Domain.RiskManagement.Enums;
 using TradingBot.Domain.RiskManagement.ValueObjects;
 using TradingBot.Application.RiskManagement.Configuration;
+using TradeDecision = TradingBot.Domain.RiskManagement.ValueObjects.TradeDecision;
 
 namespace TradingBot.Infrastructure.RiskManagement.Services;
 
