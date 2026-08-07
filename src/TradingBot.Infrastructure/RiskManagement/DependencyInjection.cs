@@ -4,7 +4,8 @@ using TradingBot.Application.RiskManagement.Calculators;
 using TradingBot.Application.RiskManagement.Interfaces;
 using TradingBot.Application.RiskManagement.Services;
 using TradingBot.Application.RiskManagement.Configuration;
-using TradingBot.Infrastructure.RiskManagement.Configuration;
+using TradingBot.Application.RiskManagement.Engine;
+using TradingBot.Application.RiskManagement.Rules;
 using TradingBot.Infrastructure.RiskManagement.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -35,6 +36,21 @@ public static class RiskManagementDependencyInjection
         services.AddScoped<PositionSizeCalculator>();
         services.AddScoped<RiskRewardCalculator>();
         services.AddScoped<RiskCalculationService>();
+
+        // Register Rule Engine Components
+        services.AddScoped<RiskRuleExecutor>();
+        services.AddScoped<IRiskRuleEngine, RiskRuleEngine>();
+
+        // Register Risk Rules
+        services.AddScoped<IRiskRule, MaxRiskPerTradeRule>();
+        services.AddScoped<IRiskRule, MaxOpenPositionsRule>();
+        services.AddScoped<IRiskRule, MaximumLeverageRule>();
+        services.AddScoped<IRiskRule, MaximumExposureRule>();
+        services.AddScoped<IRiskRule, DailyLossRule>();
+        services.AddScoped<IRiskRule, DrawdownRule>();
+        services.AddScoped<IRiskRule, DuplicatePositionRule>();
+        services.AddScoped<IRiskRule, RiskRewardRule>();
+        services.AddScoped<IRiskRule, MarginAvailabilityRule>();
 
         return services;
     }

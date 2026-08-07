@@ -9,6 +9,9 @@ using Microsoft.EntityFrameworkCore;
 using TradingBot.Application.Repositories;
 using TradingBot.Application.RiskManagement.Interfaces;
 using TradingBot.Application.RiskManagement.Services;
+using TradingBot.Application.RiskManagement.Engine;
+using TradingBot.Application.RiskManagement.Rules;
+using TradingBot.Application.RiskManagement.Configuration;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.RiskManagement.Entities;
 using TradingBot.Domain.RiskManagement.Enums;
@@ -82,22 +85,31 @@ public class RiskEngineIntegrationTests : IAsyncLifetime
             options
         );
 
-        var engineOptions = Microsoft.Extensions.Options.Options.Create(new TradingBot.Infrastructure.RiskManagement.Configuration.RiskManagementOptions
+        var engineOptions = Microsoft.Extensions.Options.Options.Create(new TradingBot.Application.RiskManagement.Configuration.RiskManagementOptions
         {
-            Enabled = true
+            Enabled = true,
+            DefaultProfile = "Balanced"
         });
 
         var decisionService = new RiskDecisionService();
+        var ruleExecutor = new RiskRuleExecutor(Microsoft.Extensions.Logging.Abstractions.NullLogger<RiskRuleExecutor>.Instance);
         var rules = Enumerable.Empty<IRiskRule>();
+
+        var ruleEngine = new RiskRuleEngine(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RiskRuleEngine>.Instance,
+            engineOptions,
+            rules,
+            ruleExecutor,
+            decisionService,
+            calcService
+        );
 
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<TradingBot.Infrastructure.RiskManagement.Services.RiskEngineService>.Instance;
 
         var riskEngine = new TradingBot.Infrastructure.RiskManagement.Services.RiskEngineService(
             logger,
             engineOptions,
-            decisionService,
-            rules,
-            calcService,
+            ruleEngine,
             evaluationRepo,
             uow
         );
@@ -133,6 +145,99 @@ public class RiskEngineIntegrationTests : IAsyncLifetime
         savedEvaluation.RiskReward.Should().Be(3.5m); // Avg TP = 63500. Distance = 3500. SL distance = 1000. RR = 3.5
         savedEvaluation.Exposure.Should().Be(12000m); // 0.2 * 60000 = 12000
         savedEvaluation.Decision.Should().Be(RiskDecisionStatus.Approved);
-        savedEvaluation.Reason.Should().Be("Risk calculation completed successfully.");
+        savedEvaluation.Reason.Should().Be("No risk rules executed.");
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ShouldEvaluateRulesAndAggregateResults_WhenRulesFail()
+    {
+        // Arrange
+        var context = _dbContext!;
+        var uow = new UnitOfWork(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<UnitOfWork>.Instance);
+        var evaluationRepo = new RiskEvaluationRepository(context);
+
+        var options = Microsoft.Extensions.Options.Options.Create(new TradingBot.Application.RiskManagement.Configuration.RiskCalculationOptions
+        {
+            DefaultRiskPercent = 2.0m,
+            RoundingPrecision = 8
+        });
+
+        var riskAmountCalc = new TradingBot.Application.RiskManagement.Calculators.RiskAmountCalculator();
+        var stopLossDistanceCalc = new TradingBot.Application.RiskManagement.Calculators.StopLossDistanceCalculator();
+        var positionSizeCalc = new TradingBot.Application.RiskManagement.Calculators.PositionSizeCalculator(riskAmountCalc, stopLossDistanceCalc, options);
+        var riskRewardCalc = new TradingBot.Application.RiskManagement.Calculators.RiskRewardCalculator(options);
+
+        var calcService = new RiskCalculationService(
+            riskAmountCalc,
+            stopLossDistanceCalc,
+            positionSizeCalc,
+            riskRewardCalc,
+            options
+        );
+
+        var engineOptions = Microsoft.Extensions.Options.Options.Create(new TradingBot.Application.RiskManagement.Configuration.RiskManagementOptions
+        {
+            Enabled = true,
+            DefaultProfile = "Balanced",
+            MaximumLeverage = 5, // We set leverage limit to 5
+            AutoReduceLeverage = false
+        });
+
+        var decisionService = new RiskDecisionService();
+        var ruleExecutor = new RiskRuleExecutor(Microsoft.Extensions.Logging.Abstractions.NullLogger<RiskRuleExecutor>.Instance);
+
+        // Pass a leverage rule that is guaranteed to fail
+        var rules = new List<IRiskRule>
+        {
+            new MaximumLeverageRule(engineOptions)
+        };
+
+        var ruleEngine = new RiskRuleEngine(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RiskRuleEngine>.Instance,
+            engineOptions,
+            rules,
+            ruleExecutor,
+            decisionService,
+            calcService
+        );
+
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<TradingBot.Infrastructure.RiskManagement.Services.RiskEngineService>.Instance;
+
+        var riskEngine = new TradingBot.Infrastructure.RiskManagement.Services.RiskEngineService(
+            logger,
+            engineOptions,
+            ruleEngine,
+            evaluationRepo,
+            uow
+        );
+
+        var signalId = Guid.NewGuid();
+        var tradeRiskContext = new TradeRiskContext
+        {
+            SignalId = signalId,
+            Symbol = "BTCUSDT",
+            Side = OrderSide.Buy,
+            EntryPrice = 60000m,
+            StopLoss = 59000m,
+            TakeProfits = new List<decimal> { 62000m },
+            Leverage = 10, // Exceeds limit 5
+            AccountBalance = 10000m,
+            OpenPositions = 0,
+            DailyPnL = 0m,
+            CurrentExposure = 0m
+        };
+
+        // Act
+        var decision = await riskEngine.EvaluateAsync(tradeRiskContext);
+
+        // Assert
+        decision.Should().NotBeNull();
+        decision.Decision.Should().Be(RiskDecisionStatus.Rejected);
+        decision.Reason.Should().Contain("exceeds the maximum allowed limit");
+
+        // Verify database entry
+        var savedEvaluation = await context.RiskEvaluations.FirstOrDefaultAsync(e => e.SignalId == signalId);
+        savedEvaluation.Should().NotBeNull();
+        savedEvaluation!.Decision.Should().Be(RiskDecisionStatus.Rejected);
     }
 }

@@ -16,7 +16,6 @@ using TradingBot.Domain.Enums;
 using TradingBot.Domain.RiskManagement.Entities;
 using TradingBot.Domain.RiskManagement.Enums;
 using TradingBot.Domain.RiskManagement.ValueObjects;
-using TradingBot.Infrastructure.RiskManagement.Configuration;
 using TradingBot.Infrastructure.RiskManagement.Services;
 using Xunit;
 
@@ -127,8 +126,8 @@ public class RiskManagementTests
         var service = new RiskDecisionService();
         var results = new List<RiskRuleResult>
         {
-            new() { RuleName = "Rule1", Passed = true, Severity = RiskLevel.Low, Message = "Passed" },
-            new() { RuleName = "Rule2", Passed = true, Severity = RiskLevel.High, Message = "Passed" }
+            new() { RuleName = "Rule1", Passed = true, Severity = RiskRuleSeverity.Info, Message = "Passed" },
+            new() { RuleName = "Rule2", Passed = true, Severity = RiskRuleSeverity.Critical, Message = "Passed" }
         };
 
         // Act
@@ -141,15 +140,15 @@ public class RiskManagementTests
     }
 
     [Theory]
-    [InlineData(RiskLevel.Critical)]
-    [InlineData(RiskLevel.High)]
-    public void RiskDecisionService_ShouldReturnRejected_WhenAnyHighOrCriticalRuleFails(RiskLevel severity)
+    [InlineData(RiskRuleSeverity.Critical)]
+    [InlineData(RiskRuleSeverity.Error)]
+    public void RiskDecisionService_ShouldReturnRejected_WhenAnyHighOrCriticalRuleFails(RiskRuleSeverity severity)
     {
         // Arrange
         var service = new RiskDecisionService();
         var results = new List<RiskRuleResult>
         {
-            new() { RuleName = "Rule1", Passed = true, Severity = RiskLevel.Low, Message = "Passed" },
+            new() { RuleName = "Rule1", Passed = true, Severity = RiskRuleSeverity.Info, Message = "Passed" },
             new() { RuleName = "Rule2", Passed = false, Severity = severity, Message = "Leverage exceeded limit" }
         };
 
@@ -163,15 +162,15 @@ public class RiskManagementTests
     }
 
     [Theory]
-    [InlineData(RiskLevel.Medium)]
-    [InlineData(RiskLevel.Low)]
-    public void RiskDecisionService_ShouldReturnNeedsReview_WhenNoHighCriticalFailedButMediumOrLowFails(RiskLevel severity)
+    [InlineData(RiskRuleSeverity.Warning)]
+    [InlineData(RiskRuleSeverity.Info)]
+    public void RiskDecisionService_ShouldReturnNeedsReview_WhenNoHighCriticalFailedButMediumOrLowFails(RiskRuleSeverity severity)
     {
         // Arrange
         var service = new RiskDecisionService();
         var results = new List<RiskRuleResult>
         {
-            new() { RuleName = "Rule1", Passed = true, Severity = RiskLevel.High, Message = "Passed" },
+            new() { RuleName = "Rule1", Passed = true, Severity = RiskRuleSeverity.Error, Message = "Passed" },
             new() { RuleName = "Rule2", Passed = false, Severity = severity, Message = "Moderate exposure warning" }
         };
 
@@ -190,7 +189,6 @@ public class RiskManagementTests
         // Arrange
         var loggerMock = new Mock<ILogger<RiskEngineService>>();
         var options = Options.Create(new RiskManagementOptions { Enabled = true });
-        var decisionServiceMock = new Mock<IRiskDecisionService>();
 
         var context = new TradeRiskContext
         {
@@ -203,36 +201,29 @@ public class RiskManagementTests
             AccountBalance = 10000m
         };
 
-        var mockRule1 = new Mock<IRiskRule>();
-        mockRule1.Setup(r => r.EvaluateAsync(context))
-            .ReturnsAsync(new RiskRuleResult { RuleName = "Rule1", Passed = true, Severity = RiskLevel.Low });
+        var ruleEngineMock = new Mock<IRiskRuleEngine>();
+        ruleEngineMock.Setup(r => r.EvaluateAsync(context))
+            .ReturnsAsync(new RiskEvaluation
+            {
+                SignalId = context.SignalId,
+                Decision = RiskDecisionStatus.Approved,
+                Reason = "Passed in mock",
+                ExecutedRules = new[] { "Rule1" },
+                PassedRules = new[] { "Rule1" },
+                FailedRules = Array.Empty<string>(),
+                RiskLevel = RiskLevel.Low
+            });
 
-        var rules = new List<IRiskRule> { mockRule1.Object };
-
-        var expectedDecision = new TradeDecision { Decision = RiskDecisionStatus.Approved, Reason = "Passed in mock" };
-        decisionServiceMock.Setup(d => d.CreateDecision(It.IsAny<IEnumerable<RiskRuleResult>>()))
-            .Returns(expectedDecision);
-
-        var riskCalcMock = new Mock<RiskAmountCalculator>();
-        var slCalcMock = new Mock<StopLossDistanceCalculator>();
-        var posCalcMock = new Mock<PositionSizeCalculator>(riskCalcMock.Object, slCalcMock.Object, Options.Create(new RiskCalculationOptions()));
-        var rrCalcMock = new Mock<RiskRewardCalculator>(Options.Create(new RiskCalculationOptions()));
-        var calcServiceMock = new Mock<RiskCalculationService>(
-            riskCalcMock.Object,
-            slCalcMock.Object,
-            posCalcMock.Object,
-            rrCalcMock.Object,
-            Options.Create(new RiskCalculationOptions())
-        );
         var evaluationRepoMock = new Mock<IRiskEvaluationRepository>();
         var uowMock = new Mock<IUnitOfWork>();
 
         // Act
-        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules, calcServiceMock.Object, evaluationRepoMock.Object, uowMock.Object);
+        var engine = new RiskEngineService(loggerMock.Object, options, ruleEngineMock.Object, evaluationRepoMock.Object, uowMock.Object);
         var decision = await engine.EvaluateAsync(context);
 
         // Assert
-        decision.Should().Be(expectedDecision);
+        decision.Decision.Should().Be(RiskDecisionStatus.Approved);
+        decision.Reason.Should().Be("Passed in mock");
 
         // Verify Logging with strict nullability matching
         loggerMock.Verify(
@@ -269,27 +260,15 @@ public class RiskManagementTests
         // Arrange
         var loggerMock = new Mock<ILogger<RiskEngineService>>();
         var options = Options.Create(new RiskManagementOptions { Enabled = false });
-        var decisionServiceMock = new Mock<IRiskDecisionService>();
-        var rules = new List<IRiskRule>();
 
         var context = new TradeRiskContext { SignalId = Guid.NewGuid(), Symbol = "BTCUSDT" };
 
-        var riskCalcMock = new Mock<RiskAmountCalculator>();
-        var slCalcMock = new Mock<StopLossDistanceCalculator>();
-        var posCalcMock = new Mock<PositionSizeCalculator>(riskCalcMock.Object, slCalcMock.Object, Options.Create(new RiskCalculationOptions()));
-        var rrCalcMock = new Mock<RiskRewardCalculator>(Options.Create(new RiskCalculationOptions()));
-        var calcServiceMock = new Mock<RiskCalculationService>(
-            riskCalcMock.Object,
-            slCalcMock.Object,
-            posCalcMock.Object,
-            rrCalcMock.Object,
-            Options.Create(new RiskCalculationOptions())
-        );
+        var ruleEngineMock = new Mock<IRiskRuleEngine>();
         var evaluationRepoMock = new Mock<IRiskEvaluationRepository>();
         var uowMock = new Mock<IUnitOfWork>();
 
         // Act
-        var engine = new RiskEngineService(loggerMock.Object, options, decisionServiceMock.Object, rules, calcServiceMock.Object, evaluationRepoMock.Object, uowMock.Object);
+        var engine = new RiskEngineService(loggerMock.Object, options, ruleEngineMock.Object, evaluationRepoMock.Object, uowMock.Object);
         var decision = await engine.EvaluateAsync(context);
 
         // Assert

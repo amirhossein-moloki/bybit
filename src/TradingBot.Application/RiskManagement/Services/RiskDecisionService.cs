@@ -36,48 +36,48 @@ public class RiskDecisionService : IRiskDecisionService
             };
         }
 
-        // Check for Critical and High severity failures first
-        var highOrCriticalFailures = failedRules
-            .Where(r => r.Severity == RiskLevel.Critical || r.Severity == RiskLevel.High)
+        // Check for Critical and Error severity failures first
+        var criticalOrErrorFailures = failedRules
+            .Where(r => r.Severity == RiskRuleSeverity.Critical || r.Severity == RiskRuleSeverity.Error)
             .ToList();
 
-        if (highOrCriticalFailures.Count > 0)
+        if (criticalOrErrorFailures.Count > 0)
         {
-            var reasons = string.Join("; ", highOrCriticalFailures.Select(r => r.Message));
+            var reasons = string.Join("; ", criticalOrErrorFailures.Select(r => r.Message));
             return new TradeDecision
             {
                 Decision = RiskDecisionStatus.Rejected,
-                Reason = $"Risk rules failed (High/Critical): {reasons}",
+                Reason = $"Risk rules failed (Critical/Error): {reasons}",
                 CreatedAt = DateTime.UtcNow
             };
         }
 
-        // Check for Medium severity failures
-        var mediumFailures = failedRules
-            .Where(r => r.Severity == RiskLevel.Medium)
+        // Check for Warning severity failures
+        var warningFailures = failedRules
+            .Where(r => r.Severity == RiskRuleSeverity.Warning)
             .ToList();
 
-        if (mediumFailures.Count > 0)
+        if (warningFailures.Count > 0)
         {
-            var reasons = string.Join("; ", mediumFailures.Select(r => r.Message));
+            var reasons = string.Join("; ", warningFailures.Select(r => r.Message));
             return new TradeDecision
             {
                 Decision = RiskDecisionStatus.NeedsReview,
-                Reason = $"Risk rules failed (Medium): {reasons}",
+                Reason = $"Risk rules failed (Warning): {reasons}",
                 CreatedAt = DateTime.UtcNow
             };
         }
 
-        // Must be Low severity failures
-        var lowFailures = failedRules
-            .Where(r => r.Severity == RiskLevel.Low)
+        // Must be Info severity failures
+        var infoFailures = failedRules
+            .Where(r => r.Severity == RiskRuleSeverity.Info)
             .ToList();
 
-        var lowReasons = string.Join("; ", lowFailures.Select(r => r.Message));
+        var infoReasons = string.Join("; ", infoFailures.Select(r => r.Message));
         return new TradeDecision
         {
             Decision = RiskDecisionStatus.NeedsReview,
-            Reason = $"Risk rules failed (Low): {lowReasons}",
+            Reason = $"Risk rules failed (Info): {infoReasons}",
             CreatedAt = DateTime.UtcNow
         };
     }
