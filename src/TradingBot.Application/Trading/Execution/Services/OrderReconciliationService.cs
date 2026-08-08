@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -18,24 +19,32 @@ public class OrderReconciliationService : IOrderReconciliationService
     private readonly IExchangeTradingGateway _gateway;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<OrderReconciliationService> _logger;
+    private readonly IExecutionMetrics? _metrics;
+
+    public static DateTime LastRunTime { get; private set; } = DateTime.MinValue;
 
     public OrderReconciliationService(
         IOrderRepository orderRepository,
         IOrderEventRepository orderEventRepository,
         IExchangeTradingGateway gateway,
         IUnitOfWork unitOfWork,
-        ILogger<OrderReconciliationService> logger)
+        ILogger<OrderReconciliationService> logger,
+        IExecutionMetrics? metrics = null)
     {
         _orderRepository = orderRepository ?? throw new ArgumentNullException(nameof(orderRepository));
         _orderEventRepository = orderEventRepository ?? throw new ArgumentNullException(nameof(orderEventRepository));
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _metrics = metrics;
     }
 
     public async Task ReconcileAsync(CancellationToken cancellationToken = default)
     {
+        LastRunTime = DateTime.UtcNow;
         _logger.LogInformation("OrderReconciliationStarted: Loading active orders requiring reconciliation...");
+
+        var overallStopwatch = Stopwatch.StartNew();
 
         // Load bounded batch size of 50
         var orders = await _orderRepository.GetPendingReconciliationOrdersAsync(50, cancellationToken);
@@ -64,14 +73,33 @@ public class OrderReconciliationService : IOrderReconciliationService
             }
         }
 
+        overallStopwatch.Stop();
+        _metrics?.RecordReconciliation(overallStopwatch.Elapsed.TotalMilliseconds);
+
         _logger.LogInformation("OrderReconciliationCompleted: Reconciled {ProcessedCount} orders in this pass.", processedCount);
     }
 
     private async Task ReconcileSingleOrderAsync(Order order, CancellationToken cancellationToken)
     {
         // Query the exchange using either ExchangeOrderId or ClientOrderId (smart query)
-        var queryId = order.ExchangeOrderId ?? order.ClientOrderId;
-        var queryResult = await _gateway.GetOrderAsync(queryId, order.Symbol.Value, cancellationToken);
+        var gatewayStopwatch = Stopwatch.StartNew();
+        OrderResult queryResult;
+
+        try
+        {
+            queryResult = await _gateway.GetOrderAsync(order.ExchangeOrderId ?? order.ClientOrderId, order.Symbol.Value, cancellationToken);
+            gatewayStopwatch.Stop();
+            _metrics?.RecordExchangeCall(gatewayStopwatch.Elapsed.TotalMilliseconds, isError: !queryResult.Success, isRateLimit: false, isTimeout: false);
+        }
+        catch (Exception ex)
+        {
+            gatewayStopwatch.Stop();
+            _metrics?.RecordExchangeCall(gatewayStopwatch.Elapsed.TotalMilliseconds, isError: true, isRateLimit: false, isTimeout: ex is TimeoutException);
+            throw;
+        }
+
+        var dbStopwatch = Stopwatch.StartNew();
+        bool dbSuccess = false;
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
@@ -101,6 +129,7 @@ public class OrderReconciliationService : IOrderReconciliationService
 
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
                     await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                    dbSuccess = true;
                 }
                 else
                 {
@@ -135,11 +164,11 @@ public class OrderReconciliationService : IOrderReconciliationService
                 }
 
                 await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                dbSuccess = true;
                 return;
             }
 
             // Status is different. Verify and apply transition.
-            // Check state downgrade (Section 16: Local Filled, Exchange New is invalid)
             bool isDowngrade = IsDowngradeTransition(order.Status, exchangeStatus);
             if (isDowngrade)
             {
@@ -157,6 +186,7 @@ public class OrderReconciliationService : IOrderReconciliationService
 
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                dbSuccess = true;
                 return;
             }
 
@@ -169,8 +199,6 @@ public class OrderReconciliationService : IOrderReconciliationService
 
             if (queryResult.ExecutedQuantity > 0)
             {
-                // Reset executed quantites first to overwrite cleanly, or calculate differences
-                // Since RecordExecution accumulates, we can adjust ExecutedQuantity or record execution of the entire filled amount directly
                 decimal diffQty = queryResult.ExecutedQuantity - order.ExecutedQuantity;
                 if (diffQty > 0)
                 {
@@ -179,7 +207,6 @@ public class OrderReconciliationService : IOrderReconciliationService
             }
             else if (exchangeStatus == OrderStatus.Filled)
             {
-                // Fallback fill to complete requested quantity if ExecutedQuantity is not set
                 order.MarkFilled();
             }
             else if (exchangeStatus == OrderStatus.PartiallyFilled)
@@ -204,6 +231,7 @@ public class OrderReconciliationService : IOrderReconciliationService
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            dbSuccess = true;
         }
         catch (Exception ex)
         {
@@ -211,19 +239,22 @@ public class OrderReconciliationService : IOrderReconciliationService
             try { await _unitOfWork.RollbackTransactionAsync(cancellationToken); } catch { }
             throw;
         }
+        finally
+        {
+            dbStopwatch.Stop();
+            _metrics?.RecordDatabasePersistence(dbStopwatch.Elapsed.TotalMilliseconds, dbSuccess);
+        }
     }
 
     private static bool IsDowngradeTransition(OrderStatus localStatus, OrderStatus exchangeStatus)
     {
         if (localStatus == exchangeStatus) return false;
 
-        // If local status is already terminal, moving back to non-terminal or any other state is a downgrade
         if (IsTerminalState(localStatus))
         {
             return true;
         }
 
-        // If exchange status is terminal, and local is not terminal, it is always a progressive upgrade
         if (IsTerminalState(exchangeStatus))
         {
             return false;
@@ -248,7 +279,7 @@ public class OrderReconciliationService : IOrderReconciliationService
             OrderStatus.Accepted => 5,
             OrderStatus.New => 6,
             OrderStatus.PartiallyFilled => 7,
-            OrderStatus.Unknown => 1, // Unknown is low weight to allow recovery to New/Filled/etc.
+            OrderStatus.Unknown => 1,
             _ => 0
         };
     }

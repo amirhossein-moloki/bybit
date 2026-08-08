@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.Configure<ExchangeSettings>(configuration.GetSection("Exchange"));
         services.Configure<LoggingSettings>(configuration.GetSection("Logging"));
         services.Configure<SecuritySettings>(configuration.GetSection("Security"));
+        services.Configure<ExecutionSettings>(configuration.GetSection("Execution"));
 
         // Register DbContext (delegated to Persistence layer registration)
         services.AddPersistence(configuration);
@@ -42,6 +43,12 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IOrderBuilder, TradingBot.Application.Trading.Execution.Services.OrderBuilder>();
         services.TryAddScoped<TradingBot.Application.Trading.Execution.Contracts.IExchangeTradingGateway, TradingBot.Application.Trading.Execution.Services.TestExchangeTradingGateway>();
         services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionService, TradingBot.Application.Trading.Execution.Services.TradingExecutionService>();
+
+        // Orchestrator, Events, and Observability registrations (Stage 05)
+        services.AddSingleton<TradingBot.Application.Trading.Execution.Contracts.IExecutionMetrics, TradingBot.Application.Trading.Execution.Services.ExecutionMetrics>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IExecutionEventHandler, TradingBot.Application.Trading.Execution.Services.ExecutionEventHandler>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IExecutionEventPublisher, TradingBot.Application.Trading.Execution.Services.ExecutionEventPublisher>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionOrchestrator, TradingBot.Application.Trading.Execution.Services.TradeExecutionOrchestrator>();
 
         // Register Encryption Service
         services.AddSingleton<IEncryptionService, EncryptionService>();

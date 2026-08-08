@@ -7,6 +7,7 @@ public class TradingBotSettings
     public ExchangeSettings Exchange { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public SecuritySettings Security { get; set; } = new();
+    public ExecutionSettings Execution { get; set; } = new();
 }
 
 public class ApplicationSettings
