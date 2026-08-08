@@ -11,4 +11,7 @@ public interface IPositionRepository : IRepository<Position>
     Task<IEnumerable<Position>> GetOpenPositionsAsync(CancellationToken cancellationToken = default);
     Task<IEnumerable<Position>> GetBySymbolAsync(string symbol, CancellationToken cancellationToken = default);
     Task ClosePositionAsync(Guid id, decimal exitPrice, CancellationToken cancellationToken = default);
+    Task<Position?> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default);
+    Task<Position?> GetByExchangePositionIdAsync(string exchangePositionId, CancellationToken cancellationToken = default);
+    Task<bool> ExistsAsync(Guid orderId, CancellationToken cancellationToken = default);
 }

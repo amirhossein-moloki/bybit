@@ -17,11 +17,19 @@ public class PositionRepository : RepositoryBase<Position>, IPositionRepository
     {
     }
 
+    public override async Task<Position?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Positions
+            .Include(p => p.Targets)
+            .Include(p => p.Events)
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+    }
+
     public async Task<IEnumerable<Position>> GetOpenPositionsAsync(CancellationToken cancellationToken = default)
     {
         return await DbContext.Positions
             .AsNoTracking()
-            .Where(p => p.Status == PositionStatus.Open)
+            .Where(p => p.Status == PositionStatus.Open || p.Status == PositionStatus.PartiallyClosed || p.Status == PositionStatus.Pending)
             .ToListAsync(cancellationToken);
     }
 
@@ -42,5 +50,29 @@ public class PositionRepository : RepositoryBase<Position>, IPositionRepository
             position.Close(exitPrice);
             Update(position);
         }
+    }
+
+    public async Task<Position?> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Positions
+            .Include(p => p.Targets)
+            .Include(p => p.Events)
+            .FirstOrDefaultAsync(p => p.OrderId == orderId, cancellationToken);
+    }
+
+    public async Task<Position?> GetByExchangePositionIdAsync(string exchangePositionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(exchangePositionId)) return null;
+
+        return await DbContext.Positions
+            .Include(p => p.Targets)
+            .Include(p => p.Events)
+            .FirstOrDefaultAsync(p => p.ExchangePositionId == exchangePositionId, cancellationToken);
+    }
+
+    public async Task<bool> ExistsAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Positions
+            .AnyAsync(p => p.OrderId == orderId, cancellationToken);
     }
 }
