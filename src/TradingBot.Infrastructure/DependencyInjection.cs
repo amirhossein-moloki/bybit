@@ -80,6 +80,12 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Domain.Repositories.IParserTemplateRepository, ParserTemplateRepository>();
         services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
 
+        // New Position Management layer services (Stage 07-04)
+        services.AddScoped<IPnLCalculator, PnLCalculator>();
+        services.AddScoped<IBreakEvenManager, BreakEvenManager>();
+        services.AddScoped<ITrailingStopManager, TrailingStopManager>();
+        services.AddScoped<IPositionCloseManager, PositionCloseManager>();
+
         // Register Health Checks
         services.AddHealthChecks()
             .AddCheck<DatabaseHealthCheck>("Database")

@@ -26,6 +26,15 @@ public class Trade
     public decimal? ProfitLoss { get; private set; }
     public DateTime? ClosedAt { get; private set; }
 
+    // Advanced Trade Result fields
+    public decimal? FundingFee { get; private set; }
+    public decimal? NetPnL { get; private set; }
+    public CloseReason? CloseReason { get; private set; }
+    public DateTime? OpenedAt { get; private set; }
+
+    public decimal? GrossPnL => ProfitLoss;
+    public decimal? TradingFee => Fee;
+
     // Required for EF Core
     private Trade()
     {
@@ -85,7 +94,7 @@ public class Trade
         PositionId = null;
     }
 
-    // New constructor representing completed realized position closure/execution history
+    // New constructor representing completed realized position closure/execution history (backward compatible)
     public Trade(Guid positionId, decimal entryPrice, decimal exitPrice, decimal quantity, decimal profitLoss, decimal fee, DateTime closedAt)
     {
         if (positionId == Guid.Empty)
@@ -115,6 +124,63 @@ public class Trade
         Quantity = quantity;
         ProfitLoss = profitLoss;
         Fee = fee;
+        ClosedAt = closedAt;
+
+        // Map to backward-compatible fields
+        TradeId = "COMPLETED-" + Id.ToString("N")[..8].ToUpperInvariant();
+        OrderId = string.Empty;
+        Symbol = string.Empty;
+        Side = SignalType.Buy;
+        Price = exitPrice;
+        FeeAsset = "USDT";
+        ExecutedAt = closedAt;
+    }
+
+    // Advanced constructor representing completed realized trade results with fees and metrics
+    public Trade(
+        Guid positionId,
+        decimal entryPrice,
+        decimal exitPrice,
+        decimal quantity,
+        decimal grossPnL,
+        decimal tradingFee,
+        decimal fundingFee,
+        decimal netPnL,
+        CloseReason closeReason,
+        DateTime openedAt,
+        DateTime closedAt)
+    {
+        if (positionId == Guid.Empty)
+        {
+            throw new DomainException("PositionId cannot be empty.");
+        }
+
+        if (entryPrice <= 0)
+        {
+            throw new DomainException("EntryPrice must be greater than zero.");
+        }
+
+        if (exitPrice <= 0)
+        {
+            throw new DomainException("ExitPrice must be greater than zero.");
+        }
+
+        if (quantity <= 0)
+        {
+            throw new DomainException("Quantity must be greater than zero.");
+        }
+
+        Id = Guid.NewGuid();
+        PositionId = positionId;
+        EntryPrice = entryPrice;
+        ExitPrice = exitPrice;
+        Quantity = quantity;
+        ProfitLoss = grossPnL;
+        Fee = tradingFee;
+        FundingFee = fundingFee;
+        NetPnL = netPnL;
+        CloseReason = closeReason;
+        OpenedAt = openedAt;
         ClosedAt = closedAt;
 
         // Map to backward-compatible fields

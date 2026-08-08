@@ -40,8 +40,8 @@ public class StopLossManager : IStopLossManager
         string source = "System",
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("StopLossUpdateStarted: PositionId={PositionId}, SL={StopLoss}, Source={Source}",
-            positionId, stopLoss, source);
+        _logger.LogInformation("StopLossUpdateStarted: PositionId={PositionId}, SL={StopLoss}, Source={Source}, Reason={Reason}",
+            positionId, stopLoss, source, reason);
 
         var position = await _positionRepository.GetByIdAsync(positionId, cancellationToken);
         if (position == null)
@@ -65,22 +65,38 @@ public class StopLossManager : IStopLossManager
                 throw new DomainException("StopLoss price must be greater than zero.");
             }
 
+            var isBreakEvenOrTrailing = reason == "Break-Even" || reason == "Trailing Stop" || reason == "BreakEvenActivated" || (reason != null && (reason.Contains("Trailing") || reason.Contains("Break")));
+
             if (position.Side == OrderSide.Buy) // LONG
             {
-                if (stopLoss.Value >= position.EntryPrice)
+                if (!isBreakEvenOrTrailing && stopLoss.Value >= position.EntryPrice)
                 {
                     _logger.LogWarning("StopLossUpdateRejected: For LONG position, StopLoss ({SL}) must be less than EntryPrice ({Entry}).",
                         stopLoss.Value, position.EntryPrice);
                     throw new DomainException($"Invalid StopLoss: For LONG position, StopLoss ({stopLoss.Value}) must be less than EntryPrice ({position.EntryPrice}).");
                 }
+
+                if (position.StopLoss.HasValue && stopLoss.Value < position.StopLoss.Value)
+                {
+                    _logger.LogWarning("StopLossUpdateRejected: Cannot move StopLoss backwards from {OldSL} to {NewSL} for LONG.",
+                        position.StopLoss.Value, stopLoss.Value);
+                    throw new DomainException($"Invalid StopLoss: Cannot move StopLoss backwards from {position.StopLoss.Value} to {stopLoss.Value} for LONG.");
+                }
             }
             else if (position.Side == OrderSide.Sell) // SHORT
             {
-                if (stopLoss.Value <= position.EntryPrice)
+                if (!isBreakEvenOrTrailing && stopLoss.Value <= position.EntryPrice)
                 {
                     _logger.LogWarning("StopLossUpdateRejected: For SHORT position, StopLoss ({SL}) must be greater than EntryPrice ({Entry}).",
                         stopLoss.Value, position.EntryPrice);
                     throw new DomainException($"Invalid StopLoss: For SHORT position, StopLoss ({stopLoss.Value}) must be greater than EntryPrice ({position.EntryPrice}).");
+                }
+
+                if (position.StopLoss.HasValue && stopLoss.Value > position.StopLoss.Value)
+                {
+                    _logger.LogWarning("StopLossUpdateRejected: Cannot move StopLoss backwards from {OldSL} to {NewSL} for SHORT.",
+                        position.StopLoss.Value, stopLoss.Value);
+                    throw new DomainException($"Invalid StopLoss: Cannot move StopLoss backwards from {position.StopLoss.Value} to {stopLoss.Value} for SHORT.");
                 }
             }
 
@@ -132,12 +148,12 @@ public class StopLossManager : IStopLossManager
         }
 
         // 4. Update the local state in DB since Exchange operation succeeded
-        position.UpdateStopLoss(stopLoss, reason, source);
+        position.UpdateStopLoss(stopLoss, reason ?? "Update", source ?? "System");
 
         var eventType = !oldStopLoss.HasValue && stopLoss.HasValue ? "StopLossCreated" :
                         oldStopLoss.HasValue && !stopLoss.HasValue ? "StopLossRemoved" : "StopLossUpdated";
 
-        var payload = $"{{ \"PositionId\": \"{position.Id}\", \"OldStopLoss\": {(oldStopLoss.HasValue ? oldStopLoss.Value.ToString() : "null")}, \"NewStopLoss\": {(stopLoss.HasValue ? stopLoss.Value.ToString() : "null")}, \"Reason\": \"{reason}\", \"Source\": \"{source}\" }}";
+        var payload = $"{{ \"PositionId\": \"{position.Id}\", \"OldStopLoss\": {(oldStopLoss.HasValue ? oldStopLoss.Value.ToString() : "null")}, \"NewStopLoss\": {(stopLoss.HasValue ? stopLoss.Value.ToString() : "null")}, \"Reason\": \"{reason ?? "Update"}\", \"Source\": \"{source ?? "System"}\" }}";
         var posEvent = new PositionEvent(position.Id, eventType, payload);
         position.Events.Add(posEvent);
 
