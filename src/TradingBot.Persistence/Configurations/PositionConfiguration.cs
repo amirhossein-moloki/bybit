@@ -79,6 +79,10 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .HasMaxLength(20)
             .IsRequired();
 
+        builder.Property(x => x.IsDesynchronized)
+            .HasDefaultValue(false)
+            .IsRequired();
+
         builder.Property(x => x.OpenedAt)
             .HasColumnType("timestamp with time zone")
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
