@@ -14,6 +14,7 @@ public class TradingDbContext : DbContext
     public DbSet<Order> Orders { get; set; } = null!;
     public DbSet<OrderEvent> OrderEvents { get; set; } = null!;
     public DbSet<Position> Positions { get; set; } = null!;
+    public DbSet<StopLossHistory> StopLossHistories { get; set; } = null!;
     public DbSet<Trade> Trades { get; set; } = null!;
     public DbSet<RiskRule> RiskRules { get; set; } = null!;
     public DbSet<SystemLog> SystemLogs { get; set; } = null!;

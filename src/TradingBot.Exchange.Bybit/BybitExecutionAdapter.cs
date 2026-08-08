@@ -76,6 +76,11 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             payload.Add("price", request.Price.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
+        if (request.ReduceOnly)
+        {
+            payload.Add("reduceOnly", true);
+        }
+
         try
         {
             var response = await SendPrivateRequestAsync<BybitOrderResult>(
@@ -394,6 +399,101 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             var response = JsonSerializer.Deserialize<BybitResponse<TResult>>(responseContent);
             return response;
         }, cancellationToken);
+    }
+
+    public async Task<OrderResult> SetTradingStopAsync(
+        string symbol,
+        OrderSide side,
+        decimal? stopLoss,
+        decimal? takeProfit,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(symbol)) throw new ArgumentException("Symbol cannot be null or empty.", nameof(symbol));
+
+        _logger.LogInformation("BybitSetTradingStopRequested: Symbol={Symbol}, Side={Side}, SL={StopLoss}, TP={TakeProfit}",
+            symbol, side, stopLoss, takeProfit);
+
+        var payload = new Dictionary<string, object>
+        {
+            { "category", "linear" },
+            { "symbol", symbol.ToUpperInvariant() },
+            { "positionIdx", 0 }
+        };
+
+        // Bybit V5 requires "0" to cancel/remove TP/SL, or string value to update
+        payload.Add("stopLoss", stopLoss.HasValue
+            ? stopLoss.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : "0");
+
+        payload.Add("takeProfit", takeProfit.HasValue
+            ? takeProfit.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : "0");
+
+        if (stopLoss.HasValue)
+        {
+            payload.Add("slTriggerBy", "LastPrice");
+        }
+        if (takeProfit.HasValue)
+        {
+            payload.Add("tpTriggerBy", "LastPrice");
+        }
+
+        try
+        {
+            var response = await SendPrivateRequestAsync<BybitOrderResult>(
+                HttpMethod.Post, "/v5/position/set-trading-stop", payload, cancellationToken);
+
+            if (response == null)
+            {
+                _logger.LogError("BybitExecutionFailed: Received null response from Bybit Set Trading Stop API.");
+                return new OrderResult
+                {
+                    Success = false,
+                    Status = OrderStatus.Failed,
+                    ErrorMessage = "Null response from exchange.",
+                    ErrorCode = "NULL_RESPONSE",
+                    ErrorType = ExchangeErrorType.Unavailable
+                };
+            }
+
+            if (response.RetCode != 0)
+            {
+                var errorType = MapBybitErrorCode(response.RetCode);
+                _logger.LogWarning("BybitExecutionFailed: Set Trading Stop API returned non-zero code. RetCode={RetCode}, Msg={Msg}",
+                    response.RetCode, response.RetMsg);
+
+                return new OrderResult
+                {
+                    Success = false,
+                    Status = OrderStatus.Rejected,
+                    ErrorMessage = response.RetMsg,
+                    ErrorCode = response.RetCode.ToString(),
+                    ErrorType = errorType
+                };
+            }
+
+            _logger.LogInformation("BybitTradingStopSet: Stop parameters updated successfully. Symbol={Symbol}, SL={StopLoss}, TP={TakeProfit}",
+                symbol, stopLoss, takeProfit);
+
+            return new OrderResult
+            {
+                Success = true,
+                Status = OrderStatus.Filled,
+                ErrorMessage = "Trading stop set successfully."
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "BybitExecutionFailed: Exception during SetTradingStopAsync.");
+            return new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Failed,
+                ErrorMessage = ex.Message,
+                ErrorCode = "EXCEPTION",
+                ErrorType = ExchangeErrorType.Unknown
+            };
+        }
     }
 
     public static ExchangeErrorType MapBybitErrorCode(int retCode)

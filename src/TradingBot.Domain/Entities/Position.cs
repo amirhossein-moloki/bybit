@@ -31,6 +31,7 @@ public class Position
 
     public ICollection<PositionTarget> Targets { get; private set; } = new List<PositionTarget>();
     public ICollection<PositionEvent> Events { get; private set; } = new List<PositionEvent>();
+    public ICollection<StopLossHistory> StopLossHistories { get; private set; } = new List<StopLossHistory>();
 
     // Required for EF Core
     private Position()
@@ -327,8 +328,40 @@ public class Position
             throw new DomainException("TakeProfit price must be greater than zero.");
         }
 
+        var oldStopLoss = StopLoss;
         StopLoss = stopLoss;
         TakeProfit = takeProfit;
+        UpdatedAt = DateTime.UtcNow;
+
+        if (stopLoss != oldStopLoss)
+        {
+            AddStopLossHistory(oldStopLoss, stopLoss, "Risk rules updated", "System");
+        }
+    }
+
+    public void UpdateStopLoss(decimal? newStopLoss, string reason = "Update", string source = "System")
+    {
+        if (Status != PositionStatus.Open && Status != PositionStatus.PartiallyClosed)
+        {
+            throw new DomainException("Cannot update stop loss on a closed or liquidated position.");
+        }
+
+        if (newStopLoss.HasValue && newStopLoss.Value <= 0)
+        {
+            throw new DomainException("StopLoss price must be greater than zero.");
+        }
+
+        var oldStopLoss = StopLoss;
+        StopLoss = newStopLoss;
+        UpdatedAt = DateTime.UtcNow;
+
+        AddStopLossHistory(oldStopLoss, newStopLoss, reason, source);
+    }
+
+    public void AddStopLossHistory(decimal? oldPrice, decimal? newPrice, string reason, string source = "System")
+    {
+        var history = new StopLossHistory(Id, oldPrice, newPrice, reason, source);
+        StopLossHistories.Add(history);
         UpdatedAt = DateTime.UtcNow;
     }
 
