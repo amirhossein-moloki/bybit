@@ -142,6 +142,12 @@ public class Order
         UpdatedAt = DateTime.UtcNow;
     }
 
+    public void MarkFailed()
+    {
+        Status = OrderStatus.Failed;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     // Retained for backwards compatibility where direct state assignment may occur in mapping layers,
     // but enforcing state machine rules.
     public void UpdateStatus(OrderStatus newStatus)
@@ -174,6 +180,18 @@ public class Order
                 break;
             case OrderStatus.Rejected:
                 Reject("Direct transition to Rejected.");
+                break;
+            case OrderStatus.Pending:
+                Status = OrderStatus.Pending;
+                UpdatedAt = DateTime.UtcNow;
+                break;
+            case OrderStatus.New:
+                Status = OrderStatus.New;
+                UpdatedAt = DateTime.UtcNow;
+                break;
+            case OrderStatus.Failed:
+                Status = OrderStatus.Failed;
+                UpdatedAt = DateTime.UtcNow;
                 break;
             default:
                 throw new DomainException($"Direct status update to {newStatus} from {Status} is not supported.");
