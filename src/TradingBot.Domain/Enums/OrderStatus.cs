@@ -11,5 +11,7 @@ public enum OrderStatus
     Rejected,
     Pending,
     New,
-    Failed
+    Failed,
+    ValidationFailed,
+    ReadyForExchange
 }

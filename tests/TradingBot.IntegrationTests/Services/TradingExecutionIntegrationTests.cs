@@ -21,7 +21,8 @@ public class TradingExecutionIntegrationTests
     {
         var services = new ServiceCollection();
 
-        // Register core Stage 01 services
+        // Register core Stage 01 & Stage 02 services
+        services.AddSingleton<IExchangeInstrumentRules, TestExchangeInstrumentRules>();
         services.AddScoped<IOrderValidator, OrderValidator>();
         services.AddScoped<IOrderBuilder, OrderBuilder>();
         services.AddScoped<IExchangeTradingGateway, TestExchangeTradingGateway>();
@@ -57,10 +58,8 @@ public class TradingExecutionIntegrationTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeTrue();
-        result.OrderId.Should().NotBeNull();
-        result.ExchangeOrderId.Should().NotBeNullOrEmpty();
-        result.Status.Should().Be(OrderStatus.Filled);
-        result.Message.Should().Contain("Order executed successfully");
+        result.Status.Should().Be(OrderStatus.ReadyForExchange);
+        result.Message.Should().Contain("ready for exchange");
     }
 
     [Fact]
@@ -87,7 +86,7 @@ public class TradingExecutionIntegrationTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeFalse();
-        result.Status.Should().Be(OrderStatus.Rejected);
+        result.Status.Should().Be(OrderStatus.ValidationFailed);
         result.Message.Should().Contain("Validation failed");
         result.Message.Should().Contain("Risk approval boundary violated");
     }
