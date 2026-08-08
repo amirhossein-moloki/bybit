@@ -433,7 +433,7 @@ public class TradingExecutionTests
     #region Integration Tests
 
     [Fact]
-    public async Task TradingExecutionService_ValidOrder_ShouldNotCallGateway_AndReturnReadyForExchange()
+    public async Task TradingExecutionService_ValidOrder_ShouldCallGateway_AndReturnSuccess()
     {
         // Arrange
         var request = CreateBaseRequest();
@@ -441,6 +441,18 @@ public class TradingExecutionTests
         request.Quantity = 0.05m;
         request.Price = 60000m;
         request.OrderType = OrderType.Limit;
+
+        var mockGatewayResult = new OrderResult
+        {
+            Success = true,
+            ExchangeOrderId = "12345678",
+            Status = OrderStatus.New,
+            ErrorMessage = "Order created successfully."
+        };
+
+        _gatewayMock
+            .Setup(x => x.CreateOrderAsync(It.IsAny<OrderRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(mockGatewayResult);
 
         var service = new TradingExecutionService(_validator, _builder, _gatewayMock.Object, _instrumentRules, _loggerMock.Object);
 
@@ -450,11 +462,11 @@ public class TradingExecutionTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeTrue();
-        result.Status.Should().Be(OrderStatus.ReadyForExchange);
-        result.Message.Should().Contain("ready for exchange");
+        result.Status.Should().Be(OrderStatus.New);
+        result.ExchangeOrderId.Should().Be("12345678");
 
-        // Verify that the exchange gateway was NOT invoked in Stage 02
-        _gatewayMock.Verify(x => x.CreateOrderAsync(It.IsAny<OrderRequest>(), It.IsAny<CancellationToken>()), Times.Never());
+        // Verify that the exchange gateway was invoked
+        _gatewayMock.Verify(x => x.CreateOrderAsync(It.IsAny<OrderRequest>(), It.IsAny<CancellationToken>()), Times.Once());
     }
 
     [Fact]

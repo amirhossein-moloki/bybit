@@ -13,5 +13,6 @@ public enum OrderStatus
     New,
     Failed,
     ValidationFailed,
-    ReadyForExchange
+    ReadyForExchange,
+    Unknown
 }

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Repositories;
 using TradingBot.Infrastructure.Configuration;
@@ -37,7 +38,7 @@ public static class DependencyInjection
         services.AddSingleton<TradingBot.Application.Trading.Execution.Contracts.IExchangeInstrumentRules, TradingBot.Application.Trading.Execution.Services.TestExchangeInstrumentRules>();
         services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IOrderValidator, TradingBot.Application.Trading.Execution.Services.OrderValidator>();
         services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IOrderBuilder, TradingBot.Application.Trading.Execution.Services.OrderBuilder>();
-        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IExchangeTradingGateway, TradingBot.Application.Trading.Execution.Services.TestExchangeTradingGateway>();
+        services.TryAddScoped<TradingBot.Application.Trading.Execution.Contracts.IExchangeTradingGateway, TradingBot.Application.Trading.Execution.Services.TestExchangeTradingGateway>();
         services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionService, TradingBot.Application.Trading.Execution.Services.TradingExecutionService>();
 
         // Register Encryption Service
