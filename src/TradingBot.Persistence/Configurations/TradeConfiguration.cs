@@ -70,6 +70,20 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
         builder.Property(x => x.ClosedAt)
             .HasColumnType("timestamp with time zone");
 
+        // Advanced Trade Result fields
+        builder.Property(x => x.FundingFee)
+            .HasColumnType("numeric(18,8)");
+
+        builder.Property(x => x.NetPnL)
+            .HasColumnType("numeric(18,8)");
+
+        builder.Property(x => x.CloseReason)
+            .HasConversion<string>()
+            .HasMaxLength(50);
+
+        builder.Property(x => x.OpenedAt)
+            .HasColumnType("timestamp with time zone");
+
         // Shadow properties for CreatedAt/UpdatedAt
         builder.Property<DateTime>("CreatedAt")
             .HasColumnType("timestamp with time zone")
