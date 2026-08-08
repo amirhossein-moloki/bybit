@@ -15,7 +15,7 @@ public class OrderBuilder : IOrderBuilder
 
         return new OrderRequest
         {
-            Symbol = request.Symbol,
+            Symbol = SymbolNormalizer.Normalize(request.Symbol),
             Side = request.Side,
             Type = request.OrderType,
             Quantity = request.Quantity,
