@@ -67,6 +67,9 @@ public static class DependencyInjection
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPositionService, PositionService>();
         services.AddScoped<IPositionSynchronizationService, PositionSynchronizationService>();
+        services.AddScoped<IStopLossManager, StopLossManager>();
+        services.AddScoped<ITakeProfitManager, TakeProfitManager>();
+        services.AddScoped<IPartialCloseManager, PartialCloseManager>();
         services.AddScoped<IPositionReconciliationService, PositionReconciliationService>();
         services.AddScoped<IPositionRecoveryService, PositionRecoveryService>();
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();

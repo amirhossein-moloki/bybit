@@ -85,4 +85,35 @@ public class TestExchangeTradingGateway : IExchangeTradingGateway
             ErrorCode = null
         });
     }
+
+    public Task<OrderResult> SetTradingStopAsync(
+        string symbol,
+        OrderSide side,
+        decimal? stopLoss,
+        decimal? takeProfit,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<OrderResult>(cancellationToken);
+        }
+
+        if (_simulateFailure)
+        {
+            return Task.FromResult(new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Rejected,
+                ErrorMessage = _forcedErrorMessage ?? "Simulated exchange failure",
+                ErrorCode = _forcedErrorCode ?? "EXCHANGE_ERR_001"
+            });
+        }
+
+        return Task.FromResult(new OrderResult
+        {
+            Success = true,
+            Status = OrderStatus.Filled,
+            ErrorMessage = string.Empty
+        });
+    }
 }

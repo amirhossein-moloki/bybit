@@ -22,6 +22,7 @@ public class PositionRepository : RepositoryBase<Position>, IPositionRepository
         return await DbContext.Positions
             .Include(p => p.Targets)
             .Include(p => p.Events)
+            .Include(p => p.StopLossHistories)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 

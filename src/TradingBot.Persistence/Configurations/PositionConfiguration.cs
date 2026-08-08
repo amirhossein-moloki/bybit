@@ -119,6 +119,12 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .HasForeignKey(x => x.PositionId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // One Position has many StopLossHistories
+        builder.HasMany(x => x.StopLossHistories)
+            .WithOne()
+            .HasForeignKey(x => x.PositionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // Indexes
         builder.HasIndex(x => x.OrderId);
         builder.HasIndex(x => x.ExchangePositionId);

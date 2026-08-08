@@ -40,6 +40,12 @@ public class PositionTargetConfiguration : IEntityTypeConfiguration<PositionTarg
             .HasMaxLength(50)
             .IsRequired();
 
+        builder.Property(x => x.ExchangeOrderId)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.ExecutedQuantity)
+            .HasColumnType("numeric(18,8)");
+
         builder.Property(x => x.ExecutedAt)
             .HasColumnType("timestamp with time zone");
 

@@ -12,6 +12,8 @@ public class PositionTarget
     public decimal Quantity { get; private set; }
     public decimal Percentage { get; private set; }
     public string Status { get; private set; }
+    public string? ExchangeOrderId { get; private set; }
+    public decimal? ExecutedQuantity { get; private set; }
     public DateTime? ExecutedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
@@ -65,9 +67,24 @@ public class PositionTarget
         PositionId = positionId;
     }
 
-    public void MarkExecuted()
+    public void SetExchangeOrderId(string exchangeOrderId)
+    {
+        ExchangeOrderId = exchangeOrderId;
+    }
+
+    public void UpdateStatus(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            throw new DomainException("Status cannot be empty.");
+        }
+        Status = status;
+    }
+
+    public void MarkExecuted(decimal? executedQuantity = null)
     {
         Status = "Executed";
+        ExecutedQuantity = executedQuantity ?? Quantity;
         ExecutedAt = DateTime.UtcNow;
     }
 }

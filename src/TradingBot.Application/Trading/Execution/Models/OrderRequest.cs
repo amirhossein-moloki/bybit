@@ -13,4 +13,5 @@ public class OrderRequest
     public Guid? SignalId { get; set; }
     public Guid? RiskEvaluationId { get; set; }
     public string ClientOrderId { get; set; } = string.Empty;
+    public bool ReduceOnly { get; set; }
 }
