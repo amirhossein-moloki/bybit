@@ -17,4 +17,17 @@ public class TradeExecutionRequest
     public decimal Leverage { get; set; }
     public RiskDecisionStatus RiskDecision { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Direct mappings for Section 5 Contracts
+    public Guid RiskApprovalId
+    {
+        get => RiskEvaluationId;
+        set => RiskEvaluationId = value;
+    }
+
+    public Guid ExecutionId
+    {
+        get => Id;
+        set => Id = value;
+    }
 }

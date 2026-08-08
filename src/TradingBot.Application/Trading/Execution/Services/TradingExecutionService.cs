@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ public class TradingExecutionService : ITradeExecutionService
     private readonly IOrderEventRepository _orderEventRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<TradingExecutionService> _logger;
+    private readonly IExecutionMetrics? _metrics;
 
     public TradingExecutionService(
         IOrderValidator validator,
@@ -34,7 +36,8 @@ public class TradingExecutionService : ITradeExecutionService
         IOrderRepository orderRepository,
         IOrderEventRepository orderEventRepository,
         IUnitOfWork unitOfWork,
-        ILogger<TradingExecutionService> logger)
+        ILogger<TradingExecutionService> logger,
+        IExecutionMetrics? metrics = null)
     {
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
         _builder = builder ?? throw new ArgumentNullException(nameof(builder));
@@ -44,6 +47,7 @@ public class TradingExecutionService : ITradeExecutionService
         _orderEventRepository = orderEventRepository ?? throw new ArgumentNullException(nameof(orderEventRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _metrics = metrics;
     }
 
     [Obsolete("Use the primary constructor with repositories and unit of work.", false)]
@@ -61,8 +65,26 @@ public class TradingExecutionService : ITradeExecutionService
             new NoOpOrderRepository(),
             new NoOpOrderEventRepository(),
             new NoOpUnitOfWork(),
-            logger)
+            logger,
+            null)
     {
+    }
+
+    private async Task SaveAndCommitWithMetricsAsync(CancellationToken cancellationToken)
+    {
+        var dbStopwatch = Stopwatch.StartNew();
+        bool success = false;
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            success = true;
+        }
+        finally
+        {
+            dbStopwatch.Stop();
+            _metrics?.RecordDatabasePersistence(dbStopwatch.Elapsed.TotalMilliseconds, success);
+        }
     }
 
     public async Task<ExecutionResult> ExecuteAsync(TradeExecutionRequest request, CancellationToken cancellationToken = default)
@@ -160,8 +182,7 @@ public class TradingExecutionService : ITradeExecutionService
                     $"Validation failed: {string.Join("; ", validationResult.Errors)}");
                 await _orderEventRepository.AddAsync(failedEvent, cancellationToken);
 
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                await SaveAndCommitWithMetricsAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -209,8 +230,7 @@ public class TradingExecutionService : ITradeExecutionService
                 "Local order created successfully in database.");
             await _orderEventRepository.AddAsync(createdEvent, cancellationToken);
 
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            await SaveAndCommitWithMetricsAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -236,8 +256,7 @@ public class TradingExecutionService : ITradeExecutionService
                 "Sending submission request to exchange.");
             await _orderEventRepository.AddAsync(submittingEvent, cancellationToken);
 
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            await SaveAndCommitWithMetricsAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -248,13 +267,18 @@ public class TradingExecutionService : ITradeExecutionService
         // 5. Submit to Exchange (HTTP Request OUTSIDE database transaction)
         OrderResult gatewayResult;
         bool isTimeout = false;
+        var gatewayStopwatch = Stopwatch.StartNew();
 
         try
         {
             gatewayResult = await _gateway.CreateOrderAsync(orderRequest, cancellationToken);
+            gatewayStopwatch.Stop();
+            _metrics?.RecordExchangeCall(gatewayStopwatch.Elapsed.TotalMilliseconds, isError: !gatewayResult.Success, isRateLimit: gatewayResult.ErrorType == ExchangeErrorType.RateLimited, isTimeout: false);
         }
         catch (Exception ex) when (ex is TimeoutException or TaskCanceledException || ex.InnerException is TimeoutException or TaskCanceledException || ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
         {
+            gatewayStopwatch.Stop();
+            _metrics?.RecordExchangeCall(gatewayStopwatch.Elapsed.TotalMilliseconds, isError: true, isRateLimit: false, isTimeout: true);
             _logger.LogWarning(ex, "ExchangeSubmissionUnknown: Timeout occurred during CreateOrderAsync for client ID {ClientOrderId}. Marking as Unknown for reconciliation.", clientOrderId);
             gatewayResult = new OrderResult
             {
@@ -268,6 +292,8 @@ public class TradingExecutionService : ITradeExecutionService
         }
         catch (Exception ex)
         {
+            gatewayStopwatch.Stop();
+            _metrics?.RecordExchangeCall(gatewayStopwatch.Elapsed.TotalMilliseconds, isError: true, isRateLimit: false, isTimeout: false);
             _logger.LogError(ex, "ExchangeSubmissionException: Unexpected exception during CreateOrderAsync. Mapping to Unknown to avoid duplicate creations.");
             gatewayResult = new OrderResult
             {
@@ -304,8 +330,7 @@ public class TradingExecutionService : ITradeExecutionService
                 await _orderEventRepository.AddAsync(successEvent, cancellationToken);
 
                 await _orderRepository.UpdateAsync(order, cancellationToken);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                await SaveAndCommitWithMetricsAsync(cancellationToken);
 
                 return new ExecutionResult
                 {
@@ -343,8 +368,7 @@ public class TradingExecutionService : ITradeExecutionService
                     await _orderEventRepository.AddAsync(tempFailureEvent, cancellationToken);
 
                     await _orderRepository.UpdateAsync(order, cancellationToken);
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                    await SaveAndCommitWithMetricsAsync(cancellationToken);
 
                     return ExecutionResult.CreateFailure(
                         $"Temporary exchange error occurred. Order marked as Unknown for reconciliation: {gatewayResult.ErrorMessage}",
@@ -368,8 +392,7 @@ public class TradingExecutionService : ITradeExecutionService
                     await _orderEventRepository.AddAsync(permFailureEvent, cancellationToken);
 
                     await _orderRepository.UpdateAsync(order, cancellationToken);
-                    await _unitOfWork.SaveChangesAsync(cancellationToken);
-                    await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                    await SaveAndCommitWithMetricsAsync(cancellationToken);
 
                     return ExecutionResult.CreateFailure(
                         gatewayResult.ErrorMessage,
