@@ -55,6 +55,8 @@ try
         options.ApiKey = settings.Exchange.ApiKey;
         options.ApiSecret = settings.Exchange.ApiSecret;
         options.UseSandbox = settings.Exchange.UseSandbox;
+        options.Environment = settings.Exchange.Environment;
+        options.RecvWindow = settings.Exchange.RecvWindow;
     });
     builder.Services.AddTelegramIntegration(builder.Configuration);
 

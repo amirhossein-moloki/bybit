@@ -58,8 +58,9 @@ public class TradingExecutionIntegrationTests
         // Assert
         result.Should().NotBeNull();
         result.Success.Should().BeTrue();
-        result.Status.Should().Be(OrderStatus.ReadyForExchange);
-        result.Message.Should().Contain("ready for exchange");
+        result.Status.Should().Be(OrderStatus.Filled);
+        result.ExchangeOrderId.Should().NotBeNullOrEmpty();
+        result.Message.Should().Contain("executed successfully on the exchange");
     }
 
     [Fact]

@@ -85,14 +85,34 @@ public class TradingExecutionService : ITradeExecutionService
 
         _logger.LogInformation("OrderValidationPassed: Request with ID {RequestId} is valid.", request.Id);
 
-        // Stage 02 - Do NOT call the exchange gateway. Return ReadyForExchange.
-        _logger.LogInformation("ExecutionReady: Order is ready for exchange execution.");
+        _logger.LogInformation("ExchangeOrderSubmissionStarted: Submitting order request for Symbol {Symbol} to exchange gateway.", orderRequest.Symbol);
+
+        OrderResult gatewayResult;
+        try
+        {
+            gatewayResult = await _gateway.CreateOrderAsync(orderRequest, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ExchangeSubmissionException: Failed to submit order request to exchange gateway.");
+            return ExecutionResult.CreateFailure($"Exchange submission failed: {ex.Message}", "EXCHANGE_SUBMISSION_ERROR", OrderStatus.Failed);
+        }
+
+        if (!gatewayResult.Success)
+        {
+            _logger.LogWarning("ExchangeOrderSubmissionFailed: Order submission failed. Error: {Error}, Code: {Code}", gatewayResult.ErrorMessage, gatewayResult.ErrorCode);
+            return ExecutionResult.CreateFailure(gatewayResult.ErrorMessage, gatewayResult.ErrorCode ?? "EXCHANGE_ERROR", gatewayResult.Status);
+        }
+
+        _logger.LogInformation("ExchangeOrderSubmissionCompleted: Order submitted successfully. ExchangeOrderId {ExchangeOrderId}, Status {Status}",
+            gatewayResult.ExchangeOrderId, gatewayResult.Status);
 
         return new ExecutionResult
         {
             Success = true,
-            Status = OrderStatus.ReadyForExchange,
-            Message = "Order is validated and ready for exchange execution."
+            ExchangeOrderId = gatewayResult.ExchangeOrderId,
+            Status = gatewayResult.Status,
+            Message = "Order executed successfully on the exchange."
         };
     }
 }
