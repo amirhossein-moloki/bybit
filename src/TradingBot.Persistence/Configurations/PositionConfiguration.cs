@@ -12,13 +12,18 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
         builder.ToTable("Positions", t =>
         {
             t.HasCheckConstraint("CK_Positions_Quantity", "\"Quantity\" > 0");
+            t.HasCheckConstraint("CK_Positions_RemainingQuantity", "\"RemainingQuantity\" >= 0");
             t.HasCheckConstraint("CK_Positions_EntryPrice", "\"EntryPrice\" >= 0");
+            t.HasCheckConstraint("CK_Positions_CurrentPrice", "\"CurrentPrice\" >= 0");
         });
 
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.OrderId)
             .IsRequired();
+
+        builder.Property(x => x.ExchangePositionId)
+            .HasMaxLength(100);
 
         builder.Property(x => x.Symbol)
             .HasMaxLength(20)
@@ -37,10 +42,20 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .HasColumnType("numeric(18,8)")
             .IsRequired();
 
+        builder.Property(x => x.RemainingQuantity)
+            .HasColumnType("numeric(18,8)")
+            .IsRequired();
+
         builder.Property(x => x.StopLoss)
             .HasColumnType("numeric(18,8)");
 
         builder.Property(x => x.TakeProfit)
+            .HasColumnType("numeric(18,8)");
+
+        builder.Property(x => x.Leverage)
+            .HasColumnType("numeric(18,8)");
+
+        builder.Property(x => x.Margin)
             .HasColumnType("numeric(18,8)");
 
         builder.Property(x => x.CurrentPrice)
@@ -48,6 +63,14 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .IsRequired();
 
         builder.Property(x => x.UnrealizedPnL)
+            .HasColumnType("numeric(18,8)")
+            .IsRequired();
+
+        builder.Property(x => x.RealizedPnL)
+            .HasColumnType("numeric(18,8)")
+            .IsRequired();
+
+        builder.Property(x => x.Fee)
             .HasColumnType("numeric(18,8)")
             .IsRequired();
 
@@ -64,15 +87,15 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
         builder.Property(x => x.ClosedAt)
             .HasColumnType("timestamp with time zone");
 
-        // Shadow properties for CreatedAt/UpdatedAt
+        // Shadow properties for CreatedAt
         builder.Property<DateTime>("CreatedAt")
             .HasColumnType("timestamp with time zone")
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
             .IsRequired();
 
-        builder.Property<DateTime?>("UpdatedAt")
-            .HasColumnType("timestamp with time zone")
-            .IsConcurrencyToken();
+        // Class property mapped directly
+        builder.Property(x => x.UpdatedAt)
+            .HasColumnType("timestamp with time zone");
 
         // One Order has One Position
         builder.HasOne<Order>()
@@ -80,7 +103,21 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
             .HasForeignKey<Position>(p => p.OrderId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // One Position has many Targets
+        builder.HasMany(x => x.Targets)
+            .WithOne()
+            .HasForeignKey(x => x.PositionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One Position has many Events
+        builder.HasMany(x => x.Events)
+            .WithOne()
+            .HasForeignKey(x => x.PositionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // Indexes
+        builder.HasIndex(x => x.OrderId);
+        builder.HasIndex(x => x.ExchangePositionId);
         builder.HasIndex(x => x.Symbol);
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => new { x.Symbol, x.Status });
