@@ -72,4 +72,30 @@ public class OrderRepository : RepositoryBase<Order>, IOrderRepository
     {
         return await GetPagedAsync(pageNumber, pageSize, cancellationToken);
     }
+
+    // Stage 04 methods
+    public async Task<Order?> GetBySignalIdAsync(Guid signalId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Orders
+            .FirstOrDefaultAsync(o => o.SignalId == signalId, cancellationToken);
+    }
+
+    public async Task<IEnumerable<Order>> GetPendingReconciliationOrdersAsync(int batchSize, CancellationToken cancellationToken = default)
+    {
+        var openStatuses = new[] {
+            OrderStatus.Pending,
+            OrderStatus.Submitting,
+            OrderStatus.Submitted,
+            OrderStatus.Accepted,
+            OrderStatus.New,
+            OrderStatus.PartiallyFilled,
+            OrderStatus.Unknown
+        };
+
+        return await DbContext.Orders
+            .Where(o => openStatuses.Contains(o.Status))
+            .OrderBy(o => o.CreatedAt)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
 }

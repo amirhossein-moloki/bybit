@@ -11,4 +11,9 @@ public class OrderResult
     public string ErrorMessage { get; set; } = string.Empty;
     public string? ErrorCode { get; set; }
     public ExchangeErrorType? ErrorType { get; set; }
+
+    // Extended Phase 06 Stage 04 properties
+    public decimal ExecutedQuantity { get; set; }
+    public decimal ExecutedPrice { get; set; }
+    public decimal RemainingQuantity { get; set; }
 }

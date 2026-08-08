@@ -14,5 +14,7 @@ public enum OrderStatus
     Failed,
     ValidationFailed,
     ReadyForExchange,
-    Unknown
+    Unknown,
+    Expired,
+    Submitting
 }
