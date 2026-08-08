@@ -33,6 +33,12 @@ public static class DependencyInjection
         // Register DbContext (delegated to Persistence layer registration)
         services.AddPersistence(configuration);
 
+        // Register Stage 01 Trading Execution Services
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IOrderValidator, TradingBot.Application.Trading.Execution.Services.OrderValidator>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IOrderBuilder, TradingBot.Application.Trading.Execution.Services.OrderBuilder>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IExchangeTradingGateway, TradingBot.Application.Trading.Execution.Services.TestExchangeTradingGateway>();
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionService, TradingBot.Application.Trading.Execution.Services.TradingExecutionService>();
+
         // Register Encryption Service
         services.AddSingleton<IEncryptionService, EncryptionService>();
 
