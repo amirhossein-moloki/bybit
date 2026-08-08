@@ -24,6 +24,7 @@ public static class DependencyInjection
 
         services.AddHttpClient<IExchangeClient, BybitExchangeClient>();
         services.AddHttpClient<IExchangeTradingGateway, BybitExecutionAdapter>();
+        services.AddHttpClient<IPositionGateway, PositionGateway>();
 
         // Register WebSockets and Stream Clients
         services.AddSingleton<SubscriptionManager>();

@@ -24,6 +24,7 @@ public class Position
     public decimal RealizedPnL { get; private set; }
     public decimal Fee { get; private set; }
     public PositionStatus Status { get; private set; }
+    public bool IsDesynchronized { get; private set; }
     public DateTime OpenedAt { get; private set; }
     public DateTime? ClosedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -328,6 +329,50 @@ public class Position
 
         StopLoss = stopLoss;
         TakeProfit = takeProfit;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void MarkDesynchronized(bool isDesynchronized)
+    {
+        IsDesynchronized = isDesynchronized;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateFromExchange(
+        decimal quantity,
+        decimal entryPrice,
+        decimal markPrice,
+        decimal? leverage,
+        decimal? margin,
+        decimal unrealizedPnL,
+        string? exchangePositionId = null)
+    {
+        if (quantity <= 0)
+        {
+            throw new DomainException("Quantity must be greater than zero.");
+        }
+        if (entryPrice <= 0)
+        {
+            throw new DomainException("Entry price must be greater than zero.");
+        }
+        if (markPrice <= 0)
+        {
+            throw new DomainException("Mark price must be greater than zero.");
+        }
+
+        Quantity = quantity;
+        RemainingQuantity = quantity; // keep remaining quantity in sync
+        EntryPrice = entryPrice;
+        CurrentPrice = markPrice;
+        Leverage = leverage;
+        Margin = margin;
+        UnrealizedPnL = unrealizedPnL;
+
+        if (!string.IsNullOrWhiteSpace(exchangePositionId))
+        {
+            ExchangePositionId = exchangePositionId;
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
 }

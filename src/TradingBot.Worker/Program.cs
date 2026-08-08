@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using System;
+using TradingBot.Application.Interfaces;
 using TradingBot.Infrastructure.Configuration;
 using TradingBot.Infrastructure.Logging;
 using TradingBot.Persistence.Context;
@@ -92,6 +93,19 @@ try
             var logger = services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TradingDbContext>>();
             await DatabaseSeeder.SeedAsync(context, logger);
             Log.Information("Database seeding completed.");
+
+            // Startup Position Recovery Flow
+            try
+            {
+                Log.Information("Starting startup position recovery flow...");
+                var recoveryService = services.GetRequiredService<IPositionRecoveryService>();
+                await recoveryService.RecoverPositionsAsync();
+                Log.Information("Startup position recovery flow completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "An error occurred during startup position recovery flow.");
+            }
         }
         catch (Exception ex)
         {

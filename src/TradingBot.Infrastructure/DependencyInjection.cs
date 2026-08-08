@@ -14,6 +14,7 @@ using TradingBot.Persistence;
 using TradingBot.Persistence.Context;
 using TradingBot.Application.Trading.Execution.Contracts;
 using TradingBot.Application.Trading.Execution.Services;
+using TradingBot.Application.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -64,6 +65,10 @@ public static class DependencyInjection
         services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();
         services.AddScoped<ITradeRepository, TradeRepository>();
         services.AddScoped<IPositionRepository, PositionRepository>();
+        services.AddScoped<IPositionService, PositionService>();
+        services.AddScoped<IPositionSynchronizationService, PositionSynchronizationService>();
+        services.AddScoped<IPositionReconciliationService, PositionReconciliationService>();
+        services.AddScoped<IPositionRecoveryService, PositionRecoveryService>();
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();
         services.AddScoped<ISystemLogRepository, SystemLogRepository>();
         services.AddScoped<IRiskEvaluationRepository, RiskEvaluationRepository>();

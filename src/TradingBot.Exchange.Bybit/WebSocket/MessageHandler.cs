@@ -63,6 +63,10 @@ public class MessageHandler
             {
                 HandlePositionMessage(root);
             }
+            else if (topic == "execution")
+            {
+                HandleExecutionMessage(root);
+            }
         }
         catch (Exception ex)
         {
@@ -147,6 +151,27 @@ public class MessageHandler
             {
                 bybitOrderStream.Push(orderEvent);
             }
+        }
+    }
+
+    private void HandleExecutionMessage(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var dataProp) || dataProp.ValueKind != JsonValueKind.Array) return;
+
+        foreach (var item in dataProp.EnumerateArray())
+        {
+            var symbol = item.TryGetProperty("symbol", out var s) ? s.GetString() : string.Empty;
+            if (string.IsNullOrEmpty(symbol)) continue;
+
+            var side = item.TryGetProperty("side", out var sd) ? sd.GetString() : string.Empty;
+            var orderId = item.TryGetProperty("orderId", out var oid) ? oid.GetString() : string.Empty;
+            var execId = item.TryGetProperty("execId", out var eid) ? eid.GetString() : string.Empty;
+
+            decimal.TryParse(item.TryGetProperty("execPrice", out var ep) ? ep.GetString() : "0", out var execPrice);
+            decimal.TryParse(item.TryGetProperty("execQty", out var eq) ? eq.GetString() : "0", out var execQty);
+
+            _logger.LogInformation("Bybit WebSocket Execution Update: Symbol={Symbol}, Side={Side}, OrderId={OrderId}, ExecId={ExecId}, ExecPrice={ExecPrice}, ExecQty={ExecQty}",
+                symbol, side, orderId, execId, execPrice, execQty);
         }
     }
 
