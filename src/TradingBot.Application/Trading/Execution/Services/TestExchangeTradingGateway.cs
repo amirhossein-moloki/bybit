@@ -55,13 +55,17 @@ public class TestExchangeTradingGateway : IExchangeTradingGateway
             return Task.FromCanceled<OrderResult>(cancellationToken);
         }
 
+        // Return mock populated fields
         return Task.FromResult(new OrderResult
         {
             Success = true,
             ExchangeOrderId = exchangeOrderId,
             Status = OrderStatus.Filled,
             ErrorMessage = string.Empty,
-            ErrorCode = null
+            ErrorCode = null,
+            ExecutedQuantity = 0.1m,
+            ExecutedPrice = 50000m,
+            RemainingQuantity = 0m
         });
     }
 

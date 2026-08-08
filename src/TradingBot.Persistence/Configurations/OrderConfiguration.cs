@@ -84,6 +84,37 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasColumnType("timestamp with time zone")
             .IsConcurrencyToken();
 
+        // Extended Phase 06 Stage 04 properties mapping
+        builder.Property(x => x.Exchange)
+            .HasMaxLength(50)
+            .HasDefaultValue("Bybit")
+            .IsRequired();
+
+        builder.Property(x => x.ExecutedQuantity)
+            .HasColumnType("numeric(18,8)")
+            .HasDefaultValue(0m)
+            .IsRequired();
+
+        builder.Property(x => x.ExecutedPrice)
+            .HasColumnType("numeric(18,8)")
+            .HasDefaultValue(0m)
+            .IsRequired();
+
+        builder.Property(x => x.FailureReason)
+            .HasMaxLength(500);
+
+        builder.Property(x => x.ExchangeErrorCode)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.SubmittedAt)
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(x => x.FilledAt)
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(x => x.CancelledAt)
+            .HasColumnType("timestamp with time zone");
+
         // Foreign Key property for relationship Signal -> Order
         builder.Property(x => x.SignalId);
 

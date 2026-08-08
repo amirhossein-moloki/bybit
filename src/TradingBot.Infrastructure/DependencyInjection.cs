@@ -12,6 +12,8 @@ using TradingBot.Infrastructure.Health;
 using TradingBot.Infrastructure.Resilience;
 using TradingBot.Persistence;
 using TradingBot.Persistence.Context;
+using TradingBot.Application.Trading.Execution.Contracts;
+using TradingBot.Application.Trading.Execution.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -51,6 +53,8 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<ISignalRepository, SignalRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOrderEventRepository, OrderEventRepository>();
+        services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();
         services.AddScoped<ITradeRepository, TradeRepository>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IExchangeAccountRepository, ExchangeAccountRepository>();

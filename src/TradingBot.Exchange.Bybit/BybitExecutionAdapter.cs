@@ -146,9 +146,17 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
         var queryParams = new Dictionary<string, string>
         {
             { "category", "linear" },
-            { "symbol", symbol.ToUpperInvariant() },
-            { "orderId", exchangeOrderId }
+            { "symbol", symbol.ToUpperInvariant() }
         };
+
+        if (exchangeOrderId.StartsWith("TB-", StringComparison.OrdinalIgnoreCase) || exchangeOrderId.StartsWith("BOT-", StringComparison.OrdinalIgnoreCase))
+        {
+            queryParams.Add("orderLinkId", exchangeOrderId);
+        }
+        else
+        {
+            queryParams.Add("orderId", exchangeOrderId);
+        }
 
         try
         {
@@ -200,15 +208,29 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
 
             var internalStatus = MapBybitStatus(orderInfo.OrderStatus);
 
-            _logger.LogInformation("BybitOrderQueryCompleted: Order query completed. ExchangeOrderId={ExchangeOrderId}, Status={Status}",
-                exchangeOrderId, internalStatus);
+            decimal.TryParse(orderInfo.CumExecQty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cumExecQty);
+            decimal.TryParse(orderInfo.AvgPrice, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var avgPrice);
+            decimal.TryParse(orderInfo.Qty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var origQty);
+
+            if (avgPrice == 0 && !string.IsNullOrEmpty(orderInfo.Price))
+            {
+                decimal.TryParse(orderInfo.Price, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out avgPrice);
+            }
+
+            var remainingQty = Math.Max(0m, origQty - cumExecQty);
+
+            _logger.LogInformation("BybitOrderQueryCompleted: Order query completed. ExchangeOrderId={ExchangeOrderId}, Status={Status}, ExecQty={ExecQty}, AvgPrice={AvgPrice}",
+                exchangeOrderId, internalStatus, cumExecQty, avgPrice);
 
             return new OrderResult
             {
                 Success = true,
                 ExchangeOrderId = orderInfo.OrderId,
                 Status = internalStatus,
-                ErrorMessage = "Order queried successfully."
+                ErrorMessage = "Order queried successfully.",
+                ExecutedQuantity = cumExecQty,
+                ExecutedPrice = avgPrice,
+                RemainingQuantity = remainingQty
             };
         }
         catch (Exception ex)

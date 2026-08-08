@@ -12,6 +12,7 @@ public class TradingDbContext : DbContext
     public DbSet<Symbol> Symbols { get; set; } = null!;
     public DbSet<Signal> Signals { get; set; } = null!;
     public DbSet<Order> Orders { get; set; } = null!;
+    public DbSet<OrderEvent> OrderEvents { get; set; } = null!;
     public DbSet<Position> Positions { get; set; } = null!;
     public DbSet<Trade> Trades { get; set; } = null!;
     public DbSet<RiskRule> RiskRules { get; set; } = null!;

@@ -22,4 +22,8 @@ public interface IOrderRepository : IRepository<Order>
 
     // Pagination for Order as requested by Stage 03 Section 9
     Task<PagedResult<Order>> GetPagedOrdersAsync(int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+
+    // Stage 04 methods
+    Task<Order?> GetBySignalIdAsync(Guid signalId, CancellationToken cancellationToken = default);
+    Task<IEnumerable<Order>> GetPendingReconciliationOrdersAsync(int batchSize, CancellationToken cancellationToken = default);
 }
