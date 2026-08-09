@@ -79,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<ITradeDecisionRepository, TradeDecisionRepository>();
         services.AddScoped<TradingBot.Domain.Repositories.IParserTemplateRepository, ParserTemplateRepository>();
         services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
+        services.AddScoped<IMonitoringEventRepository, MonitoringEventRepository>();
 
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
@@ -103,9 +104,13 @@ public static class DependencyInjection
         // 2. Register Singletons
         services.AddSingleton<TradingBot.Application.Monitoring.IWorkerHealthRegistry, TradingBot.Application.Monitoring.WorkerHealthRegistry>();
         services.AddSingleton<TradingBot.Application.Monitoring.IHealthStatusProvider, TradingBot.Application.Monitoring.HealthStatusProvider>();
+        services.AddSingleton<TradingBot.Application.Monitoring.IEventSanitizer, TradingBot.Application.Monitoring.Services.EventSanitizer>();
+        services.AddSingleton<TradingBot.Application.Monitoring.IMonitoringEventQueue, TradingBot.Application.Monitoring.Services.MonitoringEventQueue>();
 
         // 3. Register Repository
         services.AddScoped<TradingBot.Application.Repositories.IHealthCheckResultRepository, TradingBot.Persistence.Repositories.HealthCheckResultRepository>();
+        services.AddScoped<TradingBot.Application.Monitoring.IMonitoringEventPublisher, TradingBot.Application.Monitoring.Services.MonitoringEventPublisher>();
+        services.AddScoped<TradingBot.Application.Monitoring.IMonitoringEventReader, TradingBot.Persistence.Repositories.MonitoringEventReader>();
 
         // 4. Register Custom Monitoring Checks & Engine
         services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.ApplicationHealthCheck>();
@@ -115,6 +120,9 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.WorkerHealthCheck>();
 
         services.AddScoped<TradingBot.Application.Monitoring.IHealthCheckEngine, TradingBot.Application.Monitoring.HealthCheckEngine>();
+
+        // 5. Register additional Execution Event Handler for mapping trading events (observability adapter)
+        services.AddScoped<TradingBot.Application.Trading.Execution.Contracts.IExecutionEventHandler, TradingBot.Application.Monitoring.Services.MonitoringExecutionEventHandler>();
 
         return services;
     }

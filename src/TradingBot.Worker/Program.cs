@@ -69,6 +69,7 @@ try
     builder.Services.AddHostedService<SignalStorageWorker>();
     builder.Services.AddHostedService<OrderReconciliationWorker>();
     builder.Services.AddHostedService<MonitoringWorker>();
+    builder.Services.AddHostedService<MonitoringEventProcessor>();
 
     var app = builder.Build();
 
