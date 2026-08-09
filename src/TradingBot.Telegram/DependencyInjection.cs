@@ -6,6 +6,7 @@ using TradingBot.Telegram.Client;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Health;
 using TradingBot.Telegram.Interfaces;
+using TradingBot.Telegram;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -47,6 +48,7 @@ public static class DependencyInjection
         services.AddSingleton<ITelegramMessageReceiver, DefaultTelegramMessageReceiver>();
         services.AddSingleton<ITelegramClient, TelegramClientService>();
         services.AddSingleton<ITelegramAuthenticationService, TelegramAuthService>();
+        services.AddSingleton<TradingBot.Application.Monitoring.INotificationChannel, TelegramNotificationChannel>();
 
         services.AddHostedService<TelegramListenerWorker>();
 

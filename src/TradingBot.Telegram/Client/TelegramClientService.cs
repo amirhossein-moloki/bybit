@@ -150,6 +150,48 @@ public class TelegramClientService : ITelegramClient, IDisposable
         _logger.Information("Loaded and cached {ChatCount} chats from Telegram dialogs.", _updateManager.Chats.Count);
     }
 
+    public async Task SendMessageAsync(long chatId, string message)
+    {
+        if (_client == null)
+        {
+            throw new TelegramConnectionException("Telegram client is not initialized.");
+        }
+
+        TL.ChatBase? chat = null;
+        if (_updateManager != null && _updateManager.Chats.TryGetValue(chatId, out var cachedChat))
+        {
+            chat = cachedChat;
+        }
+
+        if (chat == null)
+        {
+            var dialogs = await _client.Messages_GetAllDialogs();
+            if (_updateManager != null)
+            {
+                dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
+                if (_updateManager.Chats.TryGetValue(chatId, out cachedChat))
+                {
+                    chat = cachedChat;
+                }
+            }
+            else
+            {
+                if (dialogs.chats.TryGetValue(chatId, out var dialogChat))
+                {
+                    chat = dialogChat;
+                }
+            }
+        }
+
+        if (chat == null)
+        {
+            throw new TelegramConnectionException($"Chat with ID {chatId} not found in Telegram dialogs/chats cache.");
+        }
+
+        var entities = _client.HtmlToEntities(ref message);
+        await _client.SendMessageAsync(chat, message, entities: entities);
+    }
+
     public WTelegram.Client? UnderlyingClient => _client;
 
     private async Task OnUpdateCallback(TL.Update update)

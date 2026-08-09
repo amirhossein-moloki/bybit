@@ -121,6 +121,10 @@ public class MonitoringEventProcessor : BackgroundService
 
                     await repository.AddAsync(@event, stoppingToken);
                     await unitOfWork.SaveChangesAsync(stoppingToken);
+
+                    // Call the notification engine to process the event
+                    var notificationEngine = scope.ServiceProvider.GetRequiredService<INotificationEngine>();
+                    await notificationEngine.ProcessEventAsync(@event, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
