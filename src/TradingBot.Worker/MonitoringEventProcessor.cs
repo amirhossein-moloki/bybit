@@ -119,8 +119,15 @@ public class MonitoringEventProcessor : BackgroundService
                         }
                     }
 
-                    await repository.AddAsync(@event, stoppingToken);
-                    await unitOfWork.SaveChangesAsync(stoppingToken);
+                    try
+                    {
+                        await repository.AddAsync(@event, stoppingToken);
+                        await unitOfWork.SaveChangesAsync(stoppingToken);
+                    }
+                    catch (Exception dbEx)
+                    {
+                        _logger.LogError(dbEx, "MonitoringEventProcessor: Failed to persist monitoring event to database. Proceeding with alerting and notifications.");
+                    }
 
                     // Record system event metrics
                     var metricsService = scope.ServiceProvider.GetService<IMetricsService>();

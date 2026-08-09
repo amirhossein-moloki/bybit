@@ -117,7 +117,14 @@ public class MonitoringWorker : BackgroundService
                     if (hasUpdates)
                     {
                         // Save all records atomically
-                        await unitOfWork.SaveChangesAsync(stoppingToken);
+                        try
+                        {
+                            await unitOfWork.SaveChangesAsync(stoppingToken);
+                        }
+                        catch (Exception dbEx)
+                        {
+                            _logger.LogError(dbEx, "MonitoringWorker: Failed to persist health check results to database. In-memory health state is still preserved.");
+                        }
                         _logger.LogInformation("MonitoringWorker: Health pass complete. Overall system status: '{OverallStatus}'.",
                             _healthStatusProvider.GetOverallStatus());
                     }

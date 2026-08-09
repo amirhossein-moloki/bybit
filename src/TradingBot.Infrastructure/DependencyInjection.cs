@@ -102,6 +102,7 @@ public static class DependencyInjection
         var monitoringSection = configuration.GetSection("Monitoring");
         var monitoringOptions = new TradingBot.Application.Monitoring.Configuration.MonitoringOptions();
         monitoringSection.Bind(monitoringOptions);
+        monitoringOptions.Validate();
         services.AddSingleton(monitoringOptions);
 
         // Bind and register Notification Options
@@ -115,13 +116,14 @@ public static class DependencyInjection
         {
             notificationOptions.Telegram.ChatId = envChatId;
         }
-
+        notificationOptions.Validate();
         services.AddSingleton(notificationOptions);
 
         // Bind and register Alert Options
         var alertSection = configuration.GetSection("Alerts");
         var alertOptions = new TradingBot.Application.Monitoring.Configuration.AlertOptions();
         alertSection.Bind(alertOptions);
+        alertOptions.Validate();
         services.AddSingleton(alertOptions);
 
         // 2. Register Singletons

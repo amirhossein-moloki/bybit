@@ -78,7 +78,8 @@ public class WorkflowAndDITests
             {"Exchange:ApiKey", "test-key"},
             {"Exchange:ApiSecret", "test-secret"},
             {"Logging:LogLevel", "Information"},
-            {"Security:EncryptionKey", "12345678123456781234567812345678"}
+            {"Security:EncryptionKey", "12345678123456781234567812345678"},
+            {"Notification:Telegram:ChatId", "test-chat-id"}
         };
 
         var configuration = new ConfigurationBuilder()
