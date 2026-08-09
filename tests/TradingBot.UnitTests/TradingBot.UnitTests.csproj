@@ -33,6 +33,7 @@
     <ProjectReference Include="..\..\src\TradingBot.Persistence\TradingBot.Persistence.csproj" />
     <ProjectReference Include="..\..\src\TradingBot.Telegram\TradingBot.Telegram.csproj" />
     <ProjectReference Include="..\..\src\TradingBot.Parser\TradingBot.Parser.csproj" />
+    <ProjectReference Include="..\..\src\TradingBot.Worker\TradingBot.Worker.csproj" />
   </ItemGroup>
 
 </Project>
