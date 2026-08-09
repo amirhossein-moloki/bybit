@@ -12,21 +12,26 @@ public class OrderReconciliationWorker : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<OrderReconciliationWorker> _logger;
+    private readonly TradingBot.Application.Monitoring.IWorkerHealthRegistry _healthRegistry;
 
     public OrderReconciliationWorker(
         IServiceProvider serviceProvider,
-        ILogger<OrderReconciliationWorker> logger)
+        ILogger<OrderReconciliationWorker> logger,
+        TradingBot.Application.Monitoring.IWorkerHealthRegistry healthRegistry)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _healthRegistry = healthRegistry ?? throw new ArgumentNullException(nameof(healthRegistry));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _healthRegistry.RegisterWorker(nameof(OrderReconciliationWorker), isCritical: false);
         _logger.LogInformation("OrderReconciliationWorker: Starting background worker...");
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            _healthRegistry.RecordHeartbeat(nameof(OrderReconciliationWorker), "Running");
             try
             {
                 // Sensible polling interval: e.g. 5 seconds

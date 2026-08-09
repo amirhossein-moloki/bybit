@@ -14,25 +14,30 @@ public class SignalStorageWorker : BackgroundService
     private readonly ISignalStorageQueue _queue;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SignalStorageWorker> _logger;
+    private readonly TradingBot.Application.Monitoring.IWorkerHealthRegistry _healthRegistry;
 
     public SignalStorageWorker(
         ISignalStorageQueue queue,
         IServiceProvider serviceProvider,
-        ILogger<SignalStorageWorker> logger)
+        ILogger<SignalStorageWorker> logger,
+        TradingBot.Application.Monitoring.IWorkerHealthRegistry healthRegistry)
     {
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _healthRegistry = healthRegistry ?? throw new ArgumentNullException(nameof(healthRegistry));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield(); // Let caller yield and continue starting other workers
 
+        _healthRegistry.RegisterWorker(nameof(SignalStorageWorker), isCritical: true);
         _logger.LogInformation("SignalStorageWorker: Starting queue consumer background loop...");
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            _healthRegistry.RecordHeartbeat(nameof(SignalStorageWorker), "Running");
             SignalCandidate? candidate = null;
             try
             {
@@ -51,11 +56,13 @@ public class SignalStorageWorker : BackgroundService
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                _healthRegistry.RecordHeartbeat(nameof(SignalStorageWorker), "Stopping");
                 _logger.LogInformation("SignalStorageWorker: Stopping queue consumer due to cancellation...");
                 break;
             }
             catch (Exception ex)
             {
+                _healthRegistry.RecordHeartbeat(nameof(SignalStorageWorker), "Failed", ex.Message);
                 if (candidate != null)
                 {
                     _logger.LogError(ex, "SignalStorageWorker: Failed to store signal candidate. Channel: {ChannelId}, MessageId: {MessageId}. Continuing queue processing.",
@@ -68,6 +75,7 @@ public class SignalStorageWorker : BackgroundService
             }
         }
 
+        _healthRegistry.RecordHeartbeat(nameof(SignalStorageWorker), "Stopped");
         _logger.LogInformation("SignalStorageWorker: Queue consumer background loop stopped.");
     }
 }

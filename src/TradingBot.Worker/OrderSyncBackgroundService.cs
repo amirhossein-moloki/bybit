@@ -14,21 +14,25 @@ public class OrderSyncBackgroundService : BackgroundService
     private readonly IOrderStream _orderStream;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<OrderSyncBackgroundService> _logger;
+    private readonly TradingBot.Application.Monitoring.IWorkerHealthRegistry _healthRegistry;
 
     public OrderSyncBackgroundService(
         IOrderStream orderStream,
         IServiceProvider serviceProvider,
-        ILogger<OrderSyncBackgroundService> logger)
+        ILogger<OrderSyncBackgroundService> logger,
+        TradingBot.Application.Monitoring.IWorkerHealthRegistry healthRegistry)
     {
         _orderStream = orderStream ?? throw new ArgumentNullException(nameof(orderStream));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _healthRegistry = healthRegistry ?? throw new ArgumentNullException(nameof(healthRegistry));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
 
+        _healthRegistry.RegisterWorker(nameof(OrderSyncBackgroundService), isCritical: false);
         _logger.LogInformation("OrderSyncBackgroundService: Starting...");
 
         try
@@ -45,6 +49,7 @@ public class OrderSyncBackgroundService : BackgroundService
         {
             await foreach (var orderUpdate in _orderStream.ReceiveEventsAsync(stoppingToken))
             {
+                _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Running");
                 _logger.LogInformation("OrderSyncBackgroundService: Received order update - ClientOrderId: {ClientOrderId}, Status: {Status}, CumExecQty: {CumExecQty}",
                     orderUpdate.ClientOrderId, orderUpdate.Status, orderUpdate.FilledQuantity);
 
@@ -92,11 +97,15 @@ public class OrderSyncBackgroundService : BackgroundService
         }
         catch (OperationCanceledException)
         {
+            _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Stopping");
             _logger.LogInformation("OrderSyncBackgroundService: Cancelled.");
         }
         catch (Exception ex)
         {
+            _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Failed", ex.Message);
             _logger.LogError(ex, "OrderSyncBackgroundService: Exception in order sync receive loop.");
         }
+
+        _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Stopped");
     }
 }

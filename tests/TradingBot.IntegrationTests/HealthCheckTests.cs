@@ -15,6 +15,11 @@ public class HealthCheckTests : IClassFixture<CustomWebApplicationFactory>
     {
         _factory = factory;
 
+        // Force reconciliation last run time to now so TradingEngineHealthCheck is instantly healthy on startup
+        typeof(TradingBot.Application.Trading.Execution.Services.OrderReconciliationService)
+            .GetProperty("LastRunTime", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            ?.SetValue(null, DateTime.UtcNow);
+
         using (var scope = _factory.Services.CreateScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
