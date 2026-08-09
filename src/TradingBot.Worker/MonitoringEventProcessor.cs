@@ -122,9 +122,31 @@ public class MonitoringEventProcessor : BackgroundService
                     await repository.AddAsync(@event, stoppingToken);
                     await unitOfWork.SaveChangesAsync(stoppingToken);
 
-                    // Call the notification engine to process the event
-                    var notificationEngine = scope.ServiceProvider.GetRequiredService<INotificationEngine>();
-                    await notificationEngine.ProcessEventAsync(@event, stoppingToken);
+                    // Record system event metrics
+                    var metricsService = scope.ServiceProvider.GetService<IMetricsService>();
+                    if (@event.Severity == "CRITICAL")
+                    {
+                        metricsService?.IncrementSystemCriticalErrors();
+                    }
+                    else if (@event.Severity == "ERROR")
+                    {
+                        metricsService?.IncrementSystemErrors();
+                    }
+                    else if (@event.Severity == "WARNING")
+                    {
+                        metricsService?.IncrementSystemWarnings();
+                    }
+
+                    // Call the alert engine to evaluate rules
+                    var alertEngine = scope.ServiceProvider.GetRequiredService<IAlertEngine>();
+                    bool handledAsAlert = await alertEngine.ProcessEventAsync(@event, stoppingToken);
+
+                    if (!handledAsAlert)
+                    {
+                        // Fall back to direct notifications for non-alert events
+                        var notificationEngine = scope.ServiceProvider.GetRequiredService<INotificationEngine>();
+                        await notificationEngine.ProcessEventAsync(@event, stoppingToken);
+                    }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

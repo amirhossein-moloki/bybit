@@ -70,6 +70,7 @@ try
     builder.Services.AddHostedService<OrderReconciliationWorker>();
     builder.Services.AddHostedService<MonitoringWorker>();
     builder.Services.AddHostedService<MonitoringEventProcessor>();
+    builder.Services.AddHostedService<AlertEvaluationWorker>();
     builder.Services.AddHostedService<NotificationWorker>();
 
     var app = builder.Build();

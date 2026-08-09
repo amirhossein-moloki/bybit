@@ -23,6 +23,8 @@ public class TradingDbContext : DbContext
     public DbSet<ProcessedEvent> ProcessedEvents { get; set; } = null!;
     public DbSet<MonitoringEvent> MonitoringEvents { get; set; } = null!;
     public DbSet<Notification> Notifications { get; set; } = null!;
+    public DbSet<Alert> Alerts { get; set; } = null!;
+    public DbSet<AlertEvent> AlertEvents { get; set; } = null!;
     public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> RiskEvaluations { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskProfile> RiskProfiles { get; set; } = null!;
