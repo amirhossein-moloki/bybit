@@ -9,6 +9,7 @@ using TradingBot.Application.Dashboard.DTOs;
 using TradingBot.Application.Dashboard.Interfaces;
 using TradingBot.Application.Monitoring;
 using TradingBot.Application.Monitoring.Services;
+using TradingBot.Application.Repositories;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Persistence.Context;
@@ -463,5 +464,197 @@ public class SystemHealthQueryService : ISystemHealthQueryService
             WarningCount: GetLong("SystemWarnings"),
             ApiRequestsCount: apiRequestsCount
         );
+    }
+
+    public async Task<PagedResult<AlertDto>> GetAlertsAsync(
+        string? severity = null,
+        string? source = null,
+        string? type = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = _dbContext.Alerts.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(severity))
+        {
+            var sev = severity.Trim();
+            query = query.Where(a => a.Severity == sev);
+        }
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            var src = source.Trim();
+            query = query.Where(a => a.Source == src);
+        }
+        if (!string.IsNullOrWhiteSpace(type))
+        {
+            var t = type.Trim();
+            query = query.Where(a => a.Type == t);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var rawItems = await query
+            .OrderByDescending(a => a.TriggeredAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(a => new {
+                a.Id,
+                a.Type,
+                a.Severity,
+                a.Source,
+                a.Status,
+                a.Message,
+                a.TriggeredAt,
+                a.UpdatedAt,
+                a.CorrelationId
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = rawItems
+            .Select(a => new AlertDto(
+                a.Id,
+                a.Type,
+                a.Severity,
+                a.Source,
+                a.Status,
+                _eventSanitizer.Sanitize(a.Message) ?? "",
+                a.TriggeredAt,
+                a.UpdatedAt,
+                a.CorrelationId
+            ))
+            .ToList();
+
+        return new PagedResult<AlertDto>(items, totalCount, page, pageSize);
+    }
+
+    public async Task<PagedResult<RecentEventDto>> GetEventsAsync(
+        string? type = null,
+        string? severity = null,
+        string? source = null,
+        DateTime? from = null,
+        DateTime? to = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = _dbContext.MonitoringEvents.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(type))
+        {
+            var t = type.Trim();
+            query = query.Where(e => e.EventType == t);
+        }
+        if (!string.IsNullOrWhiteSpace(severity))
+        {
+            var sev = severity.Trim();
+            query = query.Where(e => e.Severity == sev);
+        }
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            var src = source.Trim();
+            query = query.Where(e => e.Source == src);
+        }
+        if (from.HasValue)
+        {
+            query = query.Where(e => e.Timestamp >= from.Value);
+        }
+        if (to.HasValue)
+        {
+            query = query.Where(e => e.Timestamp <= to.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var rawItems = await query
+            .OrderByDescending(e => e.Timestamp)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(e => new {
+                e.Id,
+                e.EventType,
+                e.Severity,
+                e.Source,
+                e.Timestamp,
+                e.CorrelationId,
+                e.Message
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = rawItems
+            .Select(e => new RecentEventDto(
+                e.Id,
+                e.EventType,
+                e.Severity,
+                e.Source,
+                e.Timestamp,
+                e.CorrelationId,
+                _eventSanitizer.Sanitize(e.Message) ?? ""
+            ))
+            .ToList();
+
+        return new PagedResult<RecentEventDto>(items, totalCount, page, pageSize);
+    }
+
+    public async Task<PagedResult<HealthHistoryRecordDto>> GetHealthHistoryAsync(
+        string? service = null,
+        DateTime? from = null,
+        DateTime? to = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = _dbContext.HealthCheckResults.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(service))
+        {
+            var s = service.Trim();
+            query = query.Where(h => h.ServiceName == s);
+        }
+        if (from.HasValue)
+        {
+            query = query.Where(h => h.CheckedAt >= from.Value);
+        }
+        if (to.HasValue)
+        {
+            query = query.Where(h => h.CheckedAt <= to.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var rawItems = await query
+            .OrderByDescending(h => h.CheckedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(h => new {
+                h.ServiceName,
+                h.Status,
+                h.CheckedAt,
+                h.DurationMs
+            })
+            .ToListAsync(cancellationToken);
+
+        var items = rawItems
+            .Select(h => new HealthHistoryRecordDto(
+                h.ServiceName,
+                h.Status.ToString(),
+                h.CheckedAt,
+                h.DurationMs
+            ))
+            .ToList();
+
+        return new PagedResult<HealthHistoryRecordDto>(items, totalCount, page, pageSize);
     }
 }
