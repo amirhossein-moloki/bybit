@@ -86,6 +86,7 @@ public static class DependencyInjection
 
         // Register Dashboard Query Service (Stage 09-01)
         services.AddScoped<TradingBot.Application.Dashboard.Interfaces.IDashboardQueryService, TradingBot.Persistence.Queries.DashboardQueryService>();
+        services.AddScoped<TradingBot.Application.Dashboard.Interfaces.ISystemHealthQueryService, TradingBot.Persistence.Queries.SystemHealthQueryService>();
         services.AddScoped<TradingBot.Application.Dashboard.Interfaces.ITradingDashboardQueryService, TradingBot.Persistence.Queries.TradingDashboardQueryService>();
 
         // New Position Management layer services (Stage 07-04)

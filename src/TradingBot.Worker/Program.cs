@@ -46,6 +46,15 @@ try
 
     Log.Information("Starting TradingBot.Worker...");
 
+    // Configure Authentication and Authorization for Dashboard API
+    builder.Services.AddAuthentication("DashboardToken")
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, DashboardAuthHandler>("DashboardToken", null);
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy("DashboardRead", policy =>
+            policy.RequireClaim("Permission", "dashboard.read"));
+    });
+
     // 3. Service Registrations
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddInfrastructure(builder.Configuration);
@@ -84,9 +93,17 @@ try
             var context = services.GetRequiredService<TradingDbContext>();
             if (context.Database.IsRelational())
             {
-                Log.Information("Applying pending migrations...");
-                await context.Database.MigrateAsync();
-                Log.Information("Migrations applied successfully.");
+                if (context.Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
+                {
+                    Log.Information("SQLite detected. Ensuring database created...");
+                    await context.Database.EnsureCreatedAsync();
+                }
+                else
+                {
+                    Log.Information("Applying pending migrations...");
+                    await context.Database.MigrateAsync();
+                    Log.Information("Migrations applied successfully.");
+                }
             }
             else
             {
@@ -161,8 +178,12 @@ try
     {
         Name = "Telegram Signal Trading Bot API Host",
         Status = "Online",
+        Creator = "Amir",
         Timestamp = DateTime.UtcNow
     });
+
+    // Map Dashboard Endpoints
+    app.MapDashboardEndpoints();
 
     app.Run();
 }

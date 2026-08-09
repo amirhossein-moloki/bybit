@@ -57,5 +57,6 @@ public class HealthCheckTests : IClassFixture<CustomWebApplicationFactory>
 
         var content = await response.Content.ReadAsStringAsync();
         content.Should().Contain("\"status\":\"Online\"");
+        content.Should().Contain("\"creator\":\"Amir\"");
     }
 }
