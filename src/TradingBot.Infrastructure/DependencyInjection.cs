@@ -81,6 +81,8 @@ public static class DependencyInjection
         services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
         services.AddScoped<IMonitoringEventRepository, MonitoringEventRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IAlertRepository, AlertRepository>();
+        services.AddScoped<IAlertEventRepository, AlertEventRepository>();
 
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
@@ -116,7 +118,14 @@ public static class DependencyInjection
 
         services.AddSingleton(notificationOptions);
 
+        // Bind and register Alert Options
+        var alertSection = configuration.GetSection("Alerts");
+        var alertOptions = new TradingBot.Application.Monitoring.Configuration.AlertOptions();
+        alertSection.Bind(alertOptions);
+        services.AddSingleton(alertOptions);
+
         // 2. Register Singletons
+        services.AddSingleton<TradingBot.Application.Monitoring.IMetricsService, TradingBot.Application.Monitoring.Services.MetricsService>();
         services.AddSingleton<TradingBot.Application.Monitoring.IWorkerHealthRegistry, TradingBot.Application.Monitoring.WorkerHealthRegistry>();
         services.AddSingleton<TradingBot.Application.Monitoring.IHealthStatusProvider, TradingBot.Application.Monitoring.HealthStatusProvider>();
         services.AddSingleton<TradingBot.Application.Monitoring.IEventSanitizer, TradingBot.Application.Monitoring.Services.EventSanitizer>();
@@ -129,6 +138,7 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Monitoring.ITelegramMessageBuilder, TradingBot.Application.Monitoring.Services.TelegramMessageBuilder>();
         services.AddScoped<TradingBot.Application.Monitoring.INotificationPolicy, TradingBot.Application.Monitoring.Services.NotificationPolicy>();
         services.AddScoped<TradingBot.Application.Monitoring.INotificationEngine, TradingBot.Application.Monitoring.Services.NotificationEngine>();
+        services.AddScoped<TradingBot.Application.Monitoring.IAlertEngine, TradingBot.Application.Monitoring.Services.AlertEngine>();
 
         // 4. Register Custom Monitoring Checks & Engine
         services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.ApplicationHealthCheck>();
