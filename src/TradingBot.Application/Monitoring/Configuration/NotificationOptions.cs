@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace TradingBot.Application.Monitoring.Configuration;
@@ -7,12 +8,29 @@ public class NotificationOptions
     public bool Enabled { get; set; } = true;
     public TelegramNotificationSettings Telegram { get; set; } = new();
     public NotificationEvents Events { get; set; } = new();
+
+    public void Validate()
+    {
+        if (!Enabled) return;
+
+        if (Telegram.Enabled)
+        {
+            if (string.IsNullOrWhiteSpace(Telegram.ChatId))
+                throw new ArgumentException("Telegram ChatId cannot be empty when Telegram notifications are enabled.");
+            if (Telegram.RetryCount < 0)
+                throw new ArgumentException("Notification retry count cannot be negative.");
+            if (Telegram.InitialRetryDelaySeconds <= 0)
+                throw new ArgumentException("Initial retry delay must be positive.");
+            if (Telegram.MaxRetryDelaySeconds <= 0)
+                throw new ArgumentException("Maximum retry delay must be positive.");
+        }
+    }
 }
 
 public class TelegramNotificationSettings
 {
     public bool Enabled { get; set; } = true;
-    public string ChatId { get; set; } = string.Empty;
+    public string ChatId { get; set; } = "default-chat-id";
     public int RetryCount { get; set; } = 3;
     public int InitialRetryDelaySeconds { get; set; } = 2;
     public int MaxRetryDelaySeconds { get; set; } = 60;

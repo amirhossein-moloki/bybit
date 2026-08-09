@@ -11,6 +11,40 @@ public class MonitoringOptions
     public HealthCheckSettings Telegram { get; set; } = new() { Enabled = true, IntervalSeconds = 30, TimeoutSeconds = 5 };
     public WorkerSettings Workers { get; set; } = new() { Enabled = true, IntervalSeconds = 10, StaleThresholdSeconds = 30 };
     public ObservabilityOptions Observability { get; set; } = new();
+
+    public void Validate()
+    {
+        if (!Enabled) return;
+
+        if (Database.Enabled)
+        {
+            if (Database.IntervalSeconds <= 0) throw new ArgumentException("Database health check interval must be positive.");
+            if (Database.TimeoutSeconds <= 0) throw new ArgumentException("Database health check timeout must be positive.");
+        }
+        if (BybitRest.Enabled)
+        {
+            if (BybitRest.IntervalSeconds <= 0) throw new ArgumentException("Bybit REST health check interval must be positive.");
+            if (BybitRest.TimeoutSeconds <= 0) throw new ArgumentException("Bybit REST health check timeout must be positive.");
+        }
+        if (BybitWebSocket.Enabled)
+        {
+            if (BybitWebSocket.IntervalSeconds <= 0) throw new ArgumentException("Bybit WebSocket health check interval must be positive.");
+        }
+        if (Telegram.Enabled)
+        {
+            if (Telegram.IntervalSeconds <= 0) throw new ArgumentException("Telegram health check interval must be positive.");
+            if (Telegram.TimeoutSeconds <= 0) throw new ArgumentException("Telegram health check timeout must be positive.");
+        }
+        if (Workers.Enabled)
+        {
+            if (Workers.IntervalSeconds <= 0) throw new ArgumentException("Workers health check interval must be positive.");
+            if (Workers.StaleThresholdSeconds <= 0) throw new ArgumentException("Workers stale threshold must be positive.");
+        }
+        if (Observability.Enabled)
+        {
+            if (Observability.MaxPayloadSize <= 0) throw new ArgumentException("Max payload size must be positive.");
+        }
+    }
 }
 
 public class HealthCheckSettings

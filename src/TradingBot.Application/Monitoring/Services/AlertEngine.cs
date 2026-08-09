@@ -142,8 +142,16 @@ public class AlertEngine : IAlertEngine
 
         if (alertsToResolve.Any())
         {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-            return true;
+            try
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException")
+            {
+                _logger.LogInformation("AlertEngine: Concurrency conflict resolving alerts for component {Component}. State is already resolved.", @event.Component);
+                return true;
+            }
         }
 
         return false;
@@ -198,6 +206,12 @@ public class AlertEngine : IAlertEngine
 
             LastNotificationTimes.TryGetValue(deduplicationKey, out var lastNotifiedAt);
 
+            // Startup recovery for last notification time fallback
+            if (lastNotifiedAt == default && activeAlert.NotificationCount > 0)
+            {
+                lastNotifiedAt = activeAlert.UpdatedAt ?? activeAlert.TriggeredAt;
+            }
+
             if (lastNotifiedAt != default)
             {
                 var elapsedSinceLastNotification = DateTime.UtcNow - lastNotifiedAt;
@@ -243,7 +257,41 @@ public class AlertEngine : IAlertEngine
                 await SendNotificationAsync(activeAlert, $"⚠️ Repeated Alert: {activeAlert.Message} (Count: {activeAlert.TriggerCount})", cancellationToken);
             }
 
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            // Concurrency retry loop for trigger count update
+            int retryCount = 3;
+            while (retryCount > 0)
+            {
+                try
+                {
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    var typeName = ex.GetType().Name;
+                    if (typeName == "DbUpdateConcurrencyException" || typeName.Contains("DbUpdateConcurrencyException"))
+                    {
+                        retryCount--;
+                        if (retryCount == 0)
+                        {
+                            _logger.LogWarning("AlertEngine: Concurrency conflict updating active alert trigger count. Max retries reached.");
+                            break;
+                        }
+
+                        _logger.LogInformation("AlertEngine: Concurrency conflict updating active alert trigger count. Retrying...");
+                        // Reload alert from database to get latest concurrency token and values
+                        activeAlert = await alertRepo.GetActiveByDeduplicationKeyAsync(deduplicationKey, cancellationToken);
+                        if (activeAlert == null) break; // Already resolved or deleted
+
+                        activeAlert.UpdateLastSeen(@event.Message, @event.Payload, @event.CorrelationId);
+                        alertRepo.Update(activeAlert);
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+            }
         }
         else
         {
@@ -264,37 +312,70 @@ public class AlertEngine : IAlertEngine
                 correlationId: @event.CorrelationId
             );
 
-            await alertRepo.AddAsync(alert, cancellationToken);
-            await unitOfWork.SaveChangesAsync(cancellationToken); // Save to get AlertId
-
-            var alertEvent = new AlertEvent(
-                alert.Id,
-                "Created",
-                "None",
-                initialStatus,
-                @event.Payload,
-                @event.CorrelationId
-            );
-            await alertEventRepo.AddAsync(alertEvent, cancellationToken);
-
-            if (initialStatus == "Triggered")
+            bool alertSaved = false;
+            try
             {
-                metricsService?.IncrementAlertsTriggered();
-                alert.IncrementNotificationCount();
-                alertRepo.Update(alert);
-                LastNotificationTimes[deduplicationKey] = DateTime.UtcNow;
-
-                await SendNotificationAsync(alert, $"⚠️ Alert Triggered: {alert.Message}", cancellationToken);
+                await alertRepo.AddAsync(alert, cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken); // Save to get AlertId
+                alertSaved = true;
             }
-            else
+            catch (Exception ex)
             {
-                // Inactive state - track start time for threshold
-                ConditionStartedTimes[deduplicationKey] = DateTime.UtcNow;
-                _logger.LogInformation("AlertEngine: Time-based rule {RuleKey} condition started. Waiting for {Threshold} threshold.",
-                    ruleKey, ruleSettings.Threshold);
+                var typeName = ex.GetType().Name;
+                bool isDbUpdate = typeName == "DbUpdateException" || typeName.Contains("DbUpdateException");
+                bool isUniqueConstraint = ex.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) ||
+                                          ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true ||
+                                          ex.InnerException?.Message.Contains("DeduplicationKey", StringComparison.OrdinalIgnoreCase) == true ||
+                                          ex.InnerException?.Message.Contains("SQLite Error 19", StringComparison.OrdinalIgnoreCase) == true;
+
+                if (isDbUpdate && isUniqueConstraint)
+                {
+                    _logger.LogInformation("AlertEngine: Concurrent alert creation detected for DeduplicationKey {Key}. Falling back to existing alert.", deduplicationKey);
+                    // Try to load the active alert that was just created by the competing thread
+                    var existing = await alertRepo.GetActiveByDeduplicationKeyAsync(deduplicationKey, cancellationToken);
+                    if (existing != null)
+                    {
+                        existing.UpdateLastSeen(@event.Message, @event.Payload, @event.CorrelationId);
+                        alertRepo.Update(existing);
+                        await unitOfWork.SaveChangesAsync(cancellationToken);
+                    }
+                    return;
+                }
+
+                throw;
             }
 
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (alertSaved)
+            {
+                var alertEvent = new AlertEvent(
+                    alert.Id,
+                    "Created",
+                    "None",
+                    initialStatus,
+                    @event.Payload,
+                    @event.CorrelationId
+                );
+                await alertEventRepo.AddAsync(alertEvent, cancellationToken);
+
+                if (initialStatus == "Triggered")
+                {
+                    metricsService?.IncrementAlertsTriggered();
+                    alert.IncrementNotificationCount();
+                    alertRepo.Update(alert);
+                    LastNotificationTimes[deduplicationKey] = DateTime.UtcNow;
+
+                    await SendNotificationAsync(alert, $"⚠️ Alert Triggered: {alert.Message}", cancellationToken);
+                }
+                else
+                {
+                    // Inactive state - track start time for threshold
+                    ConditionStartedTimes[deduplicationKey] = DateTime.UtcNow;
+                    _logger.LogInformation("AlertEngine: Time-based rule {RuleKey} condition started. Waiting for {Threshold} threshold.",
+                        ruleKey, ruleSettings.Threshold);
+                }
+
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
         }
     }
 
@@ -325,9 +406,15 @@ public class AlertEngine : IAlertEngine
                         var threshold = ruleSettings.GetThresholdTimeSpan();
                         ConditionStartedTimes.TryGetValue(alert.DeduplicationKey, out var startedAt);
 
-                        if (threshold.HasValue && startedAt != default)
+                        if (threshold.HasValue)
                         {
-                            if (DateTime.UtcNow - startedAt >= threshold.Value)
+                            var actualStartedAt = startedAt != default ? startedAt : alert.TriggeredAt;
+                            if (startedAt == default)
+                            {
+                                ConditionStartedTimes[alert.DeduplicationKey] = alert.TriggeredAt;
+                            }
+
+                            if (DateTime.UtcNow - actualStartedAt >= threshold.Value)
                             {
                                 // Transition to Triggered!
                                 var oldStatus = alert.Status;
@@ -361,7 +448,14 @@ public class AlertEngine : IAlertEngine
 
             if (changed)
             {
-                await unitOfWork.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException")
+                {
+                    _logger.LogInformation("AlertEngine: Concurrency conflict evaluating active alerts. State is likely updated concurrently.");
+                }
             }
         }
         catch (Exception ex)
