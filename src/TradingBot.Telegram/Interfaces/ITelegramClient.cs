@@ -10,4 +10,5 @@ public interface ITelegramClient
     bool IsConnected();
     TelegramConnectionState CurrentState { get; }
     Task InitializeListeningAsync();
+    Task SendMessageAsync(long chatId, string message);
 }

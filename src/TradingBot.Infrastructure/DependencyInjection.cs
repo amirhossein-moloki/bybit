@@ -80,6 +80,7 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Domain.Repositories.IParserTemplateRepository, ParserTemplateRepository>();
         services.AddScoped<IRepository<TradingBot.Domain.Entities.Symbol>, SymbolRepository>();
         services.AddScoped<IMonitoringEventRepository, MonitoringEventRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
 
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
@@ -101,6 +102,20 @@ public static class DependencyInjection
         monitoringSection.Bind(monitoringOptions);
         services.AddSingleton(monitoringOptions);
 
+        // Bind and register Notification Options
+        var notificationSection = configuration.GetSection("Notification");
+        var notificationOptions = new TradingBot.Application.Monitoring.Configuration.NotificationOptions();
+        notificationSection.Bind(notificationOptions);
+
+        // Support environment variable overrides
+        var envChatId = Environment.GetEnvironmentVariable("TELEGRAM_CHAT_ID");
+        if (!string.IsNullOrEmpty(envChatId))
+        {
+            notificationOptions.Telegram.ChatId = envChatId;
+        }
+
+        services.AddSingleton(notificationOptions);
+
         // 2. Register Singletons
         services.AddSingleton<TradingBot.Application.Monitoring.IWorkerHealthRegistry, TradingBot.Application.Monitoring.WorkerHealthRegistry>();
         services.AddSingleton<TradingBot.Application.Monitoring.IHealthStatusProvider, TradingBot.Application.Monitoring.HealthStatusProvider>();
@@ -111,6 +126,9 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Repositories.IHealthCheckResultRepository, TradingBot.Persistence.Repositories.HealthCheckResultRepository>();
         services.AddScoped<TradingBot.Application.Monitoring.IMonitoringEventPublisher, TradingBot.Application.Monitoring.Services.MonitoringEventPublisher>();
         services.AddScoped<TradingBot.Application.Monitoring.IMonitoringEventReader, TradingBot.Persistence.Repositories.MonitoringEventReader>();
+        services.AddScoped<TradingBot.Application.Monitoring.ITelegramMessageBuilder, TradingBot.Application.Monitoring.Services.TelegramMessageBuilder>();
+        services.AddScoped<TradingBot.Application.Monitoring.INotificationPolicy, TradingBot.Application.Monitoring.Services.NotificationPolicy>();
+        services.AddScoped<TradingBot.Application.Monitoring.INotificationEngine, TradingBot.Application.Monitoring.Services.NotificationEngine>();
 
         // 4. Register Custom Monitoring Checks & Engine
         services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.ApplicationHealthCheck>();
