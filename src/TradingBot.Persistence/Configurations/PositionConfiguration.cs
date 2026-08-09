@@ -99,7 +99,8 @@ public class PositionConfiguration : IEntityTypeConfiguration<Position>
 
         // Class property mapped directly
         builder.Property(x => x.UpdatedAt)
-            .HasColumnType("timestamp with time zone");
+            .HasColumnType("timestamp with time zone")
+            .IsConcurrencyToken();
 
         // One Order has One Position
         builder.HasOne<Order>()

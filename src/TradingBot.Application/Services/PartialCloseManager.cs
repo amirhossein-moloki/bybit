@@ -19,6 +19,7 @@ public class PartialCloseManager : IPartialCloseManager
     private readonly IExchangeTradingGateway _exchangeGateway;
     private readonly IExchangeInstrumentRules _instrumentRules;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProcessedEventRepository _processedEventRepository;
     private readonly ILogger<PartialCloseManager> _logger;
 
     public PartialCloseManager(
@@ -26,13 +27,26 @@ public class PartialCloseManager : IPartialCloseManager
         IExchangeTradingGateway exchangeGateway,
         IExchangeInstrumentRules instrumentRules,
         IUnitOfWork unitOfWork,
+        IProcessedEventRepository processedEventRepository,
         ILogger<PartialCloseManager> logger)
     {
         _positionRepository = positionRepository ?? throw new ArgumentNullException(nameof(positionRepository));
         _exchangeGateway = exchangeGateway ?? throw new ArgumentNullException(nameof(exchangeGateway));
         _instrumentRules = instrumentRules ?? throw new ArgumentNullException(nameof(instrumentRules));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _processedEventRepository = processedEventRepository;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    [Obsolete("Use primary constructor with IProcessedEventRepository")]
+    public PartialCloseManager(
+        IPositionRepository positionRepository,
+        IExchangeTradingGateway exchangeGateway,
+        IExchangeInstrumentRules instrumentRules,
+        IUnitOfWork unitOfWork,
+        ILogger<PartialCloseManager> logger)
+        : this(positionRepository, exchangeGateway, instrumentRules, unitOfWork, null!, logger)
+    {
     }
 
     public async Task<bool> ExecutePartialCloseAsync(
@@ -43,6 +57,8 @@ public class PartialCloseManager : IPartialCloseManager
         string source = "System",
         CancellationToken cancellationToken = default)
     {
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionId, TimeSpan.FromSeconds(5), cancellationToken);
+
         _logger.LogInformation("PartialCloseStarted: PositionId={PositionId}, Qty={Quantity}, Price={Price}, Reason={Reason}",
             positionId, quantity, price, reason);
 
@@ -167,6 +183,18 @@ public class PartialCloseManager : IPartialCloseManager
             return false;
         }
 
+        using var @lock = await PositionLockManager.AcquireLockAsync(position.Id, TimeSpan.FromSeconds(5), cancellationToken);
+
+        var eventId = $"TPHit_{exchangeOrderId}";
+        if (_processedEventRepository != null)
+        {
+            if (await _processedEventRepository.ExistsAsync(eventId, cancellationToken))
+            {
+                _logger.LogInformation("ProcessTakeProfitHitIdempotent: Event {EventId} has already been processed. Skipping to prevent duplicate closes.", eventId);
+                return true;
+            }
+        }
+
         // 1. Idempotency Check (Duplicate TP Protection)
         if (target.Status == "Executed")
         {
@@ -194,6 +222,13 @@ public class PartialCloseManager : IPartialCloseManager
         var closePayload = $"{{ \"PositionId\": \"{position.Id}\", \"PreviousStatus\": \"{previousStatus}\", \"NewStatus\": \"{position.Status}\", \"ClosedQuantity\": {executedQuantity}, \"ExecutionPrice\": {executedPrice}, \"ExchangeOrderId\": \"{exchangeOrderId}\" }}";
         var closeEvent = new PositionEvent(position.Id, closeEventType, closePayload);
         position.Events.Add(closeEvent);
+
+        // 5. Save the Processed Event
+        if (_processedEventRepository != null)
+        {
+            var processedEvent = new ProcessedEvent(eventId, "TakeProfitHit", position.Id, exchangeOrderId);
+            await _processedEventRepository.AddAsync(processedEvent, cancellationToken);
+        }
 
         _positionRepository.Update(position);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

@@ -20,6 +20,7 @@ public class PositionCloseManager : IPositionCloseManager
     private readonly IExchangeTradingGateway _exchangeGateway;
     private readonly IPnLCalculator _pnlCalculator;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProcessedEventRepository _processedEventRepository;
     private readonly ILogger<PositionCloseManager> _logger;
 
     public PositionCloseManager(
@@ -28,6 +29,7 @@ public class PositionCloseManager : IPositionCloseManager
         IExchangeTradingGateway exchangeGateway,
         IPnLCalculator pnlCalculator,
         IUnitOfWork unitOfWork,
+        IProcessedEventRepository processedEventRepository,
         ILogger<PositionCloseManager> logger)
     {
         _positionRepository = positionRepository ?? throw new ArgumentNullException(nameof(positionRepository));
@@ -35,7 +37,20 @@ public class PositionCloseManager : IPositionCloseManager
         _exchangeGateway = exchangeGateway ?? throw new ArgumentNullException(nameof(exchangeGateway));
         _pnlCalculator = pnlCalculator ?? throw new ArgumentNullException(nameof(pnlCalculator));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _processedEventRepository = processedEventRepository;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    [Obsolete("Use primary constructor with IProcessedEventRepository")]
+    public PositionCloseManager(
+        IPositionRepository positionRepository,
+        ITradeRepository tradeRepository,
+        IExchangeTradingGateway exchangeGateway,
+        IPnLCalculator pnlCalculator,
+        IUnitOfWork unitOfWork,
+        ILogger<PositionCloseManager> logger)
+        : this(positionRepository, tradeRepository, exchangeGateway, pnlCalculator, unitOfWork, null!, logger)
+    {
     }
 
     public async Task<bool> ClosePositionAsync(
@@ -45,6 +60,8 @@ public class PositionCloseManager : IPositionCloseManager
         string source = "System",
         CancellationToken cancellationToken = default)
     {
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionId, TimeSpan.FromSeconds(5), cancellationToken);
+
         _logger.LogInformation("ClosePositionStarted: PositionId={PositionId}, Reason={Reason}, Price={Price}, Source={Source}",
             positionId, reason, exitPrice, source);
 
@@ -138,6 +155,19 @@ public class PositionCloseManager : IPositionCloseManager
             return true;
         }
 
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionToClose.Id, TimeSpan.FromSeconds(5), cancellationToken);
+
+        // Idempotency check with ProcessedEvents
+        var eventId = $"Close_{symbol}_{exchangeQuantity}_{exitPrice}";
+        if (_processedEventRepository != null)
+        {
+            if (await _processedEventRepository.ExistsAsync(eventId, cancellationToken))
+            {
+                _logger.LogInformation("HandleExchangePositionUpdateIdempotent: Event {EventId} has already been processed.", eventId);
+                return true;
+            }
+        }
+
         // Load full position with events
         var position = await _positionRepository.GetByIdAsync(positionToClose.Id, cancellationToken);
         if (position == null || position.Status == PositionStatus.Closed || position.Status == PositionStatus.Liquidated)
@@ -158,6 +188,12 @@ public class PositionCloseManager : IPositionCloseManager
         else
         {
             position.Close(exitPrice, fee);
+        }
+
+        if (_processedEventRepository != null)
+        {
+            var processedEvent = new ProcessedEvent(eventId, "PositionCloseEvent", position.Id, null);
+            await _processedEventRepository.AddAsync(processedEvent, cancellationToken);
         }
 
         await SettleAndCreateTradeResultAsync(position, reason, cancellationToken);

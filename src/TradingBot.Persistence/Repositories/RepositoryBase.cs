@@ -67,6 +67,32 @@ public abstract class RepositoryBase<T> : IRepository<T> where T : class
 
     public virtual void Update(T entity)
     {
+        try
+        {
+            var entry = DbContext.Entry(entity);
+            if (entry.State == EntityState.Detached)
+            {
+                var keyProperties = DbContext.Model.FindEntityType(typeof(T))?.FindPrimaryKey()?.Properties;
+                if (keyProperties != null)
+                {
+                    var keyValues = keyProperties.Select(p => p.GetGetter().GetClrValue(entity)).ToArray();
+                    var trackedEntry = DbContext.ChangeTracker.Entries<T>().FirstOrDefault(e =>
+                {
+                        var trackedKeyValues = keyProperties.Select(p => p.GetGetter().GetClrValue(e.Entity)).ToArray();
+                        return keyValues.SequenceEqual(trackedKeyValues);
+                    });
+
+                    if (trackedEntry != null)
+                    {
+                        trackedEntry.State = EntityState.Detached;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fallback if model metadata inspection fails
+        }
         _dbSet.Update(entity);
     }
 

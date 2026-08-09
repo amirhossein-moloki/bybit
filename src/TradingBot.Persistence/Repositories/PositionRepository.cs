@@ -29,7 +29,6 @@ public class PositionRepository : RepositoryBase<Position>, IPositionRepository
     public async Task<IEnumerable<Position>> GetOpenPositionsAsync(CancellationToken cancellationToken = default)
     {
         return await DbContext.Positions
-            .AsNoTracking()
             .Where(p => p.Status == PositionStatus.Open || p.Status == PositionStatus.PartiallyClosed || p.Status == PositionStatus.Pending)
             .ToListAsync(cancellationToken);
     }
