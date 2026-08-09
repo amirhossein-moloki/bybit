@@ -41,6 +41,8 @@ public class TakeProfitManager : ITakeProfitManager
         List<(decimal Price, decimal Percentage)> targetsInput,
         CancellationToken cancellationToken = default)
     {
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionId, TimeSpan.FromSeconds(5), cancellationToken);
+
         if (targetsInput == null || !targetsInput.Any())
         {
             throw new ArgumentException("Take profit targets cannot be null or empty.", nameof(targetsInput));

@@ -65,6 +65,7 @@ try
     builder.Services.AddHostedService<ConnectionMonitorService>();
     builder.Services.AddHostedService<MarketDataBackgroundService>();
     builder.Services.AddHostedService<OrderSyncBackgroundService>();
+    builder.Services.AddHostedService<PositionSyncBackgroundService>();
     builder.Services.AddHostedService<SignalStorageWorker>();
     builder.Services.AddHostedService<OrderReconciliationWorker>();
 

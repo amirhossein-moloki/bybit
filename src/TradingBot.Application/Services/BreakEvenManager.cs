@@ -37,6 +37,8 @@ public class BreakEvenManager : IBreakEvenManager
         BreakEvenSettings settings,
         CancellationToken cancellationToken = default)
     {
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionId, TimeSpan.FromSeconds(5), cancellationToken);
+
         if (settings == null || !settings.Enabled)
         {
             return false;

@@ -40,6 +40,8 @@ public class StopLossManager : IStopLossManager
         string source = "System",
         CancellationToken cancellationToken = default)
     {
+        using var @lock = await PositionLockManager.AcquireLockAsync(positionId, TimeSpan.FromSeconds(5), cancellationToken);
+
         _logger.LogInformation("StopLossUpdateStarted: PositionId={PositionId}, SL={StopLoss}, Source={Source}, Reason={Reason}",
             positionId, stopLoss, source, reason);
 
