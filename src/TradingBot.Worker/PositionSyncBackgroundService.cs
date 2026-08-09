@@ -14,21 +14,25 @@ public class PositionSyncBackgroundService : BackgroundService
     private readonly IPositionStream _positionStream;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<PositionSyncBackgroundService> _logger;
+    private readonly TradingBot.Application.Monitoring.IWorkerHealthRegistry _healthRegistry;
 
     public PositionSyncBackgroundService(
         IPositionStream positionStream,
         IServiceProvider serviceProvider,
-        ILogger<PositionSyncBackgroundService> logger)
+        ILogger<PositionSyncBackgroundService> logger,
+        TradingBot.Application.Monitoring.IWorkerHealthRegistry healthRegistry)
     {
         _positionStream = positionStream ?? throw new ArgumentNullException(nameof(positionStream));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _healthRegistry = healthRegistry ?? throw new ArgumentNullException(nameof(healthRegistry));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
 
+        _healthRegistry.RegisterWorker(nameof(PositionSyncBackgroundService), isCritical: true);
         _logger.LogInformation("PositionSyncBackgroundService: Starting...");
 
         // 1. Subscribe to the position stream
@@ -50,6 +54,7 @@ public class PositionSyncBackgroundService : BackgroundService
         {
             await foreach (var positionUpdate in _positionStream.ReceiveEventsAsync(stoppingToken))
             {
+                _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Running");
                 _logger.LogInformation("PositionSyncBackgroundService: Received position update - Symbol: {Symbol}, Size: {Size}, Side: {Side}",
                     positionUpdate.Symbol, positionUpdate.Size, positionUpdate.Side);
 
@@ -69,12 +74,16 @@ public class PositionSyncBackgroundService : BackgroundService
         }
         catch (OperationCanceledException)
         {
+            _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Stopping");
             _logger.LogInformation("PositionSyncBackgroundService: Cancelled.");
         }
         catch (Exception ex)
         {
+            _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Failed", ex.Message);
             _logger.LogError(ex, "PositionSyncBackgroundService: Exception in position sync receive loop.");
         }
+
+        _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Stopped");
     }
 
     private async Task RunPeriodicReconciliationAsync(CancellationToken cancellationToken)
@@ -86,6 +95,7 @@ public class PositionSyncBackgroundService : BackgroundService
         {
             try
             {
+                _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Running");
                 await Task.Delay(interval, cancellationToken);
 
                 _logger.LogInformation("PositionSyncBackgroundService: Running scheduled periodic REST reconciliation fallback...");

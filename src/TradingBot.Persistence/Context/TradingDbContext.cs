@@ -10,6 +10,7 @@ public class TradingDbContext : DbContext
 {
     public DbSet<ExchangeAccount> ExchangeAccounts { get; set; } = null!;
     public DbSet<Symbol> Symbols { get; set; } = null!;
+    public DbSet<HealthCheckResult> HealthCheckResults { get; set; } = null!;
     public DbSet<Signal> Signals { get; set; } = null!;
     public DbSet<Order> Orders { get; set; } = null!;
     public DbSet<OrderEvent> OrderEvents { get; set; } = null!;

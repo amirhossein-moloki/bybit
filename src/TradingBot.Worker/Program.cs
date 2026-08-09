@@ -68,6 +68,7 @@ try
     builder.Services.AddHostedService<PositionSyncBackgroundService>();
     builder.Services.AddHostedService<SignalStorageWorker>();
     builder.Services.AddHostedService<OrderReconciliationWorker>();
+    builder.Services.AddHostedService<MonitoringWorker>();
 
     var app = builder.Build();
 
@@ -116,6 +117,41 @@ try
 
     // 6. Health Monitoring Foundation
     app.MapHealthChecks("/health");
+
+    // Detailed health status provider check
+    app.MapGet("/monitoring/health", (TradingBot.Application.Monitoring.IHealthStatusProvider provider) =>
+    {
+        var overall = provider.GetOverallStatus().ToString();
+        var components = new System.Collections.Generic.Dictionary<string, string>();
+        foreach (var status in provider.GetComponentStatuses())
+        {
+            components[status.Key] = status.Value.Status.ToString();
+        }
+
+        return Results.Ok(new
+        {
+            status = overall,
+            timestamp = DateTime.UtcNow,
+            components = components
+        });
+    });
+
+    app.MapGet("/health/status", (TradingBot.Application.Monitoring.IHealthStatusProvider provider) =>
+    {
+        var overall = provider.GetOverallStatus().ToString();
+        var components = new System.Collections.Generic.Dictionary<string, string>();
+        foreach (var status in provider.GetComponentStatuses())
+        {
+            components[status.Key] = status.Value.Status.ToString();
+        }
+
+        return Results.Ok(new
+        {
+            status = overall,
+            timestamp = DateTime.UtcNow,
+            components = components
+        });
+    });
 
     // Root status check
     app.MapGet("/", () => new

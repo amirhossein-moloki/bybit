@@ -11,19 +11,23 @@ public class MarketDataBackgroundService : BackgroundService
 {
     private readonly IMarketStream _marketStream;
     private readonly ILogger<MarketDataBackgroundService> _logger;
+    private readonly TradingBot.Application.Monitoring.IWorkerHealthRegistry _healthRegistry;
 
     public MarketDataBackgroundService(
         IMarketStream marketStream,
-        ILogger<MarketDataBackgroundService> logger)
+        ILogger<MarketDataBackgroundService> logger,
+        TradingBot.Application.Monitoring.IWorkerHealthRegistry healthRegistry)
     {
         _marketStream = marketStream ?? throw new ArgumentNullException(nameof(marketStream));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _healthRegistry = healthRegistry ?? throw new ArgumentNullException(nameof(healthRegistry));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
 
+        _healthRegistry.RegisterWorker(nameof(MarketDataBackgroundService), isCritical: false);
         _logger.LogInformation("MarketDataBackgroundService: Starting...");
 
         try
@@ -41,17 +45,22 @@ public class MarketDataBackgroundService : BackgroundService
         {
             await foreach (var ticker in _marketStream.ReceiveEventsAsync(stoppingToken))
             {
+                _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Running");
                 _logger.LogInformation("MarketDataBackgroundService: Ticker update received - Symbol: {Symbol}, Price: {Price}, Bid: {BidPrice}, Ask: {AskPrice}, Vol: {Volume}",
                     ticker.Symbol, ticker.Price, ticker.BidPrice, ticker.AskPrice, ticker.Volume);
             }
         }
         catch (OperationCanceledException)
         {
+            _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Stopping");
             _logger.LogInformation("MarketDataBackgroundService: Cancelled.");
         }
         catch (Exception ex)
         {
+            _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Failed", ex.Message);
             _logger.LogError(ex, "MarketDataBackgroundService: Exception in market event receive loop.");
         }
+
+        _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Stopped");
     }
 }

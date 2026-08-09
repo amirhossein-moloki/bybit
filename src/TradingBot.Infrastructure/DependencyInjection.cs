@@ -94,6 +94,28 @@ public static class DependencyInjection
             .AddCheck<WebSocketHealthCheck>("WebSocket")
             .AddCheck<TradingEngineHealthCheck>("TradingEngine");
 
+        // 1. Bind and register Monitoring Configuration Options
+        var monitoringSection = configuration.GetSection("Monitoring");
+        var monitoringOptions = new TradingBot.Application.Monitoring.Configuration.MonitoringOptions();
+        monitoringSection.Bind(monitoringOptions);
+        services.AddSingleton(monitoringOptions);
+
+        // 2. Register Singletons
+        services.AddSingleton<TradingBot.Application.Monitoring.IWorkerHealthRegistry, TradingBot.Application.Monitoring.WorkerHealthRegistry>();
+        services.AddSingleton<TradingBot.Application.Monitoring.IHealthStatusProvider, TradingBot.Application.Monitoring.HealthStatusProvider>();
+
+        // 3. Register Repository
+        services.AddScoped<TradingBot.Application.Repositories.IHealthCheckResultRepository, TradingBot.Persistence.Repositories.HealthCheckResultRepository>();
+
+        // 4. Register Custom Monitoring Checks & Engine
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.ApplicationHealthCheck>();
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.DatabaseHealthCheck>();
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.BybitRestHealthCheck>();
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.BybitWebSocketHealthCheck>();
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheck, TradingBot.Infrastructure.Monitoring.Checks.WorkerHealthCheck>();
+
+        services.AddScoped<TradingBot.Application.Monitoring.IHealthCheckEngine, TradingBot.Application.Monitoring.HealthCheckEngine>();
+
         return services;
     }
 }
