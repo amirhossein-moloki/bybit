@@ -119,6 +119,9 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Dashboard.Interfaces.ISystemHealthQueryService, TradingBot.Persistence.Queries.SystemHealthQueryService>();
         services.AddScoped<TradingBot.Application.Dashboard.Interfaces.ITradingDashboardQueryService, TradingBot.Persistence.Queries.TradingDashboardQueryService>();
 
+        // Register Analytics Query Service (Stage 11-01)
+        services.AddScoped<TradingBot.Application.Analytics.Interfaces.IAnalyticsQueryService, TradingBot.Persistence.Queries.AnalyticsQueryService>();
+
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
         services.AddScoped<IBreakEvenManager, BreakEvenManager>();
