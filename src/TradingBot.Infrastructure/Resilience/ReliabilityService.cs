@@ -7,6 +7,7 @@ using Polly;
 using Polly.Timeout;
 using TradingBot.Application.Configuration;
 using TradingBot.Application.Enums;
+using TradingBot.Application.Exceptions;
 using TradingBot.Application.Interfaces;
 
 namespace TradingBot.Infrastructure.Resilience;
@@ -16,6 +17,7 @@ public class ReliabilityService : IReliabilityService
     private readonly ReliabilityOptions _options;
     private readonly IRetryDelayCalculator _delayCalculator;
     private readonly IErrorClassifier _errorClassifier;
+    private readonly ICircuitBreakerRegistry _circuitBreakerRegistry;
     private readonly ILogger<ReliabilityService> _logger;
     private readonly ResiliencePipeline _pipeline;
 
@@ -28,11 +30,13 @@ public class ReliabilityService : IReliabilityService
         ReliabilityOptions options,
         IRetryDelayCalculator delayCalculator,
         IErrorClassifier errorClassifier,
+        ICircuitBreakerRegistry circuitBreakerRegistry,
         ILogger<ReliabilityService> logger)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _delayCalculator = delayCalculator ?? throw new ArgumentNullException(nameof(delayCalculator));
         _errorClassifier = errorClassifier ?? throw new ArgumentNullException(nameof(errorClassifier));
+        _circuitBreakerRegistry = circuitBreakerRegistry ?? throw new ArgumentNullException(nameof(circuitBreakerRegistry));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         var builder = new ResiliencePipelineBuilder();
@@ -46,6 +50,12 @@ public class ReliabilityService : IReliabilityService
                 {
                     var ex = args.Outcome.Exception;
                     if (ex == null) return new ValueTask<bool>(false);
+
+                    // CircuitOpenedException is NOT retryable
+                    if (ex is CircuitOpenedException)
+                    {
+                        return new ValueTask<bool>(false);
+                    }
 
                     // OperationCanceledException (excluding TimeoutRejectedException) is NOT retryable
                     if (ex is OperationCanceledException && ex.GetType().FullName != "Polly.Timeout.TimeoutRejectedException")
@@ -101,6 +111,13 @@ public class ReliabilityService : IReliabilityService
                     // Store attempt count in Context for final failure logging
                     args.Context.Properties.Set(AttemptCountKey, args.AttemptNumber + 2);
 
+                    // Record failure on circuit breaker for each individual failed retry attempt
+                    var breaker = _circuitBreakerRegistry.GetOrCreate(operationName);
+                    if (args.Outcome.Exception != null)
+                    {
+                        breaker.RecordFailure(args.Outcome.Exception);
+                    }
+
                     _logger.LogWarning("RetryAttempt: Operation: {OperationName} | Attempt: {Attempt} | MaxAttempts: {MaxAttempts} | ErrorType: {ErrorType} | Delay: {Delay}s | CorrelationId: {CorrelationId}",
                         operationName,
                         args.AttemptNumber + 2,
@@ -150,15 +167,34 @@ public class ReliabilityService : IReliabilityService
         context.Properties.Set(IsRetryableKey, isRetryable);
         context.Properties.Set(AttemptCountKey, 1); // defaults to 1 attempt
 
+        var breaker = _circuitBreakerRegistry.GetOrCreate(operationName);
+
         try
         {
-            return await _pipeline.ExecuteAsync(async (ctx) =>
+            if (!breaker.IsAllowed())
             {
+                throw new CircuitOpenedException($"Circuit breaker '{operationName}' is open.");
+            }
+
+            var result = await _pipeline.ExecuteAsync(async (ctx) =>
+            {
+                if (!breaker.IsAllowed())
+                {
+                    throw new CircuitOpenedException($"Circuit breaker '{operationName}' is open.");
+                }
                 return await operation(ctx.CancellationToken);
             }, context);
+
+            breaker.RecordSuccess();
+            return result;
         }
         catch (Exception ex)
         {
+            if (ex is not CircuitOpenedException)
+            {
+                breaker.RecordFailure(ex);
+            }
+
             var finalAttempts = context.Properties.GetValue(AttemptCountKey, 1);
             _logger.LogError(ex, "FinalFailure: Operation: {OperationName} | Attempts: {Attempts} | Final Error: {ErrorMessage} | CorrelationId: {CorrelationId}",
                 operationName,
@@ -189,15 +225,33 @@ public class ReliabilityService : IReliabilityService
         context.Properties.Set(IsRetryableKey, isRetryable);
         context.Properties.Set(AttemptCountKey, 1);
 
+        var breaker = _circuitBreakerRegistry.GetOrCreate(operationName);
+
         try
         {
+            if (!breaker.IsAllowed())
+            {
+                throw new CircuitOpenedException($"Circuit breaker '{operationName}' is open.");
+            }
+
             await _pipeline.ExecuteAsync(async (ctx) =>
             {
+                if (!breaker.IsAllowed())
+                {
+                    throw new CircuitOpenedException($"Circuit breaker '{operationName}' is open.");
+                }
                 await operation(ctx.CancellationToken);
             }, context);
+
+            breaker.RecordSuccess();
         }
         catch (Exception ex)
         {
+            if (ex is not CircuitOpenedException)
+            {
+                breaker.RecordFailure(ex);
+            }
+
             var finalAttempts = context.Properties.GetValue(AttemptCountKey, 1);
             _logger.LogError(ex, "FinalFailure: Operation: {OperationName} | Attempts: {Attempts} | Final Error: {ErrorMessage} | CorrelationId: {CorrelationId}",
                 operationName,

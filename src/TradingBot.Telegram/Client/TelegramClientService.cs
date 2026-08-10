@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Serilog;
 using WTelegram;
@@ -9,6 +10,8 @@ using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Exceptions;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
+using TradingBot.Application.Monitoring;
+using TradingBot.Domain.Entities;
 
 namespace TradingBot.Telegram.Client;
 
@@ -17,6 +20,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
     private readonly TelegramOptions _options;
     private readonly ITelegramSessionManager _sessionManager;
     private readonly ITelegramMessageReceiver _messageReceiver;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly ILogger _logger;
     private WTelegram.Client? _client;
     private WTelegram.UpdateManager? _updateManager;
@@ -30,12 +34,23 @@ public class TelegramClientService : ITelegramClient, IDisposable
     public TelegramClientService(
         IOptions<TelegramOptions> options,
         ITelegramSessionManager sessionManager,
-        ITelegramMessageReceiver messageReceiver)
+        ITelegramMessageReceiver messageReceiver,
+        IServiceProvider? serviceProvider = null)
     {
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _messageReceiver = messageReceiver ?? throw new ArgumentNullException(nameof(messageReceiver));
+        _serviceProvider = serviceProvider;
         _logger = Log.ForContext<TelegramClientService>();
+    }
+
+    // Backward-compatible constructor
+    public TelegramClientService(
+        IOptions<TelegramOptions> options,
+        ITelegramSessionManager sessionManager,
+        ITelegramMessageReceiver messageReceiver)
+        : this(options, sessionManager, messageReceiver, null)
+    {
     }
 
     public TelegramConnectionState CurrentState
@@ -58,6 +73,19 @@ public class TelegramClientService : ITelegramClient, IDisposable
             {
                 _currentState = state;
                 _logger.Information("Telegram connection state changed from {OldState} to {NewState}", oldState, state);
+
+                if (state == TelegramConnectionState.Error || state == TelegramConnectionState.Disconnected)
+                {
+                    _ = PublishEventAsync("TelegramConnectionLost", "ERROR", state.ToString(), $"Telegram connection lost. State: {state}");
+                }
+                else if (state == TelegramConnectionState.Reconnecting)
+                {
+                    _ = PublishEventAsync("TelegramConnectionLost", "WARNING", "Reconnecting", "Telegram connection lost. Reconnecting...");
+                }
+                else if (state == TelegramConnectionState.Listening)
+                {
+                    _ = PublishEventAsync("TelegramConnectionRestored", "INFORMATION", "Connected", "Telegram connection restored and listening.");
+                }
             }
         }
     }
@@ -383,6 +411,32 @@ public class TelegramClientService : ITelegramClient, IDisposable
 
             default:
                 return null;
+        }
+    }
+
+    private async Task PublishEventAsync(string eventType, string severity, string status, string message)
+    {
+        if (_serviceProvider == null) return;
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var publisher = scope.ServiceProvider.GetService<IMonitoringEventPublisher>();
+            if (publisher != null)
+            {
+                var @event = new MonitoringEvent(
+                    eventType: eventType,
+                    severity: severity,
+                    source: "Telegram",
+                    component: "TelegramClient",
+                    status: status,
+                    message: message
+                );
+                await publisher.PublishAsync(@event, forceSynchronous: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to publish Telegram monitoring event.");
         }
     }
 

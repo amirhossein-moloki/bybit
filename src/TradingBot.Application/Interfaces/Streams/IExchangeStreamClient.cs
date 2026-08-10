@@ -10,6 +10,7 @@ public interface IExchangeStreamClient
     IOrderStream OrderStream { get; }
     IPositionStream PositionStream { get; }
     ConnectionState State { get; }
+    bool IsRecoveryIncomplete { get; }
 
     Task ConnectAsync(CancellationToken cancellationToken = default);
     Task DisconnectAsync(CancellationToken cancellationToken = default);

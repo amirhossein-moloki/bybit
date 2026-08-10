@@ -40,8 +40,12 @@ public class RealtimeAndResilienceTests
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
         var reliabilityLoggerMock = new Mock<ILogger<ReliabilityService>>();
+        var cbMock = new Mock<ICircuitBreaker>();
+        cbMock.Setup(c => c.IsAllowed()).Returns(true);
+        var cbRegistryMock = new Mock<ICircuitBreakerRegistry>();
+        cbRegistryMock.Setup(r => r.GetOrCreate(It.IsAny<string>())).Returns(cbMock.Object);
 
-        var reliabilityService = new ReliabilityService(options, delayCalculator, errorClassifier, reliabilityLoggerMock.Object);
+        var reliabilityService = new ReliabilityService(options, delayCalculator, errorClassifier, cbRegistryMock.Object, reliabilityLoggerMock.Object);
         var service = new ResilienceService(reliabilityService);
         int attempts = 0;
 

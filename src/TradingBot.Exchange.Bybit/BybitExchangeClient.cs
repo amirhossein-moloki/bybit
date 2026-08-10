@@ -7,8 +7,11 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TradingBot.Application.Exceptions;
 using TradingBot.Application.Interfaces;
+using TradingBot.Application.Monitoring;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.ValueObjects;
@@ -23,19 +26,24 @@ public class BybitExchangeClient : IExchangeClient
     private readonly HttpClient _httpClient;
     private readonly BybitSettings _settings;
     private readonly IResilienceService _resilienceService;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly ILogger<BybitExchangeClient> _logger;
 
     public string ExchangeName => "Bybit";
 
+    // Primary constructor with IServiceProvider for DI
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public BybitExchangeClient(
         HttpClient httpClient,
         BybitSettings settings,
         IResilienceService resilienceService,
+        IServiceProvider? serviceProvider,
         ILogger<BybitExchangeClient> logger)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
+        _serviceProvider = serviceProvider;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Configure Base Address if not configured externally
@@ -48,6 +56,16 @@ public class BybitExchangeClient : IExchangeClient
         }
     }
 
+    // Backward-compatible constructor
+    public BybitExchangeClient(
+        HttpClient httpClient,
+        BybitSettings settings,
+        IResilienceService resilienceService,
+        ILogger<BybitExchangeClient> logger)
+        : this(httpClient, settings, resilienceService, null, logger)
+    {
+    }
+
     private string GetApiKey() => _settings.ApiKey;
     private string GetApiSecret() => _settings.ApiSecret;
 
@@ -57,8 +75,18 @@ public class BybitExchangeClient : IExchangeClient
         try
         {
             var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(
-                    "/v5/market/time", ct), cancellationToken);
+            {
+                try
+                {
+                    return await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(
+                        "/v5/market/time", ct);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests || (int?)ex.StatusCode == 429)
+                {
+                    _ = PublishRateLimitEventAsync("429", TimeSpan.FromSeconds(5));
+                    throw new RateLimitException("Rate limit exceeded on PingAsync.", TimeSpan.FromSeconds(5));
+                }
+            }, cancellationToken);
 
             if (response == null || response.RetCode != 0)
             {
@@ -231,8 +259,18 @@ public class BybitExchangeClient : IExchangeClient
         try
         {
             var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(
-                    $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}", ct), cancellationToken);
+            {
+                try
+                {
+                    return await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(
+                        $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}", ct);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests || (int?)ex.StatusCode == 429)
+                {
+                    _ = PublishRateLimitEventAsync("429", TimeSpan.FromSeconds(5));
+                    throw new RateLimitException("Rate limit exceeded on IsSymbolValidAsync.", TimeSpan.FromSeconds(5));
+                }
+            }, cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null)
             {
@@ -261,8 +299,18 @@ public class BybitExchangeClient : IExchangeClient
         try
         {
             var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(
-                    $"/v5/market/tickers?category=spot&symbol={symbolUpper}", ct), cancellationToken);
+            {
+                try
+                {
+                    return await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(
+                        $"/v5/market/tickers?category=spot&symbol={symbolUpper}", ct);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests || (int?)ex.StatusCode == 429)
+                {
+                    _ = PublishRateLimitEventAsync("429", TimeSpan.FromSeconds(5));
+                    throw new RateLimitException("Rate limit exceeded on GetLastPriceAsync.", TimeSpan.FromSeconds(5));
+                }
+            }, cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null || !response.Result.List.Any())
             {
@@ -280,7 +328,7 @@ public class BybitExchangeClient : IExchangeClient
 
             throw new ExchangeException($"GetLastPriceAsync: Could not parse price for symbol {symbol}. RawValue={ticker.LastPrice}");
         }
-        catch (Exception ex) when (ex is not ExchangeException)
+        catch (Exception ex) when (ex is not ExchangeException && ex is not RateLimitException)
         {
             _logger.LogError(ex, "GetLastPriceAsync: Exception while getting last ticker price.");
             throw new ExchangeException($"GetLastPriceAsync failed for symbol {symbol}", ex);
@@ -345,6 +393,28 @@ public class BybitExchangeClient : IExchangeClient
             var responseMessage = await _httpClient.SendAsync(request, ct);
             var responseContent = await responseMessage.Content.ReadAsStringAsync(ct);
 
+            // Check for Rate Limit (HTTP 429)
+            if (responseMessage.StatusCode == System.Net.HttpStatusCode.TooManyRequests || (int)responseMessage.StatusCode == 429)
+            {
+                var retryAfterSeconds = 5.0; // default fallback
+                if (responseMessage.Headers.RetryAfter != null)
+                {
+                    if (responseMessage.Headers.RetryAfter.Delta.HasValue)
+                    {
+                        retryAfterSeconds = responseMessage.Headers.RetryAfter.Delta.Value.TotalSeconds;
+                    }
+                    else if (responseMessage.Headers.RetryAfter.Date.HasValue)
+                    {
+                        retryAfterSeconds = (responseMessage.Headers.RetryAfter.Date.Value - DateTimeOffset.UtcNow).TotalSeconds;
+                    }
+                }
+
+                // Publish rate limit event
+                _ = PublishRateLimitEventAsync(responseMessage.StatusCode.ToString(), TimeSpan.FromSeconds(retryAfterSeconds));
+
+                throw new RateLimitException($"Rate limit exceeded. Retry after {retryAfterSeconds}s.", TimeSpan.FromSeconds(retryAfterSeconds));
+            }
+
             if (!responseMessage.IsSuccessStatusCode)
             {
                 _logger.LogError("Bybit Private Request returned error status code {StatusCode}. Content: {Content}",
@@ -367,6 +437,33 @@ public class BybitExchangeClient : IExchangeClient
 
             return response;
         }, isRetryable, cancellationToken);
+    }
+
+    private async Task PublishRateLimitEventAsync(string code, TimeSpan retryAfter)
+    {
+        if (_serviceProvider == null) return;
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var publisher = scope.ServiceProvider.GetService<IMonitoringEventPublisher>();
+            if (publisher != null)
+            {
+                var @event = new MonitoringEvent(
+                    eventType: "RateLimitDetected",
+                    severity: "WARNING",
+                    source: "Exchange",
+                    component: "BybitExchangeClient",
+                    status: "RateLimited",
+                    message: $"Rate limit exceeded. Retry after {retryAfter.TotalSeconds} seconds.",
+                    errorCode: code
+                );
+                await publisher.PublishAsync(@event, forceSynchronous: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish RateLimitDetected monitoring event.");
+        }
     }
 
     private OrderStatus MapStatus(string bybitStatus)

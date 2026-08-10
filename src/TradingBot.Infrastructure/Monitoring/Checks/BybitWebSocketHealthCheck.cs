@@ -23,9 +23,12 @@ public class BybitWebSocketHealthCheck : IHealthCheck
     public Task<HealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
         var state = _streamClient.State;
+        var isIncomplete = _streamClient.IsRecoveryIncomplete;
 
         var (status, message, connStatus) = state switch
         {
+            ConnectionState.Connected when isIncomplete =>
+                (HealthStatus.Degraded, "Bybit WebSocket is connected, but post-reconnect synchronization failed. Recovery incomplete.", ConnectionStatus.Connected),
             ConnectionState.Connected =>
                 (HealthStatus.Healthy, "Bybit WebSocket connection is healthy and connected.", ConnectionStatus.Connected),
             ConnectionState.Connecting =>
@@ -38,7 +41,7 @@ public class BybitWebSocketHealthCheck : IHealthCheck
                 (HealthStatus.Unhealthy, $"Bybit WebSocket connection is in state: {state}", ConnectionStatus.Disconnected)
         };
 
-        var metadata = $"{{\"ConnectionStatus\":\"{connStatus}\",\"RawState\":\"{state}\"}}";
+        var metadata = $"{{\"ConnectionStatus\":\"{connStatus}\",\"RawState\":\"{state}\",\"IsRecoveryIncomplete\":{isIncomplete.ToString().ToLowerInvariant()}}}";
 
         return Task.FromResult(new HealthCheckResult(
             Name,

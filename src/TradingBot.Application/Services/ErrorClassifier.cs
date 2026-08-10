@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using TradingBot.Application.Enums;
+using TradingBot.Application.Exceptions;
 using TradingBot.Application.Interfaces;
 
 namespace TradingBot.Application.Services;
@@ -15,6 +16,18 @@ public class ErrorClassifier : IErrorClassifier
         if (exception is AggregateException aggEx && aggEx.InnerException != null)
         {
             return Classify(aggEx.InnerException);
+        }
+
+        // CircuitOpenedException is non-retryable (fail fast)
+        if (exception is CircuitOpenedException)
+        {
+            return ErrorRetryability.NonRetryable;
+        }
+
+        // RateLimitException is retryable
+        if (exception is RateLimitException)
+        {
+            return ErrorRetryability.Retryable;
         }
 
         // OperationCanceledException (either timeout or user cancellation)
