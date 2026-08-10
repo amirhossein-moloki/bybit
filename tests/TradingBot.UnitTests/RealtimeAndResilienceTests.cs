@@ -18,6 +18,9 @@ using TradingBot.Exchange.Bybit.WebSocket;
 using TradingBot.Infrastructure.Resilience;
 using Xunit;
 
+using TradingBot.Application.Configuration;
+using TradingBot.Application.Services;
+
 namespace TradingBot.UnitTests;
 
 public class RealtimeAndResilienceTests
@@ -28,7 +31,18 @@ public class RealtimeAndResilienceTests
     public async Task ResilienceService_ShouldRetryOnTransientHttpFailure_AndEventuallySucceed()
     {
         // Arrange
-        var service = new ResilienceService(_loggerMock.Object);
+        var options = new ReliabilityOptions();
+        options.Retry.Enabled = true;
+        options.Retry.MaxAttempts = 3;
+        options.Retry.InitialDelaySeconds = 0.01;
+        options.Retry.JitterEnabled = false;
+
+        var delayCalculator = new RetryDelayCalculator();
+        var errorClassifier = new ErrorClassifier();
+        var reliabilityLoggerMock = new Mock<ILogger<ReliabilityService>>();
+
+        var reliabilityService = new ReliabilityService(options, delayCalculator, errorClassifier, reliabilityLoggerMock.Object);
+        var service = new ResilienceService(reliabilityService);
         int attempts = 0;
 
         Func<CancellationToken, Task<string>> action = ct =>

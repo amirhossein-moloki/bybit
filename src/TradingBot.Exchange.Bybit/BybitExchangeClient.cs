@@ -295,6 +295,18 @@ public class BybitExchangeClient : IExchangeClient
         object? payloadOrParams,
         CancellationToken cancellationToken)
     {
+        Func<Exception, bool>? isRetryable = null;
+
+        // Detect non-idempotent endpoints (such as order creation)
+        if (path.Contains("/order/create") ||
+            path.Contains("/position/set-trading-stop") ||
+            path.Contains("/position/close") ||
+            path.Contains("/order/cancel"))
+        {
+            // Do NOT blindly retry non-idempotent operations
+            isRetryable = ex => false;
+        }
+
         return await _resilienceService.ExecuteHttpAsync(async ct =>
         {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
@@ -354,7 +366,7 @@ public class BybitExchangeClient : IExchangeClient
             }
 
             return response;
-        }, cancellationToken);
+        }, isRetryable, cancellationToken);
     }
 
     private OrderStatus MapStatus(string bybitStatus)

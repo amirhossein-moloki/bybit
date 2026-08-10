@@ -28,6 +28,11 @@ public class FakeResilienceService : IResilienceService
         return action(cancellationToken);
     }
 
+    public Task<T> ExecuteHttpAsync<T>(Func<CancellationToken, Task<T>> action, Func<Exception, bool>? isRetryable, CancellationToken cancellationToken = default)
+    {
+        return action(cancellationToken);
+    }
+
     public Task ExecuteWebSocketAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
     {
         return action(cancellationToken);
