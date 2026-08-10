@@ -13,17 +13,20 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
     private readonly IServiceScopeFactory? _scopeFactory;
     private readonly ISignalStorageQueue? _queue;
     private readonly ISignalStorageMetrics? _metrics;
+    private readonly ITradingGate? _tradingGate;
     private readonly ILogger<DefaultTelegramMessageReceiver> _logger;
 
     public DefaultTelegramMessageReceiver(
         IServiceScopeFactory scopeFactory,
         ISignalStorageQueue queue,
         ISignalStorageMetrics metrics,
+        ITradingGate tradingGate,
         ILogger<DefaultTelegramMessageReceiver> logger)
     {
         _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _tradingGate = tradingGate ?? throw new ArgumentNullException(nameof(tradingGate));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -34,12 +37,20 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
         _scopeFactory = null;
         _queue = null;
         _metrics = null;
+        _tradingGate = null;
     }
 
     public async Task ReceiveMessageAsync(TelegramMessageDto message)
     {
         _logger.LogInformation("DefaultTelegramMessageReceiver: Received message ID {MessageId} from {ChannelName} (ID: {ChannelId})",
             message.MessageId, message.ChannelName, message.ChannelId);
+
+        if (_tradingGate != null && (_tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopping ||
+                                     _tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopped))
+        {
+            _logger.LogWarning("DefaultTelegramMessageReceiver: Message ID {MessageId} discarded because the application is stopping or stopped.", message.MessageId);
+            return;
+        }
 
         // 1. Increment Signals Received Metric if available
         _metrics?.IncrementSignalsReceived();

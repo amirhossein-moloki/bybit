@@ -1,2 +1,33 @@
-Using launch settings from src/TradingBot.Worker/Properties/launchSettings.json...
-Building...
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  TradingBot.Domain -> /app/src/TradingBot.Domain/bin/Debug/net8.0/TradingBot.Domain.dll
+  TradingBot.Application -> /app/src/TradingBot.Application/bin/Debug/net8.0/TradingBot.Application.dll
+  TradingBot.Exchange.Bybit -> /app/src/TradingBot.Exchange.Bybit/bin/Debug/net8.0/TradingBot.Exchange.Bybit.dll
+  TradingBot.Parser -> /app/src/TradingBot.Parser/bin/Debug/net8.0/TradingBot.Parser.dll
+  TradingBot.Persistence -> /app/src/TradingBot.Persistence/bin/Debug/net8.0/TradingBot.Persistence.dll
+  TradingBot.Telegram -> /app/src/TradingBot.Telegram/bin/Debug/net8.0/TradingBot.Telegram.dll
+  TradingBot.Infrastructure -> /app/src/TradingBot.Infrastructure/bin/Debug/net8.0/TradingBot.Infrastructure.dll
+  TradingBot.Worker -> /app/src/TradingBot.Worker/bin/Debug/net8.0/TradingBot.Worker.dll
+  TradingBot.IntegrationTests -> /app/tests/TradingBot.IntegrationTests/bin/Debug/net8.0/TradingBot.IntegrationTests.dll
+Test run for /app/tests/TradingBot.IntegrationTests/bin/Debug/net8.0/TradingBot.IntegrationTests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:03.11]     TradingBot.IntegrationTests.HealthCheckTests.HealthEndpoint_ShouldReturnHealthyAndStatus200_WhenAppIsRunning [FAIL]
+  Failed TradingBot.IntegrationTests.HealthCheckTests.HealthEndpoint_ShouldReturnHealthyAndStatus200_WhenAppIsRunning [1 ms]
+  Error Message:
+   System.InvalidOperationException : The entry point exited without ever building an IHost.
+  Stack Trace:
+     at Microsoft.Extensions.Hosting.HostFactoryResolver.HostingListener.CreateHost()
+   at Microsoft.Extensions.Hosting.HostFactoryResolver.<>c__DisplayClass10_0.<ResolveHostFactory>b__0(String[] args)
+   at Microsoft.AspNetCore.Mvc.Testing.DeferredHostBuilder.Build()
+   at Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory`1.CreateHost(IHostBuilder builder)
+   at Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory`1.ConfigureHostBuilder(IHostBuilder hostBuilder)
+   at Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory`1.EnsureServer()
+   at Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory`1.get_Services()
+   at TradingBot.IntegrationTests.HealthCheckTests..ctor(CustomWebApplicationFactory factory) in /app/tests/TradingBot.IntegrationTests/HealthCheckTests.cs:line 23
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 1 ms - TradingBot.IntegrationTests.dll (net8.0)

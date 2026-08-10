@@ -58,6 +58,8 @@ try
     // 3. Service Registrations
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddInfrastructure(builder.Configuration);
+    builder.Services.AddScoped<IStartupRecoveryManager, TradingBot.Worker.Lifecycle.StartupRecoveryManager>();
+    builder.Services.AddSingleton<IGracefulShutdownManager, TradingBot.Worker.Lifecycle.GracefulShutdownManager>();
     builder.Services.AddParser(builder.Configuration);
     builder.Services.AddRiskManagement(builder.Configuration);
     builder.Services.AddBybitExchange(options =>
@@ -117,17 +119,17 @@ try
             await DatabaseSeeder.SeedAsync(context, logger);
             Log.Information("Database seeding completed.");
 
-            // Startup Position Recovery Flow
+            // Startup Recovery, State Reconciliation & Readiness sequence
             try
             {
-                Log.Information("Starting startup position recovery flow...");
-                var recoveryService = services.GetRequiredService<IPositionRecoveryService>();
-                await recoveryService.RecoverPositionsAsync();
-                Log.Information("Startup position recovery flow completed successfully.");
+                Log.Information("Starting unified startup recovery and state reconciliation sequence...");
+                var startupRecoveryManager = services.GetRequiredService<IStartupRecoveryManager>();
+                await startupRecoveryManager.RunRecoverySequenceAsync();
+                Log.Information("Unified startup recovery and state reconciliation sequence completed successfully.");
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "An error occurred during startup position recovery flow.");
+                Log.Error(ex, "An error occurred during unified startup recovery and state reconciliation sequence.");
             }
         }
         catch (Exception ex)
@@ -135,6 +137,9 @@ try
             Log.Error(ex, "An error occurred while migrating or seeding the database.");
         }
     }
+
+    // Instantiate GracefulShutdownManager so its shutdown callback is registered with IHostApplicationLifetime
+    app.Services.GetRequiredService<IGracefulShutdownManager>();
 
     // 6. Health Monitoring Foundation
     app.MapHealthChecks("/health");
@@ -190,6 +195,7 @@ try
 }
 catch (Exception ex)
 {
+    Console.WriteLine("FATAL_STARTUP_EXCEPTION: " + ex.ToString());
     Log.Fatal(ex, "TradingBot.Worker terminated unexpectedly.");
 }
 finally
