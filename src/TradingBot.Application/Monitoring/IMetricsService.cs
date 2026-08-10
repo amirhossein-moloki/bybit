@@ -58,6 +58,15 @@ public interface IMetricsService
     // Latency Metrics
     void RecordLatency(string pathName, double latencyMs);
 
+    // Idempotency and Recovery Metrics (Phase 10 Stage 10-03)
+    void IncrementDuplicateSignals();
+    void IncrementDuplicateEvents();
+    void IncrementDuplicateOrdersPrevented();
+    void IncrementUnknownOrders();
+    void IncrementRecoveredOperations();
+    void IncrementUnsafeRetriesBlocked();
+    void IncrementManualInterventions();
+
     // Get aggregated metrics dictionary
     Dictionary<string, object> GetAggregatedMetrics();
 }

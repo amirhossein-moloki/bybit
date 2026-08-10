@@ -7,4 +7,5 @@ namespace TradingBot.Application.Repositories;
 public interface IProcessedEventRepository : IRepository<ProcessedEvent>
 {
     Task<bool> ExistsAsync(string eventId, CancellationToken cancellationToken = default);
+    Task<bool> TryRegisterEventAsync(string eventId, string eventType, System.Guid? positionId = null, string? exchangeOrderId = null, CancellationToken cancellationToken = default);
 }

@@ -77,6 +77,7 @@ try
     builder.Services.AddHostedService<PositionSyncBackgroundService>();
     builder.Services.AddHostedService<SignalStorageWorker>();
     builder.Services.AddHostedService<OrderReconciliationWorker>();
+    builder.Services.AddHostedService<IncompleteOperationRecoveryWorker>();
     builder.Services.AddHostedService<MonitoringWorker>();
     builder.Services.AddHostedService<MonitoringEventProcessor>();
     builder.Services.AddHostedService<AlertEvaluationWorker>();

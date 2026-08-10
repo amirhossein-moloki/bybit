@@ -27,6 +27,9 @@ public class TradingExecutionService : ITradeExecutionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<TradingExecutionService> _logger;
     private readonly IExecutionMetrics? _metrics;
+    private readonly ITradeOperationRepository _tradeOperationRepository;
+    private readonly TradingBot.Application.Monitoring.IMonitoringEventPublisher? _monitoringEventPublisher;
+    private readonly TradingBot.Application.Monitoring.IMetricsService? _generalMetrics;
 
     public TradingExecutionService(
         IOrderValidator validator,
@@ -37,7 +40,10 @@ public class TradingExecutionService : ITradeExecutionService
         IOrderEventRepository orderEventRepository,
         IUnitOfWork unitOfWork,
         ILogger<TradingExecutionService> logger,
-        IExecutionMetrics? metrics = null)
+        IExecutionMetrics? metrics = null,
+        ITradeOperationRepository? tradeOperationRepository = null,
+        TradingBot.Application.Monitoring.IMonitoringEventPublisher? monitoringEventPublisher = null,
+        TradingBot.Application.Monitoring.IMetricsService? generalMetrics = null)
     {
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
         _builder = builder ?? throw new ArgumentNullException(nameof(builder));
@@ -48,6 +54,9 @@ public class TradingExecutionService : ITradeExecutionService
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metrics = metrics;
+        _tradeOperationRepository = tradeOperationRepository ?? new NoOpTradeOperationRepository();
+        _monitoringEventPublisher = monitoringEventPublisher;
+        _generalMetrics = generalMetrics;
     }
 
     [Obsolete("Use the primary constructor with repositories and unit of work.", false)]
@@ -66,6 +75,9 @@ public class TradingExecutionService : ITradeExecutionService
             new NoOpOrderEventRepository(),
             new NoOpUnitOfWork(),
             logger,
+            null,
+            new NoOpTradeOperationRepository(),
+            null,
             null)
     {
     }
@@ -97,27 +109,228 @@ public class TradingExecutionService : ITradeExecutionService
         _logger.LogInformation("ExecutionStarted: Received execution request with ID {RequestId} for SignalId {SignalId}, Symbol {Symbol}, Side {Side}, Type {Type}, Quantity {Quantity}",
             request.Id, request.SignalId, request.Symbol, request.Side, request.OrderType, request.Quantity);
 
-        // 1. Idempotency Check (Database & Application Protection)
-        var existingOrder = await _orderRepository.GetBySignalIdAsync(request.SignalId, cancellationToken);
-        if (existingOrder != null)
+        // Generate deterministic IdempotencyKey
+        var idempotencyKey = $"Order_{request.SignalId}_{request.Symbol}_{request.Side}";
+        TradeOperation? operation = null;
+
+        try
         {
-            _logger.LogInformation("ExecutionDuplicateFound: Found existing local order {OrderId} in status {Status} for SignalId {SignalId}. Returning existing execution.",
-                existingOrder.Id, existingOrder.Status, request.SignalId);
+            operation = await _tradeOperationRepository.GetByIdempotencyKeyAsync(idempotencyKey, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query TradeOperation by key {IdempotencyKey}. Proceeding with default signal checks.", idempotencyKey);
+        }
 
-            bool success = existingOrder.Status == OrderStatus.Filled ||
-                           existingOrder.Status == OrderStatus.PartiallyFilled ||
-                           existingOrder.Status == OrderStatus.Accepted ||
-                           existingOrder.Status == OrderStatus.New ||
-                           existingOrder.Status == OrderStatus.Submitted;
-
-            return new ExecutionResult
+        if (operation == null)
+        {
+            // Fallback for NoOp repositories / tests not tracking trade operations
+            var existingOrder = await _orderRepository.GetBySignalIdAsync(request.SignalId, cancellationToken);
+            if (existingOrder != null)
             {
-                Success = success,
-                OrderId = existingOrder.Id,
-                ExchangeOrderId = existingOrder.ExchangeOrderId,
-                Status = existingOrder.Status,
-                Message = $"Duplicate request detected. Found existing order in status {existingOrder.Status}."
-            };
+                _logger.LogInformation("ExecutionDuplicateFound: Found existing local order {OrderId} in status {Status} for SignalId {SignalId}. Returning existing execution.",
+                    existingOrder.Id, existingOrder.Status, request.SignalId);
+
+                bool success = existingOrder.Status == OrderStatus.Filled ||
+                               existingOrder.Status == OrderStatus.PartiallyFilled ||
+                               existingOrder.Status == OrderStatus.Accepted ||
+                               existingOrder.Status == OrderStatus.New ||
+                               existingOrder.Status == OrderStatus.Submitted;
+
+                return new ExecutionResult
+                {
+                    Success = success,
+                    OrderId = existingOrder.Id,
+                    ExchangeOrderId = existingOrder.ExchangeOrderId,
+                    Status = existingOrder.Status,
+                    Message = $"Duplicate request detected. Found existing order in status {existingOrder.Status}."
+                };
+            }
+        }
+
+        if (operation != null)
+        {
+            _logger.LogInformation("ExecutionDuplicateFound: Found existing TradeOperation {OperationId} in status {Status} for key {IdempotencyKey}.",
+                operation.Id, operation.Status, idempotencyKey);
+
+            _generalMetrics?.IncrementDuplicateOrdersPrevented();
+
+            if (operation.Status == "Completed" || operation.Status == "Submitted")
+            {
+                var existingOrder = await _orderRepository.GetByIdAsync(operation.Id, cancellationToken);
+                if (existingOrder != null)
+                {
+                    bool success = existingOrder.Status == OrderStatus.Filled ||
+                                   existingOrder.Status == OrderStatus.PartiallyFilled ||
+                                   existingOrder.Status == OrderStatus.Accepted ||
+                                   existingOrder.Status == OrderStatus.New ||
+                                   existingOrder.Status == OrderStatus.Submitted;
+
+                    _metrics?.RecordOrderStatus(existingOrder.Status);
+
+                    if (_monitoringEventPublisher != null)
+                    {
+                        var dupEvent = new TradingBot.Domain.Entities.MonitoringEvent(
+                            "DuplicateOrderPrevented",
+                            "WARNING",
+                            "Trading",
+                            "TradingExecutionService",
+                            "PREVENTED",
+                            $"Duplicate order submission prevented for key: {idempotencyKey}",
+                            orderId: existingOrder.Id
+                        );
+                        await _monitoringEventPublisher.PublishAsync(dupEvent, forceSynchronous: true, cancellationToken);
+                    }
+
+                    return new ExecutionResult
+                    {
+                        Success = success,
+                        OrderId = existingOrder.Id,
+                        ExchangeOrderId = existingOrder.ExchangeOrderId,
+                        Status = existingOrder.Status,
+                        Message = $"Duplicate request detected. Found existing completed operation {operation.Id}."
+                    };
+                }
+            }
+
+            if (operation.Status == "Submitting" || operation.Status == "Unknown")
+            {
+                _logger.LogInformation("ExchangeStateCheck: Querying exchange for pre-generated ClientOrderId TB-{OperationId:N}", operation.Id);
+                var operationClientOrderId = $"TB-{operation.Id:N}";
+
+                try
+                {
+                    var exchangeOrder = await _gateway.GetOrderAsync(operationClientOrderId, request.Symbol, cancellationToken);
+
+                    if (exchangeOrder.Success && !string.IsNullOrEmpty(exchangeOrder.ExchangeOrderId))
+                    {
+                        _logger.LogInformation("ExchangeOrderFound: Order found on exchange in status {ExchangeStatus}. Restoring missing local state.", exchangeOrder.Status);
+
+                        var recoveredOrder = await _orderRepository.GetByIdAsync(operation.Id, cancellationToken);
+                        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+
+                        if (recoveredOrder == null)
+                        {
+                            recoveredOrder = new Order(
+                                operation.Id,
+                                operationClientOrderId,
+                                new Symbol(request.Symbol),
+                                request.Side,
+                                request.OrderType,
+                                new Quantity(request.Quantity),
+                                new Money(request.Price),
+                                request.SignalId);
+
+                            recoveredOrder.SetExchangeDetails(exchangeOrder.ExchangeOrderId, "Bybit");
+                            recoveredOrder.UpdateStatus(exchangeOrder.Status);
+                            await _orderRepository.AddAsync(recoveredOrder, cancellationToken);
+                        }
+                        else
+                        {
+                            recoveredOrder.SetExchangeDetails(exchangeOrder.ExchangeOrderId, "Bybit");
+                            recoveredOrder.UpdateStatus(exchangeOrder.Status);
+                            await _orderRepository.UpdateAsync(recoveredOrder, cancellationToken);
+                        }
+
+                        operation.MarkCompleted(exchangeOrder.ExchangeOrderId);
+                        _tradeOperationRepository.Update(operation);
+
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                        await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+                        _generalMetrics?.IncrementRecoveredOperations();
+
+                        if (_monitoringEventPublisher != null)
+                        {
+                            var recEvent = new TradingBot.Domain.Entities.MonitoringEvent(
+                                "OrderStateRecovered",
+                                "INFO",
+                                "Trading",
+                                "TradingExecutionService",
+                                "RECOVERED",
+                                $"Recovered missing exchange order state for local order {recoveredOrder.Id}.",
+                                orderId: recoveredOrder.Id
+                            );
+                            await _monitoringEventPublisher.PublishAsync(recEvent, forceSynchronous: true, cancellationToken);
+                        }
+
+                        return new ExecutionResult
+                        {
+                            Success = true,
+                            OrderId = recoveredOrder.Id,
+                            ExchangeOrderId = recoveredOrder.ExchangeOrderId,
+                            Status = recoveredOrder.Status,
+                            Message = "Existing order recovered from the exchange."
+                        };
+                    }
+                    else if (exchangeOrder.ErrorCode == "ORDER_NOT_FOUND" ||
+                             (exchangeOrder.ErrorMessage != null && exchangeOrder.ErrorMessage.Contains("not found", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _logger.LogInformation("ExchangeOrderNotFound: Order was NOT found on exchange. Safely proceeding with new submission attempt.");
+
+                        operation.UpdateStatus("Submitting");
+                        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+                        _tradeOperationRepository.Update(operation);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                        await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("ExchangeStateQueryFailed: Unable to establish exchange state due to error: {Error}. Failing safely to prevent duplicate risk.", exchangeOrder.ErrorMessage);
+                        _generalMetrics?.IncrementUnsafeRetriesBlocked();
+
+                        if (_monitoringEventPublisher != null)
+                        {
+                            var unEvent = new TradingBot.Domain.Entities.MonitoringEvent(
+                                "UnsafeRetryBlocked",
+                                "WARNING",
+                                "Trading",
+                                "TradingExecutionService",
+                                "BLOCKED",
+                                $"Unsafe retry blocked due to connection failure while checking exchange status.",
+                                correlationId: request.Id.ToString()
+                            );
+                            await _monitoringEventPublisher.PublishAsync(unEvent, forceSynchronous: true, cancellationToken);
+                        }
+
+                        return ExecutionResult.CreateFailure(
+                            "Unable to establish order state on exchange. Submission blocked for safety.",
+                            "UNSAFE_RETRY_BLOCKED",
+                            OrderStatus.Unknown);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to query exchange or persist recovery state. Aborting execution for safety.");
+                    _generalMetrics?.IncrementUnsafeRetriesBlocked();
+                    throw;
+                }
+            }
+        }
+        else
+        {
+            // Create a new operation record BEFORE submitting
+            var preGeneratedId = Guid.NewGuid();
+            operation = new TradeOperation(
+                preGeneratedId,
+                idempotencyKey,
+                "OrderSubmission",
+                request.Id.ToString(),
+                "Submitting");
+
+            try
+            {
+                await _unitOfWork.BeginTransactionAsync(cancellationToken);
+                await _tradeOperationRepository.AddAsync(operation, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DatabaseException: Failed to persist TradeOperation. Aborting execution for safety.");
+                try { await _unitOfWork.RollbackTransactionAsync(cancellationToken); } catch { }
+                throw;
+            }
         }
 
         // 2. Build Order Parameters
@@ -199,7 +412,7 @@ public class TradingExecutionService : ITradeExecutionService
         _logger.LogInformation("OrderValidationPassed: Request with ID {RequestId} is valid.", request.Id);
 
         // 4. Pre-generate and Persist Local Order as Pending (Transaction Boundary 1)
-        var preGeneratedOrderId = Guid.NewGuid();
+        var preGeneratedOrderId = operation.Id; // Use deterministic operation.Id!
         var clientOrderId = $"TB-{preGeneratedOrderId:N}";
         orderRequest.ClientOrderId = clientOrderId; // set the deterministic client order ID on request
 
@@ -329,6 +542,9 @@ public class TradingExecutionService : ITradeExecutionService
                     $"Order submitted successfully. ExchangeOrderId: {order.ExchangeOrderId}");
                 await _orderEventRepository.AddAsync(successEvent, cancellationToken);
 
+                operation.MarkCompleted(gatewayResult.ExchangeOrderId);
+                _tradeOperationRepository.Update(operation);
+
                 await _orderRepository.UpdateAsync(order, cancellationToken);
                 await SaveAndCommitWithMetricsAsync(cancellationToken);
 
@@ -367,6 +583,10 @@ public class TradingExecutionService : ITradeExecutionService
                         $"Temporary error: {gatewayResult.ErrorMessage} ({gatewayResult.ErrorCode}). Marked as Unknown for background reconciliation.");
                     await _orderEventRepository.AddAsync(tempFailureEvent, cancellationToken);
 
+                    operation.UpdateStatus("Unknown");
+                    _tradeOperationRepository.Update(operation);
+                    _generalMetrics?.IncrementUnknownOrders();
+
                     await _orderRepository.UpdateAsync(order, cancellationToken);
                     await SaveAndCommitWithMetricsAsync(cancellationToken);
 
@@ -390,6 +610,9 @@ public class TradingExecutionService : ITradeExecutionService
                         "TradingExecutionService",
                         $"Permanent error: {gatewayResult.ErrorMessage} ({gatewayResult.ErrorCode}). Order rejected/failed.");
                     await _orderEventRepository.AddAsync(permFailureEvent, cancellationToken);
+
+                    operation.MarkFailed(gatewayResult.ErrorCode);
+                    _tradeOperationRepository.Update(operation);
 
                     await _orderRepository.UpdateAsync(order, cancellationToken);
                     await SaveAndCommitWithMetricsAsync(cancellationToken);
@@ -453,5 +676,18 @@ public class TradingExecutionService : ITradeExecutionService
         public void Remove(OrderEvent entity) { }
         public void Update(OrderEvent entity) { }
         public Task<IEnumerable<OrderEvent>> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OrderEvent>>(Array.Empty<OrderEvent>());
+    }
+
+    private class NoOpTradeOperationRepository : ITradeOperationRepository
+    {
+        public Task AddAsync(TradeOperation entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<IEnumerable<TradeOperation>> GetAllAsync(CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<TradeOperation>>(Array.Empty<TradeOperation>());
+        public Task<IEnumerable<TradeOperation>> GetAsync(ISpecification<TradeOperation> spec, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<TradeOperation>>(Array.Empty<TradeOperation>());
+        public Task<TradeOperation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<TradeOperation?>(null);
+        public Task<PagedResult<TradeOperation>> GetPagedAsync(int pageNumber, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult<PagedResult<TradeOperation>>(null!);
+        public Task<PagedResult<TradeOperation>> GetPagedAsync(ISpecification<TradeOperation> spec, int pageNumber, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult<PagedResult<TradeOperation>>(null!);
+        public void Remove(TradeOperation entity) { }
+        public void Update(TradeOperation entity) { }
+        public Task<TradeOperation?> GetByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default) => Task.FromResult<TradeOperation?>(null);
     }
 }
