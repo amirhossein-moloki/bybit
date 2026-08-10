@@ -16,17 +16,23 @@ public class SignalStorageService : ISignalStorageService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISignalStorageMetrics _metrics;
     private readonly ILogger<SignalStorageService> _logger;
+    private readonly TradingBot.Application.Monitoring.IMetricsService? _generalMetrics;
+    private readonly TradingBot.Application.Monitoring.IMonitoringEventPublisher? _monitoringEventPublisher;
 
     public SignalStorageService(
         ISignalRepository signalRepository,
         IUnitOfWork unitOfWork,
         ISignalStorageMetrics metrics,
-        ILogger<SignalStorageService> logger)
+        ILogger<SignalStorageService> logger,
+        TradingBot.Application.Monitoring.IMetricsService? generalMetrics = null,
+        TradingBot.Application.Monitoring.IMonitoringEventPublisher? monitoringEventPublisher = null)
     {
         _signalRepository = signalRepository ?? throw new ArgumentNullException(nameof(signalRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _generalMetrics = generalMetrics;
+        _monitoringEventPublisher = monitoringEventPublisher;
     }
 
     public async Task StoreAsync(SignalCandidate candidate)
@@ -109,6 +115,43 @@ public class SignalStorageService : ISignalStorageService
             _metrics.IncrementSignalsStored();
             _logger.LogInformation("Signal stored\nChannel:\n{ChannelId}\n\nMessageId:\n{MessageId}",
                 candidate.ChannelId, candidate.MessageId);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "DbUpdateException" ||
+                                   ex.GetType().FullName == "Microsoft.EntityFrameworkCore.DbUpdateException" ||
+                                   ex.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) ||
+                                   ex.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
+                                   ex.InnerException?.Message.Contains("unique", StringComparison.OrdinalIgnoreCase) == true ||
+                                   ex.InnerException?.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogInformation("Concurrent duplicate signal detected and ignored. Channel: {ChannelId}, MessageId: {MessageId}",
+                candidate.ChannelId, candidate.MessageId);
+
+            _metrics.IncrementDuplicatesIgnored();
+            _generalMetrics?.IncrementDuplicateSignals();
+
+            try
+            {
+                await _unitOfWork.RollbackAsync();
+            }
+            catch (Exception rollbackEx)
+            {
+                _logger.LogError(rollbackEx, "Failed to rollback database transaction after duplicate signal violation.");
+            }
+
+            if (_monitoringEventPublisher != null)
+            {
+                var monitoringEvent = new TradingBot.Domain.Entities.MonitoringEvent(
+                    "DuplicateSignalDetected",
+                    "WARNING",
+                    "SignalStorage",
+                    "SignalStorageService",
+                    "IGNORED",
+                    $"Duplicate signal received and ignored: Channel={candidate.ChannelId}, MessageId={candidate.MessageId}",
+                    signalId: signal.Id
+                );
+                await _monitoringEventPublisher.PublishAsync(monitoringEvent, forceSynchronous: true);
+            }
+            return;
         }
         catch (Exception ex)
         {

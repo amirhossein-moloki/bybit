@@ -61,6 +61,12 @@ public static class DependencyInjection
         reliabilityOptions.Validate();
         services.AddSingleton(reliabilityOptions);
 
+        // Bind and register Idempotency Configuration Options (Section 31)
+        var idempotencySection = configuration.GetSection("Idempotency");
+        var idempotencyOptions = new TradingBot.Application.Configuration.IdempotencyOptions();
+        idempotencySection.Bind(idempotencyOptions);
+        services.AddSingleton(idempotencyOptions);
+
         // Register Reliability Services
         services.AddSingleton<IRetryDelayCalculator, RetryDelayCalculator>();
         services.AddSingleton<IErrorClassifier, ErrorClassifier>();
@@ -76,6 +82,8 @@ public static class DependencyInjection
         services.AddScoped<IOrderEventRepository, OrderEventRepository>();
         services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();
         services.AddScoped<ITradeRepository, TradeRepository>();
+        services.AddScoped<IProcessedEventRepository, ProcessedEventRepository>();
+        services.AddScoped<ITradeOperationRepository, TradeOperationRepository>();
         services.AddScoped<IPositionRepository, PositionRepository>();
         services.AddScoped<IPositionService, PositionService>();
         services.AddScoped<IPositionSynchronizationService, PositionSynchronizationService>();

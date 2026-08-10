@@ -41,6 +41,15 @@ public class MetricsService : IMetricsService
     private long _telegramMessagesProcessed;
     private long _telegramMessagesFailed;
 
+    // Idempotency and Recovery Counters
+    private long _duplicateSignals;
+    private long _duplicateEvents;
+    private long _duplicateOrdersPrevented;
+    private long _unknownOrders;
+    private long _recoveredOperations;
+    private long _unsafeRetriesBlocked;
+    private long _manualInterventions;
+
     // Connection Metrics tracking
     private readonly ConcurrentDictionary<string, ConnectionMetric> _connections = new(StringComparer.OrdinalIgnoreCase);
 
@@ -85,6 +94,15 @@ public class MetricsService : IMetricsService
     public void IncrementTelegramMessagesReceived() => Interlocked.Increment(ref _telegramMessagesReceived);
     public void IncrementTelegramMessagesProcessed() => Interlocked.Increment(ref _telegramMessagesProcessed);
     public void IncrementTelegramMessagesFailed() => Interlocked.Increment(ref _telegramMessagesFailed);
+
+    // Idempotency and Recovery counter increments
+    public void IncrementDuplicateSignals() => Interlocked.Increment(ref _duplicateSignals);
+    public void IncrementDuplicateEvents() => Interlocked.Increment(ref _duplicateEvents);
+    public void IncrementDuplicateOrdersPrevented() => Interlocked.Increment(ref _duplicateOrdersPrevented);
+    public void IncrementUnknownOrders() => Interlocked.Increment(ref _unknownOrders);
+    public void IncrementRecoveredOperations() => Interlocked.Increment(ref _recoveredOperations);
+    public void IncrementUnsafeRetriesBlocked() => Interlocked.Increment(ref _unsafeRetriesBlocked);
+    public void IncrementManualInterventions() => Interlocked.Increment(ref _manualInterventions);
 
     public void RecordConnectionAttempt(string serviceName)
     {
@@ -222,7 +240,16 @@ public class MetricsService : IMetricsService
             // Telegram Metrics
             ["TelegramMessagesReceived"] = Interlocked.Read(ref _telegramMessagesReceived),
             ["TelegramMessagesProcessed"] = Interlocked.Read(ref _telegramMessagesProcessed),
-            ["TelegramMessagesFailed"] = Interlocked.Read(ref _telegramMessagesFailed)
+            ["TelegramMessagesFailed"] = Interlocked.Read(ref _telegramMessagesFailed),
+
+            // Idempotency and Recovery Metrics
+            ["DuplicateSignals"] = Interlocked.Read(ref _duplicateSignals),
+            ["DuplicateEvents"] = Interlocked.Read(ref _duplicateEvents),
+            ["DuplicateOrdersPrevented"] = Interlocked.Read(ref _duplicateOrdersPrevented),
+            ["UnknownOrders"] = Interlocked.Read(ref _unknownOrders),
+            ["RecoveredOperations"] = Interlocked.Read(ref _recoveredOperations),
+            ["UnsafeRetriesBlocked"] = Interlocked.Read(ref _unsafeRetriesBlocked),
+            ["ManualInterventions"] = Interlocked.Read(ref _manualInterventions)
         };
 
         // Connections

@@ -21,6 +21,7 @@ public class TradingDbContext : DbContext
     public DbSet<SystemLog> SystemLogs { get; set; } = null!;
     public DbSet<ParserTemplates> ParserTemplates { get; set; } = null!;
     public DbSet<ProcessedEvent> ProcessedEvents { get; set; } = null!;
+    public DbSet<TradeOperation> TradeOperations { get; set; } = null!;
     public DbSet<MonitoringEvent> MonitoringEvents { get; set; } = null!;
     public DbSet<Notification> Notifications { get; set; } = null!;
     public DbSet<Alert> Alerts { get; set; } = null!;

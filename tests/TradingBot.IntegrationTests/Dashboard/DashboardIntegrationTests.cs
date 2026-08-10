@@ -296,6 +296,13 @@ public class MockMetricsService : IMetricsService
     public void IncrementTelegramMessagesReceived() {}
     public void IncrementTelegramMessagesProcessed() {}
     public void IncrementTelegramMessagesFailed() {}
+    public void IncrementDuplicateSignals() {}
+    public void IncrementDuplicateEvents() {}
+    public void IncrementDuplicateOrdersPrevented() {}
+    public void IncrementUnknownOrders() {}
+    public void IncrementRecoveredOperations() {}
+    public void IncrementUnsafeRetriesBlocked() {}
+    public void IncrementManualInterventions() {}
     public void RecordConnectionAttempt(string serviceName) {}
     public void RecordConnectionSuccess(string serviceName) {}
     public void RecordConnectionFailure(string serviceName) {}
