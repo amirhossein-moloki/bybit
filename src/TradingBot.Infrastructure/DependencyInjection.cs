@@ -54,6 +54,18 @@ public static class DependencyInjection
         // Register Encryption Service
         services.AddSingleton<IEncryptionService, EncryptionService>();
 
+        // Bind and register Reliability Configuration Options (Section 5 & 6)
+        var reliabilitySection = configuration.GetSection("Reliability");
+        var reliabilityOptions = new TradingBot.Application.Configuration.ReliabilityOptions();
+        reliabilitySection.Bind(reliabilityOptions);
+        reliabilityOptions.Validate();
+        services.AddSingleton(reliabilityOptions);
+
+        // Register Reliability Services
+        services.AddSingleton<IRetryDelayCalculator, RetryDelayCalculator>();
+        services.AddSingleton<IErrorClassifier, ErrorClassifier>();
+        services.AddSingleton<IReliabilityService, ReliabilityService>();
+
         // Register Resilience Service
         services.AddSingleton<IResilienceService, ResilienceService>();
 
