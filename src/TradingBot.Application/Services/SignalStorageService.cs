@@ -15,6 +15,7 @@ public class SignalStorageService : ISignalStorageService
     private readonly ISignalRepository _signalRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISignalStorageMetrics _metrics;
+    private readonly ITradingGate? _tradingGate;
     private readonly ILogger<SignalStorageService> _logger;
     private readonly TradingBot.Application.Monitoring.IMetricsService? _generalMetrics;
     private readonly TradingBot.Application.Monitoring.IMonitoringEventPublisher? _monitoringEventPublisher;
@@ -25,7 +26,8 @@ public class SignalStorageService : ISignalStorageService
         ISignalStorageMetrics metrics,
         ILogger<SignalStorageService> logger,
         TradingBot.Application.Monitoring.IMetricsService? generalMetrics = null,
-        TradingBot.Application.Monitoring.IMonitoringEventPublisher? monitoringEventPublisher = null)
+        TradingBot.Application.Monitoring.IMonitoringEventPublisher? monitoringEventPublisher = null,
+        ITradingGate? tradingGate = null)
     {
         _signalRepository = signalRepository ?? throw new ArgumentNullException(nameof(signalRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
@@ -33,10 +35,18 @@ public class SignalStorageService : ISignalStorageService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _generalMetrics = generalMetrics;
         _monitoringEventPublisher = monitoringEventPublisher;
+        _tradingGate = tradingGate;
     }
 
     public async Task StoreAsync(SignalCandidate candidate)
     {
+        if (_tradingGate != null && (_tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopping ||
+                                     _tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopped))
+        {
+            _logger.LogWarning("SignalStorageService: Discarding signal candidate because the application is stopping or stopped.");
+            return;
+        }
+
         // 1. Invalid Signal Candidate Check
         if (candidate == null)
         {

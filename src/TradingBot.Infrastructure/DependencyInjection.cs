@@ -54,6 +54,16 @@ public static class DependencyInjection
         // Register Encryption Service
         services.AddSingleton<IEncryptionService, EncryptionService>();
 
+        // Bind and register StartupShutdown Configuration Options (Section 28)
+        var startupShutdownSection = configuration.GetSection("StartupShutdown");
+        var startupShutdownOptions = new TradingBot.Application.Configuration.StartupShutdownOptions();
+        startupShutdownSection.Bind(startupShutdownOptions);
+        services.AddSingleton(startupShutdownOptions);
+
+        // Register Trading Gate & Incomplete Operation Recovery Service
+        services.AddSingleton<ITradingGate, TradingGate>();
+        services.AddScoped<IIncompleteOperationRecoveryService, IncompleteOperationRecoveryService>();
+
         // Bind and register Reliability Configuration Options (Section 5 & 6)
         var reliabilitySection = configuration.GetSection("Reliability");
         var reliabilityOptions = new TradingBot.Application.Configuration.ReliabilityOptions();

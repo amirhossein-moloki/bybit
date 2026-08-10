@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TradingBot.Application.Interfaces;
 using TradingBot.Application.Repositories;
 using TradingBot.Application.Trading.Execution.Contracts;
 using TradingBot.Application.Trading.Execution.Events;
@@ -19,6 +20,7 @@ public class TradeExecutionOrchestrator : ITradeExecutionOrchestrator
     private readonly ITradeExecutionService _executionService;
     private readonly IExecutionEventPublisher _eventPublisher;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ITradingGate _tradingGate;
     private readonly ILogger<TradeExecutionOrchestrator> _logger;
 
     public TradeExecutionOrchestrator(
@@ -27,6 +29,7 @@ public class TradeExecutionOrchestrator : ITradeExecutionOrchestrator
         ITradeExecutionService executionService,
         IExecutionEventPublisher eventPublisher,
         IUnitOfWork unitOfWork,
+        ITradingGate tradingGate,
         ILogger<TradeExecutionOrchestrator> logger)
     {
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
@@ -34,7 +37,40 @@ public class TradeExecutionOrchestrator : ITradeExecutionOrchestrator
         _executionService = executionService ?? throw new ArgumentNullException(nameof(executionService));
         _eventPublisher = eventPublisher ?? throw new ArgumentNullException(nameof(eventPublisher));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _tradingGate = tradingGate ?? throw new ArgumentNullException(nameof(tradingGate));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    [Obsolete("Use constructor with ITradingGate and ILogger", false)]
+    public TradeExecutionOrchestrator(
+        IOrderValidator validator,
+        IOrderRepository orderRepository,
+        ITradeExecutionService executionService,
+        IExecutionEventPublisher eventPublisher,
+        IUnitOfWork unitOfWork,
+        ILogger<TradeExecutionOrchestrator> logger)
+        : this(validator, orderRepository, executionService, eventPublisher, unitOfWork, new AlwaysOpenTradingGate(), logger)
+    {
+    }
+
+    [Obsolete("Use constructor with ITradingGate and ILogger", false)]
+    public TradeExecutionOrchestrator(
+        IOrderValidator validator,
+        IOrderRepository orderRepository,
+        ITradeExecutionService executionService,
+        IExecutionEventPublisher eventPublisher,
+        IUnitOfWork unitOfWork)
+        : this(validator, orderRepository, executionService, eventPublisher, unitOfWork, new AlwaysOpenTradingGate(), Microsoft.Extensions.Logging.Abstractions.NullLogger<TradeExecutionOrchestrator>.Instance)
+    {
+    }
+
+    private class AlwaysOpenTradingGate : ITradingGate
+    {
+        public ApplicationState CurrentState => ApplicationState.Ready;
+        public bool IsTradingEnabled => true;
+        public void SetState(ApplicationState state) { }
+        public void EnableTrading() { }
+        public void DisableTrading() { }
     }
 
     public async Task<TradeExecutionResult> OrchestrateAsync(TradeExecutionRequest request, CancellationToken cancellationToken = default)
@@ -45,6 +81,22 @@ public class TradeExecutionOrchestrator : ITradeExecutionOrchestrator
         }
 
         var overallStopwatch = Stopwatch.StartNew();
+
+        // Check readiness / trading gate before starting execution
+        if (!_tradingGate.IsTradingEnabled)
+        {
+            var gateReason = $"Trading is currently disabled. Application state is {_tradingGate.CurrentState}.";
+            _logger.LogWarning("TradeExecutionBlocked: {Reason}", gateReason);
+
+            return new TradeExecutionResult
+            {
+                Success = false,
+                Status = OrderStatus.ValidationFailed,
+                FailureReason = gateReason,
+                ExecutedPrice = 0,
+                ExecutedQuantity = 0
+            };
+        }
 
         // 1. Publish: TradeExecutionStarted (Section 6 & 9)
         _logger.LogInformation("TradeExecutionStarted: Starting execution orchestrator. ExecutionId: {ExecutionId}, SignalId: {SignalId}, Symbol: {Symbol}, Status: {Status}, Duration: {DurationMs}ms",
