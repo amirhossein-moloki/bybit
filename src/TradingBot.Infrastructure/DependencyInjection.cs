@@ -9,6 +9,8 @@ using TradingBot.Infrastructure.Security;
 using TradingBot.Persistence.Repositories;
 using TradingBot.Persistence.UnitOfWork;
 using TradingBot.Infrastructure.Health;
+using TradingBot.Application.SignalIntelligence.Contracts;
+using TradingBot.Persistence.SignalIntelligence.Repositories;
 using TradingBot.Infrastructure.Resilience;
 using TradingBot.Persistence;
 using TradingBot.Persistence.Context;
@@ -88,6 +90,9 @@ public static class DependencyInjection
         // Register Repositories and Unit Of Work
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<ISignalRepository, SignalRepository>();
+        services.AddScoped<IMessageRepository, MessageRepository>();
+        services.AddScoped<IMessageAnalysisRepository, MessageAnalysisRepository>();
+        services.AddScoped<ISignalContextRepository, SignalContextRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderEventRepository, OrderEventRepository>();
         services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();
