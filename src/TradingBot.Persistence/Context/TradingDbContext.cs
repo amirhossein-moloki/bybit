@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using TradingBot.Domain.Entities;
+using TradingBot.Domain.SignalIntelligence.Entities;
 
 namespace TradingBot.Persistence.Context;
 
@@ -28,6 +29,9 @@ public class TradingDbContext : DbContext
     public DbSet<AlertEvent> AlertEvents { get; set; } = null!;
     public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts { get; set; } = null!;
     public DbSet<ReportSchedule> ReportSchedules { get; set; } = null!;
+    public DbSet<TelegramMessage> TelegramMessages { get; set; } = null!;
+    public DbSet<MessageAnalysis> MessageAnalyses { get; set; } = null!;
+    public DbSet<SignalContext> SignalContexts { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> RiskEvaluations { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskProfile> RiskProfiles { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.TradeDecision> TradeDecisions { get; set; } = null!;
