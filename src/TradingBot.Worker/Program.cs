@@ -191,6 +191,9 @@ try
     // Map Dashboard Endpoints
     app.MapDashboardEndpoints();
 
+    // Map Analytics Endpoints
+    app.MapAnalyticsEndpoints();
+
     app.Run();
 }
 catch (Exception ex)

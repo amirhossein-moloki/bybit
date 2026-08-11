@@ -122,6 +122,13 @@ public static class DependencyInjection
         // Register Analytics Query Service (Stage 11-01)
         services.AddScoped<TradingBot.Application.Analytics.Interfaces.IAnalyticsQueryService, TradingBot.Persistence.Queries.AnalyticsQueryService>();
 
+        // Register Performance Analytics Services (Stage 11-03)
+        services.AddSingleton<TradingBot.Application.Analytics.Services.DrawdownCalculator>();
+        services.AddSingleton<TradingBot.Application.Analytics.Services.StreakCalculator>();
+        services.AddSingleton<TradingBot.Application.Analytics.Services.PnLCalculator>();
+        services.AddScoped<TradingBot.Application.Analytics.Interfaces.IPerformanceAnalyticsQueryService, TradingBot.Persistence.Queries.PerformanceAnalyticsQueryService>();
+        services.AddScoped<TradingBot.Application.Analytics.Interfaces.IPerformanceAnalyticsService, TradingBot.Application.Analytics.Services.PerformanceAnalyticsService>();
+
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
         services.AddScoped<IBreakEvenManager, BreakEvenManager>();
