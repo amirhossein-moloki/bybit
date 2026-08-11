@@ -32,37 +32,48 @@ public class AnalyticsQueryService : IAnalyticsQueryService
 
         // 2. Query construction
         // Only finalized completed trades participate (must have ClosedAt and PositionId)
-        var tradesQuery = _dbContext.Trades.AsNoTracking()
-            .Where(t => t.ClosedAt != null && t.PositionId != null);
+        var baseQuery = from t in _dbContext.Trades.AsNoTracking()
+                        join p in _dbContext.Positions.AsNoTracking() on t.PositionId equals p.Id into joined
+                        from p in joined.DefaultIfEmpty()
+                        where t.ClosedAt != null && t.PositionId != null
+                        select new {
+                            t.Id,
+                            t.NetPnL,
+                            t.ProfitLoss,
+                            t.Fee,
+                            t.OpenedAt,
+                            t.ClosedAt,
+                            Symbol = p != null ? p.Symbol : t.Symbol,
+                            Side = p != null ? p.Side : (t.Side == SignalType.Buy ? OrderSide.Buy : OrderSide.Sell)
+                        };
 
         // Filter by symbol if provided
         if (!string.IsNullOrWhiteSpace(query.Symbol))
         {
             var sym = query.Symbol.Trim().ToUpperInvariant();
-            tradesQuery = tradesQuery.Where(t => t.Symbol == sym);
+            baseQuery = baseQuery.Where(t => t.Symbol == sym);
         }
 
         // Filter by side if provided
         if (query.Side.HasValue)
         {
             var side = query.Side.Value;
-            var sigSide = side == OrderSide.Buy ? SignalType.Buy : SignalType.Sell;
-            tradesQuery = tradesQuery.Where(t => t.Side == sigSide);
+            baseQuery = baseQuery.Where(t => t.Side == side);
         }
 
         // Filter by date range (ClosedAt) [from, to)
         if (query.From.HasValue)
         {
-            tradesQuery = tradesQuery.Where(t => t.ClosedAt >= query.From.Value);
+            baseQuery = baseQuery.Where(t => t.ClosedAt >= query.From.Value);
         }
 
         if (query.To.HasValue)
         {
-            tradesQuery = tradesQuery.Where(t => t.ClosedAt < query.To.Value);
+            baseQuery = baseQuery.Where(t => t.ClosedAt < query.To.Value);
         }
 
         // 3. Materialize minimal projected properties
-        var rawTrades = await tradesQuery
+        var rawTrades = await baseQuery
             .Select(t => new
             {
                 t.Id,

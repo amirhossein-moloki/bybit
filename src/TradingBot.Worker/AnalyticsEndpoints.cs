@@ -378,6 +378,238 @@ public static class AnalyticsEndpoints
                 return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = ex.Message } });
             }
         });
+
+        // 11. GET /api/analytics/overview
+        group.MapGet("/overview", async (
+            IAnalyticsQueryService queryService,
+            string? startDate,
+            string? endDate,
+            string? from,
+            string? to,
+            string? symbol,
+            string? side,
+            CancellationToken ct) =>
+        {
+            var dateVal = ParseAndValidateDates(startDate ?? from, endDate ?? to, out var startUtc, out var endUtc);
+            if (!dateVal.IsValid)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = dateVal.ErrorMessage } });
+            }
+
+            OrderSide? sideEnum = null;
+            if (!string.IsNullOrEmpty(side))
+            {
+                if (Enum.TryParse<OrderSide>(side, true, out var s))
+                {
+                    sideEnum = s;
+                }
+                else
+                {
+                    return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = "Invalid 'side' parameter." } });
+                }
+            }
+
+            var query = new GetTradeStatisticsQuery(startUtc, endUtc, symbol, sideEnum);
+            var stats = await queryService.GetTradeStatisticsAsync(query, ct);
+            return Results.Ok(new { status = "success", data = stats });
+        });
+
+        // 12. GET /api/analytics/pnl
+        group.MapGet("/pnl", async (
+            IAnalyticsQueryService queryService,
+            string? startDate,
+            string? endDate,
+            string? from,
+            string? to,
+            string? symbol,
+            string? side,
+            CancellationToken ct) =>
+        {
+            var dateVal = ParseAndValidateDates(startDate ?? from, endDate ?? to, out var startUtc, out var endUtc);
+            if (!dateVal.IsValid)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = dateVal.ErrorMessage } });
+            }
+
+            OrderSide? sideEnum = null;
+            if (!string.IsNullOrEmpty(side))
+            {
+                if (Enum.TryParse<OrderSide>(side, true, out var s))
+                {
+                    sideEnum = s;
+                }
+                else
+                {
+                    return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = "Invalid 'side' parameter." } });
+                }
+            }
+
+            var query = new GetTradeStatisticsQuery(startUtc, endUtc, symbol, sideEnum);
+            var stats = await queryService.GetTradeStatisticsAsync(query, ct);
+
+            var pnlData = new
+            {
+                grossProfit = stats.GrossProfit,
+                grossLoss = stats.GrossLoss,
+                netPnL = stats.NetPnL,
+                averagePnL = stats.AveragePnL,
+                profitFactor = stats.ProfitFactor
+            };
+
+            return Results.Ok(new { status = "success", data = pnlData });
+        });
+
+        // 13. GET /api/analytics/symbols
+        group.MapGet("/symbols", async (
+            IPerformanceAnalyticsQueryService performanceQueryService,
+            string? startDate,
+            string? endDate,
+            string? from,
+            string? to,
+            CancellationToken ct) =>
+        {
+            var dateVal = ParseAndValidateDates(startDate ?? from, endDate ?? to, out var startUtc, out var endUtc);
+            if (!dateVal.IsValid)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = dateVal.ErrorMessage } });
+            }
+
+            var query = new GetAnalyticsQuery(startUtc, endUtc, null, null);
+            var trades = await performanceQueryService.GetCompletedTradesAsync(query, ct);
+
+            var grouped = trades.GroupBy(t => t.Symbol.ToUpperInvariant())
+                .Select(g =>
+                {
+                    var symbolTrades = g.ToList();
+                    var total = symbolTrades.Count;
+                    var wins = symbolTrades.Count(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) > 0);
+                    var losses = symbolTrades.Count(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) < 0);
+                    var netPnL = symbolTrades.Sum(t => t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee);
+                    var grossProfit = symbolTrades.Where(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) > 0).Sum(t => t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee);
+                    var grossLoss = symbolTrades.Where(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) < 0).Sum(t => Math.Abs(t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee));
+                    var winRate = total > 0 ? (decimal)wins / total * 100m : 0m;
+                    var avgPnL = total > 0 ? netPnL / total : 0m;
+                    return new
+                    {
+                        symbol = g.Key,
+                        totalTrades = total,
+                        winningTrades = wins,
+                        losingTrades = losses,
+                        winRate = winRate,
+                        netPnL = netPnL,
+                        grossProfit = grossProfit,
+                        grossLoss = grossLoss,
+                        averagePnL = avgPnL
+                    };
+                }).ToList();
+
+            return Results.Ok(new { status = "success", data = grouped });
+        });
+
+        // 14. GET /api/analytics/signals
+        group.MapGet("/signals", async (
+            IPerformanceAnalyticsQueryService performanceQueryService,
+            string? startDate,
+            string? endDate,
+            string? from,
+            string? to,
+            string? symbol,
+            CancellationToken ct) =>
+        {
+            var dateVal = ParseAndValidateDates(startDate ?? from, endDate ?? to, out var startUtc, out var endUtc);
+            if (!dateVal.IsValid)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = dateVal.ErrorMessage } });
+            }
+
+            var query = new GetAnalyticsQuery(startUtc, endUtc, symbol, null);
+            var trades = await performanceQueryService.GetCompletedTradesAsync(query, ct);
+
+            var grouped = trades.GroupBy(t => t.Side)
+                .Select(g =>
+                {
+                    var sideTrades = g.ToList();
+                    var total = sideTrades.Count;
+                    var wins = sideTrades.Count(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) > 0);
+                    var losses = sideTrades.Count(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) < 0);
+                    var netPnL = sideTrades.Sum(t => t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee);
+                    var grossProfit = sideTrades.Where(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) > 0).Sum(t => t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee);
+                    var grossLoss = sideTrades.Where(t => (t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee) < 0).Sum(t => Math.Abs(t.NetPnL ?? (t.ProfitLoss ?? 0m) - t.Fee));
+                    var winRate = total > 0 ? (decimal)wins / total * 100m : 0m;
+                    var avgPnL = total > 0 ? netPnL / total : 0m;
+                    return new
+                    {
+                        side = g.Key.ToString(),
+                        totalTrades = total,
+                        winningTrades = wins,
+                        losingTrades = losses,
+                        winRate = winRate,
+                        netPnL = netPnL,
+                        grossProfit = grossProfit,
+                        grossLoss = grossLoss,
+                        averagePnL = avgPnL
+                    };
+                }).ToList();
+
+            return Results.Ok(new { status = "success", data = grouped });
+        });
+
+        // 15. GET /api/analytics/equity (Alias of /equity-curve)
+        group.MapGet("/equity", async (
+            IAnalyticsReportingService service,
+            string? startDate,
+            string? endDate,
+            string? from,
+            string? to,
+            string? symbol,
+            string? side,
+            decimal? minPnL,
+            decimal? maxPnL,
+            string? closeReason,
+            decimal? initialBalance,
+            CancellationToken ct) =>
+        {
+            var dateVal = ParseAndValidateDates(startDate ?? from, endDate ?? to, out var startUtc, out var endUtc);
+            if (!dateVal.IsValid)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = dateVal.ErrorMessage } });
+            }
+
+            OrderSide? sideEnum = null;
+            if (!string.IsNullOrEmpty(side))
+            {
+                if (Enum.TryParse<OrderSide>(side, true, out var s))
+                {
+                    sideEnum = s;
+                }
+                else
+                {
+                    return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = "Invalid 'side' parameter." } });
+                }
+            }
+
+            CloseReason? reasonEnum = null;
+            if (!string.IsNullOrEmpty(closeReason))
+            {
+                if (Enum.TryParse<CloseReason>(closeReason, true, out var r))
+                {
+                    reasonEnum = r;
+                }
+                else
+                {
+                    return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = "Invalid 'closeReason' parameter." } });
+                }
+            }
+
+            if (initialBalance.HasValue && initialBalance.Value <= 0)
+            {
+                return Results.BadRequest(new { status = "error", error = new { code = "VALIDATION_FAILED", message = "Initial balance must be greater than zero." } });
+            }
+
+            var filters = new ReportFilterDto(startUtc, endUtc, symbol, sideEnum, minPnL, maxPnL, reasonEnum);
+            var points = await service.GetEquityCurveAsync(filters, initialBalance, ct);
+            return Results.Ok(new { status = "success", data = points });
+        });
     }
 
     private static (bool IsValid, string? ErrorMessage) ParseAndValidateDates(

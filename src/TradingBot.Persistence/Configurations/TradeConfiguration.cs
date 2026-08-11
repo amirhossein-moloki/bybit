@@ -104,5 +104,7 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
         builder.HasIndex(x => x.PositionId);
         builder.HasIndex(x => x.TradeId);
         builder.HasIndex(x => x.ClosedAt);
+        builder.HasIndex(x => x.Symbol);
+        builder.HasIndex(x => x.Side);
     }
 }
