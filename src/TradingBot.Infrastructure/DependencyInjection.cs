@@ -93,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<IMessageRepository, MessageRepository>();
         services.AddScoped<IMessageAnalysisRepository, MessageAnalysisRepository>();
         services.AddScoped<ISignalContextRepository, SignalContextRepository>();
+        services.AddScoped<ISignalExtractionRepository, SignalExtractionRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderEventRepository, OrderEventRepository>();
         services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();
