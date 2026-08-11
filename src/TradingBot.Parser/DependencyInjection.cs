@@ -22,6 +22,7 @@ public static class ParserDependencyInjection
             services.Configure<ParserTemplatesOptions>(configuration.GetSection(ParserTemplatesOptions.SectionName));
             services.Configure<ValidationOptions>(configuration.GetSection(ValidationOptions.SectionName));
             services.Configure<ExtractionRulesOptions>(configuration.GetSection(ExtractionRulesOptions.SectionName));
+            services.Configure<TradingBot.Parser.Configuration.AIOptions>(configuration.GetSection(TradingBot.Parser.Configuration.AIOptions.SectionName));
         }
         else
         {
@@ -29,7 +30,15 @@ public static class ParserDependencyInjection
             services.Configure<ParserTemplatesOptions>(_ => { });
             services.Configure<ValidationOptions>(_ => { });
             services.Configure<ExtractionRulesOptions>(_ => { });
+            services.Configure<TradingBot.Parser.Configuration.AIOptions>(_ => { });
         }
+
+        // Register AI-related services
+        services.AddScoped<TradingBot.Application.SignalIntelligence.Contracts.IAIProvider, TradingBot.Parser.Services.MockAIProvider>();
+        services.AddScoped<TradingBot.Parser.Interfaces.IAIDecisionEngine, TradingBot.Parser.Services.AIDecisionEngine>();
+        services.AddScoped<TradingBot.Parser.Interfaces.IPromptTemplateEngine, TradingBot.Parser.Services.PromptTemplateEngine>();
+        services.AddScoped<TradingBot.Parser.Interfaces.IConversationContextManager, TradingBot.Parser.Services.ConversationContextManager>();
+        services.AddScoped<TradingBot.Parser.Interfaces.IAIAnalyzer, TradingBot.Parser.Services.AIAnalyzer>();
 
         // Register individual extractors in sequence
         services.AddScoped<ISignalExtractor, SymbolExtractor>();
