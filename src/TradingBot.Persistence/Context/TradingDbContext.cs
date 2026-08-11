@@ -27,6 +27,7 @@ public class TradingDbContext : DbContext
     public DbSet<Alert> Alerts { get; set; } = null!;
     public DbSet<AlertEvent> AlertEvents { get; set; } = null!;
     public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts { get; set; } = null!;
+    public DbSet<ReportSchedule> ReportSchedules { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> RiskEvaluations { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskProfile> RiskProfiles { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.TradeDecision> TradeDecisions { get; set; } = null!;

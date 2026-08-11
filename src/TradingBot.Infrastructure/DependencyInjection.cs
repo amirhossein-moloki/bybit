@@ -129,6 +129,20 @@ public static class DependencyInjection
         services.AddScoped<TradingBot.Application.Analytics.Interfaces.IPerformanceAnalyticsQueryService, TradingBot.Persistence.Queries.PerformanceAnalyticsQueryService>();
         services.AddScoped<TradingBot.Application.Analytics.Interfaces.IPerformanceAnalyticsService, TradingBot.Application.Analytics.Services.PerformanceAnalyticsService>();
 
+        // Register Analytics Reporting (Stage 11-04)
+        services.Configure<TradingBot.Application.Analytics.Configuration.AnalyticsReportOptions>(configuration.GetSection("AnalyticsReport"));
+        services.AddMemoryCache();
+        services.AddScoped<IReportScheduleRepository, ReportScheduleRepository>();
+        services.AddScoped<TradingBot.Application.Analytics.Interfaces.IAnalyticsReportingQueryService, TradingBot.Persistence.Queries.AnalyticsReportingQueryService>();
+        services.AddScoped<TradingBot.Application.Analytics.Services.AnalyticsReportingService>();
+        services.AddScoped<TradingBot.Application.Analytics.Interfaces.IAnalyticsReportingService>(sp =>
+            new TradingBot.Infrastructure.Analytics.Services.CachedAnalyticsReportingService(
+                sp.GetRequiredService<TradingBot.Application.Analytics.Services.AnalyticsReportingService>(),
+                sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TradingBot.Application.Analytics.Configuration.AnalyticsReportOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TradingBot.Infrastructure.Analytics.Services.CachedAnalyticsReportingService>>()
+            ));
+
         // New Position Management layer services (Stage 07-04)
         services.AddScoped<IPnLCalculator, PnLCalculator>();
         services.AddScoped<IBreakEvenManager, BreakEvenManager>();
