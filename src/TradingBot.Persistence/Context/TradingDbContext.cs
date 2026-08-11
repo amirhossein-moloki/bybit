@@ -32,6 +32,7 @@ public class TradingDbContext : DbContext
     public DbSet<TelegramMessage> TelegramMessages { get; set; } = null!;
     public DbSet<MessageAnalysis> MessageAnalyses { get; set; } = null!;
     public DbSet<SignalContext> SignalContexts { get; set; } = null!;
+    public DbSet<SignalExtraction> SignalExtractions { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> RiskEvaluations { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.RiskProfile> RiskProfiles { get; set; } = null!;
     public DbSet<TradingBot.Domain.RiskManagement.Entities.TradeDecision> TradeDecisions { get; set; } = null!;

@@ -21,12 +21,14 @@ public static class ParserDependencyInjection
             services.Configure<ParserOptions>(configuration.GetSection(ParserOptions.SectionName));
             services.Configure<ParserTemplatesOptions>(configuration.GetSection(ParserTemplatesOptions.SectionName));
             services.Configure<ValidationOptions>(configuration.GetSection(ValidationOptions.SectionName));
+            services.Configure<ExtractionRulesOptions>(configuration.GetSection(ExtractionRulesOptions.SectionName));
         }
         else
         {
             services.Configure<ParserOptions>(_ => { });
             services.Configure<ParserTemplatesOptions>(_ => { });
             services.Configure<ValidationOptions>(_ => { });
+            services.Configure<ExtractionRulesOptions>(_ => { });
         }
 
         // Register individual extractors in sequence
@@ -44,6 +46,7 @@ public static class ParserDependencyInjection
         services.AddScoped<IParserPipeline, SignalParserPipeline>();
         services.AddScoped<ISignalParser, DefaultSignalParser>();
         services.AddScoped<IMessageParser, MessageParser>();
+        services.AddScoped<IStructuredSignalExtractor, StructuredSignalExtractor>();
 
         // Register Validation Engine and Rules
         services.AddScoped<IValidationRule, SymbolValidationRule>();
