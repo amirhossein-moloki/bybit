@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Interfaces;
 using TradingBot.Parser.Pipeline;
@@ -42,6 +43,7 @@ public static class ParserDependencyInjection
 
         services.AddScoped<IParserPipeline, SignalParserPipeline>();
         services.AddScoped<ISignalParser, DefaultSignalParser>();
+        services.AddScoped<IMessageParser, MessageParser>();
 
         // Register Validation Engine and Rules
         services.AddScoped<IValidationRule, SymbolValidationRule>();

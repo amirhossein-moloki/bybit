@@ -3,6 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
 using TradingBot.Application.Services;
+using TradingBot.Application.SignalIntelligence.Contracts;
+using TradingBot.Application.SignalIntelligence.Parser;
+using TradingBot.Application.SignalIntelligence.Services;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -27,6 +30,11 @@ public static class DependencyInjection
         services.AddSingleton<ISignalStorageMetrics, SignalStorageMetrics>();
         services.AddSingleton<ISignalStorageQueue, SignalStorageQueue>();
         services.AddScoped<ISignalStorageService, SignalStorageService>();
+
+        // Register Signal Intelligence & Parser services
+        services.AddScoped<IMessagePreprocessor, MessagePreprocessor>();
+        services.AddScoped<IMessageClassifier, MessageClassifier>();
+        services.AddScoped<IIntelligenceEventPublisher, IntelligenceEventPublisher>();
 
         return services;
     }
