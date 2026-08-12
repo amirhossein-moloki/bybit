@@ -1,11 +1,15 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using TradingBot.Persistence.Context;
 
 #nullable disable
 
 namespace TradingBot.Persistence.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(TradingDbContext))]
+    [Microsoft.EntityFrameworkCore.Migrations.Migration("20260812000000_AddSignalExtractions")]
     public partial class AddSignalExtractions : Migration
     {
         /// <inheritdoc />

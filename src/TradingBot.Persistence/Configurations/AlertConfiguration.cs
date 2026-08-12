@@ -87,6 +87,6 @@ public class AlertConfiguration : IEntityTypeConfiguration<Alert>
         // Unique filtered index to ensure concurrency safety on active alerts
         builder.HasIndex(x => x.DeduplicationKey)
             .IsUnique()
-            .HasFilter("Status != 'Resolved'");
+            .HasFilter("\"Status\" != 'Resolved'");
     }
 }

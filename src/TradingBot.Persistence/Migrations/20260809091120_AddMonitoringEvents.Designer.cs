@@ -220,7 +220,7 @@ namespace TradingBot.Persistence.Migrations
 
                     b.HasIndex("Source", "ExternalEventId")
                         .IsUnique()
-                        .HasFilter("ExternalEventId IS NOT NULL");
+                        .HasFilter("\"ExternalEventId\" IS NOT NULL");
 
                     b.ToTable("MonitoringEvents", (string)null);
                 });

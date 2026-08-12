@@ -126,7 +126,7 @@ namespace TradingBot.Persistence.Migrations
                 table: "MonitoringEvents",
                 columns: new[] { "Source", "ExternalEventId" },
                 unique: true,
-                filter: "ExternalEventId IS NOT NULL");
+                filter: "\"ExternalEventId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_MonitoringEvents_Timestamp",

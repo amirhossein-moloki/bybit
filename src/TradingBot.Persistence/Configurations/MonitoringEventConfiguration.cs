@@ -84,6 +84,6 @@ public class MonitoringEventConfiguration : IEntityTypeConfiguration<MonitoringE
         // Idempotency: Unique index on (Source, ExternalEventId) where ExternalEventId is not null
         builder.HasIndex(x => new { x.Source, x.ExternalEventId })
             .IsUnique()
-            .HasFilter("ExternalEventId IS NOT NULL");
+            .HasFilter("\"ExternalEventId\" IS NOT NULL");
     }
 }
