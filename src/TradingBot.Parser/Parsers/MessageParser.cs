@@ -6,7 +6,11 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TradingBot.Application.SignalIntelligence.Contracts;
+using TradingBot.Application.SignalIntelligence.Configuration;
+using TradingBot.Application.SignalIntelligence.Validation;
+using TradingBot.Application.Monitoring;
 using TradingBot.Application.Repositories;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.Entities;
@@ -37,6 +41,13 @@ public class MessageParser : IMessageParser
     private readonly ISignalContextRepository? _signalContextRepository;
     private readonly ISignalRepository? _signalRepository;
 
+    // Reliability and Validation dependencies
+    private readonly ISignalValidationService? _validationService;
+    private readonly IMessageProcessingTrackerRepository? _trackerRepository;
+    private readonly IFailedMessageAnalysisRepository? _failedRepository;
+    private readonly IMetricsService? _metricsService;
+    private readonly SignalIntelligenceOptions _siOptions;
+
     // Overloaded constructor for 100% backward compatibility
     public MessageParser(
         IMessagePreprocessor preprocessor,
@@ -60,7 +71,12 @@ public class MessageParser : IMessageParser
               null,
               null,
               null,
-              signalParser)
+              signalParser,
+              null,
+              null,
+              null,
+              null,
+              null)
     {
     }
 
@@ -77,7 +93,12 @@ public class MessageParser : IMessageParser
         IConversationContextManager? contextManager,
         ISignalContextRepository? signalContextRepository,
         ISignalRepository? signalRepository,
-        ISignalParser? signalParser = null)
+        ISignalParser? signalParser = null,
+        ISignalValidationService? validationService = null,
+        IMessageProcessingTrackerRepository? trackerRepository = null,
+        IFailedMessageAnalysisRepository? failedRepository = null,
+        IMetricsService? metricsService = null,
+        IOptions<SignalIntelligenceOptions>? siOptions = null)
     {
         _preprocessor = preprocessor ?? throw new ArgumentNullException(nameof(preprocessor));
         _classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
@@ -92,6 +113,12 @@ public class MessageParser : IMessageParser
         _signalContextRepository = signalContextRepository;
         _signalRepository = signalRepository;
         _signalParser = signalParser;
+
+        _validationService = validationService;
+        _trackerRepository = trackerRepository;
+        _failedRepository = failedRepository;
+        _metricsService = metricsService;
+        _siOptions = siOptions?.Value ?? new SignalIntelligenceOptions();
     }
 
     public async Task<ParsedMessageResult> ParseAsync(TelegramMessage message, CancellationToken cancellationToken = default)
@@ -101,16 +128,65 @@ public class MessageParser : IMessageParser
             throw new ArgumentNullException(nameof(message));
         }
 
-        _logger.LogInformation("Parsing TelegramMessage message {MessageId} from channel {ChannelId}", message.Id, message.ChannelId);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        _logger.LogInformation("MessageReceived: Received message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+            message.MessageId, message.ChannelId, message.Id);
+
+        _metricsService?.IncrementMessagesProcessed();
+
+        // Ensure we have a tracking state initialized to RECEIVED
+        MessageProcessingTracker? tracker = null;
+        if (_trackerRepository != null)
+        {
+            tracker = await _trackerRepository.GetByTelegramMessageIdAsync(message.Id, cancellationToken);
+            if (tracker == null)
+            {
+                tracker = new MessageProcessingTracker(message.Id, "RECEIVED");
+                await _trackerRepository.CreateAsync(tracker, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+        }
 
         try
         {
-            // 1. Processing Idempotency: Check if already processed
+            // Transition state to PROCESSING
+            if (tracker != null)
+            {
+                tracker.TransitionTo("PROCESSING");
+                _trackerRepository!.Update(tracker);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            _logger.LogInformation("AnalysisStarted: Started parsing message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                message.MessageId, message.ChannelId, message.Id);
+
+            // 1. Processing Idempotency & Duplicate Prevention: Check if already processed
             var existingAnalysis = await _analysisRepository.GetByMessageIdAsync(message.Id, cancellationToken);
             if (existingAnalysis != null)
             {
                 _logger.LogInformation("Message {MessageId} was already processed. Returning existing analysis.", message.Id);
+                stopwatch.Stop();
+                _metricsService?.RecordAverageProcessingTime(stopwatch.Elapsed.TotalMilliseconds);
                 return ReconstructResultFromAnalysis(existingAnalysis);
+            }
+
+            // Check duplicates by ChannelId + MessageId
+            var existingMessage = await _messageRepository.GetByChannelMessageIdAsync(message.ChannelId, message.MessageId, cancellationToken);
+            if (existingMessage != null && existingMessage.Id != message.Id)
+            {
+                _logger.LogWarning("DuplicateDetected: Duplicate message detected for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                    message.MessageId, message.ChannelId, message.Id);
+
+                _metricsService?.IncrementDuplicateCount();
+
+                var existingAnalysisForMsg = await _analysisRepository.GetByMessageIdAsync(existingMessage.Id, cancellationToken);
+                if (existingAnalysisForMsg != null)
+                {
+                    stopwatch.Stop();
+                    _metricsService?.RecordAverageProcessingTime(stopwatch.Elapsed.TotalMilliseconds);
+                    return ReconstructResultFromAnalysis(existingAnalysisForMsg);
+                }
             }
 
             // 2. Preprocess raw content
@@ -125,6 +201,9 @@ public class MessageParser : IMessageParser
             }
 
             // 4. Provisional/Rule-Based Classification and Extraction
+            _logger.LogInformation("ParserUsed: Rule-based parser used for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                message.MessageId, message.ChannelId, message.Id);
+
             var ruleBasedResult = await ExecuteRuleBasedExtractionAsync(message, preprocessed, cancellationToken);
 
             // 5. Determine if AI is required
@@ -138,11 +217,43 @@ public class MessageParser : IMessageParser
             ParsedMessageResult result;
             string? aiActionStr = null;
             string? aiReason = null;
+            bool usedAI = false;
 
+            // Define the primary operation to run (AI Analyzer if required, or Rule-Based)
             if (decision.ShouldUseAI && _aiAnalyzer != null)
             {
-                // Run AI Analyzer Flow
-                var aiResult = await _aiAnalyzer.AnalyzeMessageAsync(message, contextSummary, cancellationToken);
+                usedAI = true;
+                _logger.LogInformation("AIUsed: AI analyzer used for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                    message.MessageId, message.ChannelId, message.Id);
+
+                _metricsService?.IncrementAIUsageCount();
+
+                // Run AI with retry logic
+                var aiResult = await ExecuteWithRetryAsync(async () =>
+                {
+                    try
+                    {
+                        var analysisResult = await _aiAnalyzer.AnalyzeMessageAsync(message, contextSummary, cancellationToken);
+
+                        // Schema validation of AI output string (if we can serialize / validate its output)
+                        if (_validationService != null)
+                        {
+                            var aiPayloadString = JsonSerializer.Serialize(analysisResult);
+                            var aiSchemaValidation = _validationService.ValidateAIResponse(aiPayloadString);
+                            if (!aiSchemaValidation.IsValid)
+                            {
+                                throw new Exception($"AI Response Schema Validation Failed: {string.Join("; ", aiSchemaValidation.Errors)}");
+                            }
+                        }
+
+                        return analysisResult;
+                    }
+                    catch (Exception ex)
+                    {
+                        _metricsService?.IncrementAIFailureCount();
+                        throw;
+                    }
+                }, cancellationToken);
 
                 result = new ParsedMessageResult
                 {
@@ -170,11 +281,95 @@ public class MessageParser : IMessageParser
             }
             else
             {
-                // Use Rule-Based Result
+                // Rule-based Success Count
+                _metricsService?.IncrementParserSuccessCount();
                 result = ruleBasedResult;
             }
 
-            // 6. Context Resolution & State Machine Updates
+            // 6. Validation Layer: Run independent validation service
+            if (_validationService != null)
+            {
+                var validationResult = _validationService.Validate(result);
+                if (!validationResult.IsValid)
+                {
+                    _metricsService?.IncrementValidationFailureCount();
+                    _logger.LogWarning("ValidationFailed: Validation failed for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId} because: {Reason}",
+                        message.MessageId, message.ChannelId, message.Id, string.Join("; ", validationResult.Errors));
+
+                    // If primary run fails validation, we check if we should fallback to AI (if we haven't already used it)
+                    if (!usedAI && _aiAnalyzer != null)
+                    {
+                        _logger.LogWarning("Parser Failed validation. Falling back to AI Analyzer.");
+                        usedAI = true;
+                        _metricsService?.IncrementAIUsageCount();
+
+                        var aiResult = await ExecuteWithRetryAsync(async () =>
+                        {
+                            try
+                            {
+                                var analysisResult = await _aiAnalyzer.AnalyzeMessageAsync(message, contextSummary, cancellationToken);
+                                if (_validationService != null)
+                                {
+                                    var aiPayloadString = JsonSerializer.Serialize(analysisResult);
+                                    var aiSchemaValidation = _validationService.ValidateAIResponse(aiPayloadString);
+                                    if (!aiSchemaValidation.IsValid)
+                                    {
+                                        throw new Exception($"AI Response Schema Validation Failed: {string.Join("; ", aiSchemaValidation.Errors)}");
+                                    }
+                                }
+                                return analysisResult;
+                            }
+                            catch (Exception)
+                            {
+                                _metricsService?.IncrementAIFailureCount();
+                                throw;
+                            }
+                        }, cancellationToken);
+
+                        result = new ParsedMessageResult
+                        {
+                            Type = Enum.TryParse<MessageType>(aiResult.Type, out var parsedType) ? parsedType : MessageType.UNKNOWN,
+                            Symbol = !string.IsNullOrEmpty(aiResult.Symbol) ? aiResult.Symbol.ToUpperInvariant() : null,
+                            Side = Enum.TryParse<OrderSide>(aiResult.Side, true, out var parsedSide) ? parsedSide : null,
+                            Entry = aiResult.Entry,
+                            StopLoss = aiResult.StopLoss,
+                            TakeProfits = aiResult.TakeProfits ?? new List<decimal>(),
+                            Action = Enum.TryParse<TradeAction>(aiResult.Action, true, out var parsedAction) ? parsedAction : null,
+                            Confidence = aiResult.Confidence,
+                            Source = ParserSource.AI,
+                            ErrorMessage = aiResult.Type == "UNKNOWN" ? aiResult.Reason : null
+                        };
+
+                        aiActionStr = aiResult.Action;
+                        aiReason = aiResult.Reason;
+
+                        // Re-validate the fallback result
+                        validationResult = _validationService.Validate(result);
+                    }
+
+                    if (!validationResult.IsValid)
+                    {
+                        throw new Exception($"Validation failed: {string.Join("; ", validationResult.Errors)}");
+                    }
+                }
+
+                _logger.LogInformation("ValidationPassed: Validation passed for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                    message.MessageId, message.ChannelId, message.Id);
+            }
+
+            // Transition state to ANALYZED, then VALIDATED
+            if (tracker != null)
+            {
+                tracker.TransitionTo("ANALYZED");
+                _trackerRepository!.Update(tracker);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                tracker.TransitionTo("VALIDATED");
+                _trackerRepository!.Update(tracker);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            // 7. Context Resolution & State Machine Updates
             if (result.Type == MessageType.SIGNAL && result.Confidence >= 0.70m && !string.IsNullOrEmpty(result.Symbol))
             {
                 if (_signalRepository != null && _signalContextRepository != null)
@@ -265,7 +460,7 @@ public class MessageParser : IMessageParser
                 }
             }
 
-            // 7. Persist analysis & message processed status
+            // 8. Persist analysis & message processed status
             var extractedDataDict = new Dictionary<string, object>();
             extractedDataDict["type"] = result.Type.ToString();
             extractedDataDict["confidence"] = result.Confidence;
@@ -286,7 +481,7 @@ public class MessageParser : IMessageParser
                 result.Type,
                 result.Confidence,
                 extractedDataJson,
-                aiUsed: decision.ShouldUseAI,
+                aiUsed: usedAI,
                 DateTime.UtcNow
             );
 
@@ -299,8 +494,8 @@ public class MessageParser : IMessageParser
             _logger.LogInformation("Saved MessageAnalysis for message {MessageId} with type {MessageType} and confidence {Confidence}",
                 message.Id, result.Type, result.Confidence);
 
-            // 8. Publish Intelligence Event
-            IIntelligenceEvent? @event = result.Type switch
+            // 9. Publish Reliable Intelligence Event
+            IIntelligenceEvent? legacyEvent = result.Type switch
             {
                 MessageType.SIGNAL => new SignalDetectedEvent(Guid.NewGuid(), DateTime.UtcNow, message.Id.ToString(), result.Source.ToString(), extractedDataJson),
                 MessageType.TRADE_UPDATE => new TradeUpdateDetectedEvent(Guid.NewGuid(), DateTime.UtcNow, message.Id.ToString(), result.Source.ToString(), extractedDataJson),
@@ -308,17 +503,83 @@ public class MessageParser : IMessageParser
                 _ => null
             };
 
+            IIntelligenceEvent? @event = result.Type switch
+            {
+                MessageType.SIGNAL => new SignalIntelligenceCreated(Guid.NewGuid(), DateTime.UtcNow, message.Id.ToString(), result.Source.ToString(), extractedDataJson),
+                MessageType.TRADE_UPDATE => new TradeUpdateDetected(Guid.NewGuid(), DateTime.UtcNow, message.Id.ToString(), result.Source.ToString(), extractedDataJson),
+                MessageType.CANCEL_COMMAND => new TradeUpdateDetected(Guid.NewGuid(), DateTime.UtcNow, message.Id.ToString(), result.Source.ToString(), extractedDataJson),
+                _ => null
+            };
+
+            if (legacyEvent != null)
+            {
+                await PublishEventWithRetryAsync(legacyEvent, cancellationToken);
+            }
+
             if (@event != null)
             {
-                await _eventPublisher.PublishAsync(@event, cancellationToken);
-                _logger.LogInformation("Published IntelligenceEvent {EventName} for message {MessageId}", @event.GetType().Name, message.Id);
+                await PublishEventWithRetryAsync(@event, cancellationToken);
+                _logger.LogInformation("EventPublished: Event published for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId}",
+                    message.MessageId, message.ChannelId, message.Id);
             }
+
+            // Transition state to PUBLISHED
+            if (tracker != null)
+            {
+                tracker.TransitionTo("PUBLISHED");
+                _trackerRepository!.Update(tracker);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            stopwatch.Stop();
+            _metricsService?.RecordAverageProcessingTime(stopwatch.Elapsed.TotalMilliseconds);
 
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Parser Failed unexpectedly for TelegramMessage {MessageId}.", message.Id);
+            _logger.LogError(ex, "ProcessingFailed: Message processing failed for message {MessageId} from Channel {ChannelId} with CorrelationId {CorrelationId} because: {Reason}",
+                message.MessageId, message.ChannelId, message.Id, ex.Message);
+
+            // Create FailedMessageAnalysis record
+            if (_failedRepository != null)
+            {
+                try
+                {
+                    var failedAnalysis = new FailedMessageAnalysis(
+                        message.Id,
+                        ex.Message,
+                        "MessageParser",
+                        0,
+                        "Failed"
+                    );
+                    await _failedRepository.CreateAsync(failedAnalysis, cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Failed to persist FailedMessageAnalysis for message {MessageId}", message.Id);
+                }
+            }
+
+            // Transition state to FAILED
+            if (tracker != null)
+            {
+                try
+                {
+                    tracker.TransitionTo("FAILED");
+                    _trackerRepository!.Update(tracker);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception stateEx)
+                {
+                    _logger.LogError(stateEx, "Failed to transition tracker to FAILED for message {MessageId}", message.Id);
+                }
+            }
+
+            stopwatch.Stop();
+            _metricsService?.RecordAverageProcessingTime(stopwatch.Elapsed.TotalMilliseconds);
+
             return new ParsedMessageResult
             {
                 Type = MessageType.UNKNOWN,
@@ -326,6 +587,114 @@ public class MessageParser : IMessageParser
                 ErrorMessage = $"Unexpected parser failure: {ex.Message}",
                 Source = ParserSource.RULE_BASED
             };
+        }
+    }
+
+    private async Task<AIUnderstandingResult> ExecuteWithRetryAsync(
+        Func<Task<AIUnderstandingResult>> operation,
+        CancellationToken cancellationToken)
+    {
+        int attempt = 0;
+        int delay = _siOptions.RetryDelay; // in ms
+
+        while (true)
+        {
+            try
+            {
+                return await operation();
+            }
+            catch (Exception ex) when (IsTemporaryFailure(ex))
+            {
+                attempt++;
+                if (attempt > _siOptions.MaxRetries)
+                {
+                    _logger.LogError(ex, "AI processing temporary failure retries exhausted. Attempt: {Attempt}", attempt);
+                    throw;
+                }
+
+                _logger.LogWarning(ex, "AI processing temporary failure. Retrying attempt {Attempt} after delay {Delay} ms. Strategy: {Strategy}",
+                    attempt, delay, _siOptions.BackoffStrategy);
+
+                await Task.Delay(delay, cancellationToken);
+
+                // Apply backoff strategy
+                if (_siOptions.BackoffStrategy.Equals("Exponential", StringComparison.OrdinalIgnoreCase))
+                {
+                    delay *= 2;
+                }
+                else if (_siOptions.BackoffStrategy.Equals("Linear", StringComparison.OrdinalIgnoreCase))
+                {
+                    delay += _siOptions.RetryDelay;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Non-temporary failures should not be retried
+                _logger.LogError(ex, "AI processing encountered non-retryable failure.");
+                throw;
+            }
+        }
+    }
+
+    private bool IsTemporaryFailure(Exception ex)
+    {
+        // Retry: Timeout, Network Error, Temporary Provider Error
+        // Do not retry: Invalid JSON, Invalid Message, Validation Failed (e.g. JsonException or custom validation exception)
+        if (ex is JsonException) return false;
+        if (ex is ArgumentException) return false;
+
+        var msg = ex.Message.ToUpperInvariant();
+        if (msg.Contains("TIMEOUT") || msg.Contains("NETWORK") || msg.Contains("UNAVAILABLE") || msg.Contains("503") || msg.Contains("502") || msg.Contains("504") || msg.Contains("429"))
+        {
+            return true;
+        }
+
+        if (ex is TaskCanceledException || ex is System.Net.Http.HttpRequestException || ex is TimeoutException)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task PublishEventWithRetryAsync(IIntelligenceEvent @event, CancellationToken cancellationToken)
+    {
+        int attempt = 0;
+        int maxAttempts = 3;
+        int delay = 500;
+
+        while (true)
+        {
+            try
+            {
+                await _eventPublisher.PublishAsync(@event, cancellationToken);
+                break;
+            }
+            catch (Exception ex)
+            {
+                attempt++;
+                if (attempt >= maxAttempts)
+                {
+                    _logger.LogError(ex, "Failed to publish intelligence event {EventName} after {MaxAttempts} attempts. Storing as failed event publishing.", @event.GetType().Name, maxAttempts);
+                    if (_failedRepository != null)
+                    {
+                        var failedPublish = new FailedMessageAnalysis(
+                            Guid.Parse(@event.CorrelationId),
+                            $"Event publishing failed: {ex.Message}",
+                            "IntelligenceEventPublisher",
+                            attempt,
+                            "Failed"
+                        );
+                        await _failedRepository.CreateAsync(failedPublish, cancellationToken);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    }
+                    break;
+                }
+
+                _logger.LogWarning(ex, "Failed to publish event {EventName}. Retrying attempt {Attempt}...", @event.GetType().Name, attempt);
+                await Task.Delay(delay, cancellationToken);
+                delay *= 2;
+            }
         }
     }
 

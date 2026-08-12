@@ -303,6 +303,13 @@ public class MockMetricsService : IMetricsService
     public void IncrementRecoveredOperations() {}
     public void IncrementUnsafeRetriesBlocked() {}
     public void IncrementManualInterventions() {}
+    public void IncrementMessagesProcessed() {}
+    public void IncrementParserSuccessCount() {}
+    public void IncrementAIUsageCount() {}
+    public void IncrementAIFailureCount() {}
+    public void IncrementValidationFailureCount() {}
+    public void IncrementDuplicateCount() {}
+    public void RecordAverageProcessingTime(double latencyMs) {}
     public void RecordConnectionAttempt(string serviceName) {}
     public void RecordConnectionSuccess(string serviceName) {}
     public void RecordConnectionFailure(string serviceName) {}

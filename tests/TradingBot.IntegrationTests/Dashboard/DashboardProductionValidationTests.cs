@@ -28,6 +28,7 @@ public class DashboardProductionValidationTests : IClassFixture<CustomWebApplica
     private readonly CustomWebApplicationFactory _factory;
     private HttpClient _client = null!;
     private static bool _databaseInitialized;
+    private static readonly SemaphoreSlim _healthLock = new(1, 1);
 
     public DashboardProductionValidationTests(CustomWebApplicationFactory factory)
     {
@@ -245,32 +246,40 @@ public class DashboardProductionValidationTests : IClassFixture<CustomWebApplica
     {
         // Use an isolated SQLite database connection for each health aggregation test run
         // to prevent 'unable to delete/modify user-function' errors under concurrent/sequential shared runs.
-        using var sqliteConn = new Microsoft.Data.Sqlite.SqliteConnection("DataSource=:memory:");
-        await sqliteConn.OpenAsync();
-        var options = new DbContextOptionsBuilder<TradingDbContext>()
-            .UseSqlite(sqliteConn)
-            .Options;
+        await _healthLock.WaitAsync();
+        try
+        {
+            using var sqliteConn = new Microsoft.Data.Sqlite.SqliteConnection("DataSource=:memory:");
+            await sqliteConn.OpenAsync();
+            var options = new DbContextOptionsBuilder<TradingDbContext>()
+                .UseSqlite(sqliteConn)
+                .Options;
 
-        using var dbContext = new TradingDbContext(options);
-        await dbContext.Database.EnsureCreatedAsync();
+            using var dbContext = new TradingDbContext(options);
+            await dbContext.Database.EnsureCreatedAsync();
 
-        var provider = new MockHealthStatusProvider();
-        provider.SetOverallStatus(HealthStatus.Unknown); // Let it fall back to deterministic calculation
-        provider.SetComponentStatus("Database", new HealthCheckResult("Database", ParseHealthStatus(dbStatus), DateTime.UtcNow, 10));
-        provider.SetComponentStatus("Bybit REST", new HealthCheckResult("Bybit REST", ParseHealthStatus(restStatus), DateTime.UtcNow, 120));
-        provider.SetComponentStatus("Bybit WebSocket", new HealthCheckResult("Bybit WebSocket", ParseHealthStatus(wsStatus), DateTime.UtcNow, 5));
-        provider.SetComponentStatus("Telegram", new HealthCheckResult("Telegram", ParseHealthStatus(tgStatus), DateTime.UtcNow, 50));
+            var provider = new MockHealthStatusProvider();
+            provider.SetOverallStatus(HealthStatus.Unknown); // Let it fall back to deterministic calculation
+            provider.SetComponentStatus("Database", new HealthCheckResult("Database", ParseHealthStatus(dbStatus), DateTime.UtcNow, 10));
+            provider.SetComponentStatus("Bybit REST", new HealthCheckResult("Bybit REST", ParseHealthStatus(restStatus), DateTime.UtcNow, 120));
+            provider.SetComponentStatus("Bybit WebSocket", new HealthCheckResult("Bybit WebSocket", ParseHealthStatus(wsStatus), DateTime.UtcNow, 5));
+            provider.SetComponentStatus("Telegram", new HealthCheckResult("Telegram", ParseHealthStatus(tgStatus), DateTime.UtcNow, 50));
 
-        var healthQueryService = new SystemHealthQueryService(
-            dbContext,
-            provider,
-            new MockMetricsService(),
-            null,
-            null
-        );
+            var healthQueryService = new SystemHealthQueryService(
+                dbContext,
+                provider,
+                new MockMetricsService(),
+                null,
+                null
+            );
 
-        var result = await healthQueryService.GetOverviewAsync(cancellationToken: CancellationToken.None);
-        result.OverallStatus.Should().Be(expectedOverall);
+            var result = await healthQueryService.GetOverviewAsync(cancellationToken: CancellationToken.None);
+            result.OverallStatus.Should().Be(expectedOverall);
+        }
+        finally
+        {
+            _healthLock.Release();
+        }
     }
 
     private static HealthStatus ParseHealthStatus(string s) => s switch

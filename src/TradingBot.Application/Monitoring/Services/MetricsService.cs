@@ -50,6 +50,16 @@ public class MetricsService : IMetricsService
     private long _unsafeRetriesBlocked;
     private long _manualInterventions;
 
+    // Signal Intelligence Stage 05 fields
+    private long _messagesProcessed;
+    private long _parserSuccessCount;
+    private long _aiUsageCount;
+    private long _aiFailureCount;
+    private long _validationFailureCount;
+    private long _duplicateCount;
+    private double _totalProcessingTime;
+    private long _processingTimeCount;
+
     // Connection Metrics tracking
     private readonly ConcurrentDictionary<string, ConnectionMetric> _connections = new(StringComparer.OrdinalIgnoreCase);
 
@@ -103,6 +113,22 @@ public class MetricsService : IMetricsService
     public void IncrementRecoveredOperations() => Interlocked.Increment(ref _recoveredOperations);
     public void IncrementUnsafeRetriesBlocked() => Interlocked.Increment(ref _unsafeRetriesBlocked);
     public void IncrementManualInterventions() => Interlocked.Increment(ref _manualInterventions);
+
+    // Signal Intelligence Stage 05 counter increments
+    public void IncrementMessagesProcessed() => Interlocked.Increment(ref _messagesProcessed);
+    public void IncrementParserSuccessCount() => Interlocked.Increment(ref _parserSuccessCount);
+    public void IncrementAIUsageCount() => Interlocked.Increment(ref _aiUsageCount);
+    public void IncrementAIFailureCount() => Interlocked.Increment(ref _aiFailureCount);
+    public void IncrementValidationFailureCount() => Interlocked.Increment(ref _validationFailureCount);
+    public void IncrementDuplicateCount() => Interlocked.Increment(ref _duplicateCount);
+    public void RecordAverageProcessingTime(double latencyMs)
+    {
+        lock (this)
+        {
+            _totalProcessingTime += latencyMs;
+            _processingTimeCount++;
+        }
+    }
 
     public void RecordConnectionAttempt(string serviceName)
     {
@@ -249,7 +275,16 @@ public class MetricsService : IMetricsService
             ["UnknownOrders"] = Interlocked.Read(ref _unknownOrders),
             ["RecoveredOperations"] = Interlocked.Read(ref _recoveredOperations),
             ["UnsafeRetriesBlocked"] = Interlocked.Read(ref _unsafeRetriesBlocked),
-            ["ManualInterventions"] = Interlocked.Read(ref _manualInterventions)
+            ["ManualInterventions"] = Interlocked.Read(ref _manualInterventions),
+
+            // Signal Intelligence Stage 05 Metrics
+            ["MessagesProcessed"] = Interlocked.Read(ref _messagesProcessed),
+            ["ParserSuccessCount"] = Interlocked.Read(ref _parserSuccessCount),
+            ["AIUsageCount"] = Interlocked.Read(ref _aiUsageCount),
+            ["AIFailureCount"] = Interlocked.Read(ref _aiFailureCount),
+            ["ValidationFailureCount"] = Interlocked.Read(ref _validationFailureCount),
+            ["DuplicateCount"] = Interlocked.Read(ref _duplicateCount),
+            ["AverageProcessingTime"] = _processingTimeCount == 0 ? 0 : (_totalProcessingTime / _processingTimeCount)
         };
 
         // Connections
