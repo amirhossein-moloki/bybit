@@ -23,6 +23,7 @@ public static class ParserDependencyInjection
             services.Configure<ValidationOptions>(configuration.GetSection(ValidationOptions.SectionName));
             services.Configure<ExtractionRulesOptions>(configuration.GetSection(ExtractionRulesOptions.SectionName));
             services.Configure<TradingBot.Parser.Configuration.AIOptions>(configuration.GetSection(TradingBot.Parser.Configuration.AIOptions.SectionName));
+            services.Configure<TradingBot.Application.SignalIntelligence.Configuration.SignalIntelligenceOptions>(configuration.GetSection(TradingBot.Application.SignalIntelligence.Configuration.SignalIntelligenceOptions.SectionName));
         }
         else
         {
@@ -31,6 +32,7 @@ public static class ParserDependencyInjection
             services.Configure<ValidationOptions>(_ => { });
             services.Configure<ExtractionRulesOptions>(_ => { });
             services.Configure<TradingBot.Parser.Configuration.AIOptions>(_ => { });
+            services.Configure<TradingBot.Application.SignalIntelligence.Configuration.SignalIntelligenceOptions>(_ => { });
         }
 
         // Register AI-related services

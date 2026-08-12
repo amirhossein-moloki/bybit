@@ -94,6 +94,9 @@ public static class DependencyInjection
         services.AddScoped<IMessageAnalysisRepository, MessageAnalysisRepository>();
         services.AddScoped<ISignalContextRepository, SignalContextRepository>();
         services.AddScoped<ISignalExtractionRepository, SignalExtractionRepository>();
+        services.AddScoped<IMessageProcessingTrackerRepository, MessageProcessingTrackerRepository>();
+        services.AddScoped<IFailedMessageAnalysisRepository, FailedMessageAnalysisRepository>();
+        services.AddScoped<TradingBot.Application.SignalIntelligence.Validation.ISignalValidationService, TradingBot.Application.SignalIntelligence.Validation.SignalValidationService>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderEventRepository, OrderEventRepository>();
         services.AddScoped<IOrderReconciliationService, OrderReconciliationService>();

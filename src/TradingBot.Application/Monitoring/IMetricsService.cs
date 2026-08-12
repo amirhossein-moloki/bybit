@@ -67,6 +67,15 @@ public interface IMetricsService
     void IncrementUnsafeRetriesBlocked();
     void IncrementManualInterventions();
 
+    // Signal Intelligence Stage 05 Metrics
+    void IncrementMessagesProcessed();
+    void IncrementParserSuccessCount();
+    void IncrementAIUsageCount();
+    void IncrementAIFailureCount();
+    void IncrementValidationFailureCount();
+    void IncrementDuplicateCount();
+    void RecordAverageProcessingTime(double latencyMs);
+
     // Get aggregated metrics dictionary
     Dictionary<string, object> GetAggregatedMetrics();
 }
