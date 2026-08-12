@@ -41,4 +41,13 @@ public class MessageRepository : RepositoryBase<TelegramMessage>, IMessageReposi
             Update(message);
         }
     }
+
+    public async Task<System.Collections.Generic.List<TelegramMessage>> GetRecentMessagesForChannelAsync(long channelId, int limit, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<TelegramMessage>()
+            .Where(m => m.ChannelId == channelId)
+            .OrderByDescending(m => m.ReceivedAt)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
 }

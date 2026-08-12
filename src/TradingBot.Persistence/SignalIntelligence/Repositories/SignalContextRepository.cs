@@ -44,4 +44,19 @@ public class SignalContextRepository : RepositoryBase<SignalContext>, ISignalCon
             Update(context);
         }
     }
+
+    public async Task<System.Collections.Generic.List<SignalContext>> GetActiveContextsForChannelAsync(long channelId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<SignalContext>()
+            .Where(c => c.ChannelId == channelId && c.CurrentState != SignalState.CLOSED && c.CurrentState != SignalState.CANCELLED)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SignalContext?> GetLatestActiveContextAsync(long channelId, CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<SignalContext>()
+            .Where(c => c.ChannelId == channelId && c.CurrentState != SignalState.CLOSED && c.CurrentState != SignalState.CANCELLED)
+            .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 }

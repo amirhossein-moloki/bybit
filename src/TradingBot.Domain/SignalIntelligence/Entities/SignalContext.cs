@@ -82,6 +82,22 @@ public class SignalContext
             throw new DomainException("LastMessageId must be greater than zero.");
         }
 
+        if (CurrentState == SignalState.CLOSED && newState != SignalState.CLOSED)
+        {
+            throw new DomainException("Cannot transition from terminal CLOSED state.");
+        }
+
+        if (CurrentState == SignalState.CANCELLED && newState != SignalState.CANCELLED)
+        {
+            throw new DomainException("Cannot transition from terminal CANCELLED state.");
+        }
+
+        // Backward transitions are forbidden unless transitioning to terminal states CLOSED or CANCELLED
+        if (newState < CurrentState && newState != SignalState.CLOSED && newState != SignalState.CANCELLED)
+        {
+            throw new DomainException($"Invalid backward transition from {CurrentState} to {newState}.");
+        }
+
         CurrentState = newState;
         LastAction = lastAction;
         LastMessageId = lastMessageId;
