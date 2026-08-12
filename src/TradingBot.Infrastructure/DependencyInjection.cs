@@ -82,6 +82,7 @@ public static class DependencyInjection
         // Register Reliability Services
         services.AddSingleton<IRetryDelayCalculator, RetryDelayCalculator>();
         services.AddSingleton<IErrorClassifier, ErrorClassifier>();
+        services.AddSingleton<ICircuitBreakerRegistry, CircuitBreakerRegistry>();
         services.AddSingleton<IReliabilityService, ReliabilityService>();
 
         // Register Resilience Service

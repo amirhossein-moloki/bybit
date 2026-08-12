@@ -46,7 +46,12 @@ public static class DependencyInjection
 
         services.AddSingleton<ITelegramSessionManager, TelegramSessionManager>();
         services.AddSingleton<ITelegramMessageReceiver, DefaultTelegramMessageReceiver>();
-        services.AddSingleton<ITelegramClient, TelegramClientService>();
+        services.AddSingleton<ITelegramClient>(sp => new TelegramClientService(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TelegramOptions>>(),
+            sp.GetRequiredService<ITelegramSessionManager>(),
+            sp.GetRequiredService<ITelegramMessageReceiver>(),
+            sp
+        ));
         services.AddSingleton<ITelegramAuthenticationService, TelegramAuthService>();
         services.AddSingleton<TradingBot.Application.Monitoring.INotificationChannel, TelegramNotificationChannel>();
 

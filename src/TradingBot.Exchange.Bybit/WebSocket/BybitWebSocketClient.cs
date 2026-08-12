@@ -7,10 +7,15 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TradingBot.Application.Configuration;
 using TradingBot.Application.Enums;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Streams;
+using TradingBot.Application.Monitoring;
+using TradingBot.Application.Trading.Execution.Contracts;
+using TradingBot.Domain.Entities;
 
 namespace TradingBot.Exchange.Bybit.WebSocket;
 
@@ -21,6 +26,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
     private readonly SubscriptionManager _subscriptionManager;
     private readonly MessageHandler _messageHandler;
     private readonly IResilienceService _resilienceService;
+    private readonly IServiceProvider _serviceProvider;
 
     private ClientWebSocket? _publicSocket;
     private ClientWebSocket? _privateSocket;
@@ -28,6 +34,9 @@ public class BybitWebSocketClient : IExchangeStreamClient
 
     private ConnectionState _state = ConnectionState.Disconnected;
     private readonly object _stateLock = new();
+    private readonly SemaphoreSlim _reconnectSemaphore = new(1, 1);
+
+    public bool IsRecoveryIncomplete { get; private set; }
 
     public ConnectionState State
     {
@@ -62,6 +71,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
         SubscriptionManager subscriptionManager,
         MessageHandler messageHandler,
         IResilienceService resilienceService,
+        IServiceProvider serviceProvider,
         ILogger<BybitWebSocketClient> logger)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -71,6 +81,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
         _subscriptionManager = subscriptionManager ?? throw new ArgumentNullException(nameof(subscriptionManager));
         _messageHandler = messageHandler ?? throw new ArgumentNullException(nameof(messageHandler));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -98,6 +109,9 @@ public class BybitWebSocketClient : IExchangeStreamClient
             }, cancellationToken);
             State = ConnectionState.Connected;
             _logger.LogInformation("WebSocket: Connected to Bybit successfully.");
+
+            // Reset incomplete recovery flag on successful fresh connection
+            IsRecoveryIncomplete = false;
 
             // Start processing incoming messages in the background
             _ = ReceiveLoopAsync(_publicSocket, "Public", _connectionCts.Token);
@@ -334,46 +348,150 @@ public class BybitWebSocketClient : IExchangeStreamClient
         }
     }
 
-    private int _reconnectAttempts = 0;
-
     private async Task HandleReconnectAsync()
     {
-        lock (_stateLock)
+        if (!await _reconnectSemaphore.WaitAsync(0))
         {
-            if (State == ConnectionState.Reconnecting || State == ConnectionState.Disconnected)
-            {
-                return;
-            }
-            State = ConnectionState.Reconnecting;
+            _logger.LogInformation("WebSocket: Reconnection already in progress. Skipping duplicate request.");
+            return;
         }
 
-        _logger.LogWarning("WebSocket: Disconnection detected. Initiating automatic reconnect...");
-
-        _connectionCts?.Cancel();
-
-        while (true)
+        try
         {
-            _reconnectAttempts++;
-            var delayMs = Math.Min(1000 * (int)Math.Pow(2, _reconnectAttempts), 60000); // Exponential backoff max 60s
-            _logger.LogInformation("WebSocket: Reconnection attempt #{Attempts} in {Delay}ms...", _reconnectAttempts, delayMs);
-
-            try
+            lock (_stateLock)
             {
-                await Task.Delay(delayMs, CancellationToken.None);
-                await ConnectAsync(CancellationToken.None);
-                _reconnectAttempts = 0;
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "WebSocket: Reconnection attempt #{Attempts} failed.", _reconnectAttempts);
-                if (_reconnectAttempts >= 10)
+                if (State == ConnectionState.Reconnecting || State == ConnectionState.Disconnected)
                 {
-                    _logger.LogCritical("WebSocket: Maximum reconnection attempts reached. Failing connection permanently.");
-                    State = ConnectionState.Failed;
+                    return;
+                }
+                State = ConnectionState.Reconnecting;
+            }
+
+            IsRecoveryIncomplete = false; // Reset status on starting reconnection
+
+            _logger.LogWarning("WebSocket: Disconnection detected. Initiating automatic reconnect...");
+            await PublishEventAsync("BybitConnectionLost", "WARNING", "Reconnecting", "Bybit WebSocket connection lost. Reconnecting...");
+
+            _connectionCts?.Cancel();
+            _connectionCts = new CancellationTokenSource();
+
+            var attempt = 0;
+            var maxAttempts = 10;
+
+            while (attempt < maxAttempts)
+            {
+                attempt++;
+                await PublishEventAsync("BybitReconnectStarted", "WARNING", "Reconnecting", $"Bybit WebSocket reconnect starting (Attempt {attempt})...");
+
+                // Use IRetryDelayCalculator to compute backoff delay
+                var delayCalculator = _serviceProvider.GetService<IRetryDelayCalculator>();
+                var reliabilityOptions = _serviceProvider.GetService<ReliabilityOptions>() ?? new ReliabilityOptions();
+                var delay = delayCalculator?.CalculateDelay(attempt, reliabilityOptions) ?? TimeSpan.FromSeconds(5);
+
+                _logger.LogInformation("WebSocket: Reconnection attempt #{Attempts} in {Delay}ms...", attempt, delay.TotalMilliseconds);
+
+                try
+                {
+                    await Task.Delay(delay, _connectionCts.Token);
+
+                    // Direct connection execution
+                    State = ConnectionState.Connecting;
+                    await ConnectSocketsAsync(_connectionCts.Token);
+                    State = ConnectionState.Connected;
+
+                    _logger.LogInformation("WebSocket: Connected to Bybit successfully after reconnect.");
+                    await PublishEventAsync("BybitReconnectSucceeded", "INFORMATION", "Connected", "Bybit WebSocket reconnected successfully.");
+
+                    // Start receive loops for the new sockets
+                    _ = ReceiveLoopAsync(_publicSocket, "Public", _connectionCts.Token);
+                    _ = ReceiveLoopAsync(_privateSocket, "Private", _connectionCts.Token);
+
+                    // Re-subscribe to any previous subscriptions cleanly without duplicates
+                    await ResubscribeAllAsync(_connectionCts.Token);
+
+                    // Perform post-reconnect synchronization
+                    await ResynchronizeAfterReconnectAsync(_connectionCts.Token);
                     break;
                 }
+                catch (OperationCanceledException) when (_connectionCts.IsCancellationRequested)
+                {
+                    _logger.LogInformation("WebSocket: Reconnection cancelled.");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "WebSocket: Reconnection attempt #{Attempts} failed.", attempt);
+                    await PublishEventAsync("BybitReconnectFailed", "ERROR", "Reconnecting", $"Bybit WebSocket reconnect attempt {attempt} failed: {ex.Message}");
+
+                    if (attempt >= maxAttempts)
+                    {
+                        _logger.LogCritical("WebSocket: Maximum reconnection attempts reached. Failing connection permanently.");
+                        State = ConnectionState.Failed;
+                        break;
+                    }
+                }
             }
+        }
+        finally
+        {
+            _reconnectSemaphore.Release();
+        }
+    }
+
+    private async Task ResynchronizeAfterReconnectAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("WebSocket: Starting post-reconnect resynchronization...");
+        await PublishEventAsync("BybitResynchronizationStarted", "INFORMATION", "Resynchronizing", "Post-reconnect synchronization started.");
+
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var positionSync = scope.ServiceProvider.GetService<IPositionSynchronizationService>();
+            var orderReconciliation = scope.ServiceProvider.GetService<IOrderReconciliationService>();
+
+            if (positionSync != null)
+            {
+                await positionSync.SynchronizeAsync(cancellationToken);
+            }
+            if (orderReconciliation != null)
+            {
+                await orderReconciliation.ReconcileAsync(cancellationToken);
+            }
+
+            IsRecoveryIncomplete = false;
+            _logger.LogInformation("WebSocket: Post-reconnect resynchronization completed successfully.");
+            await PublishEventAsync("BybitResynchronizationCompleted", "INFORMATION", "Healthy", "Post-reconnect synchronization completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            IsRecoveryIncomplete = true;
+            _logger.LogError(ex, "WebSocket: Post-reconnect resynchronization failed.");
+            await PublishEventAsync("BybitResynchronizationFailed", "ERROR", "Degraded", $"Post-reconnect synchronization failed: {ex.Message}");
+        }
+    }
+
+    private async Task PublishEventAsync(string eventType, string severity, string status, string message)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var publisher = scope.ServiceProvider.GetService<IMonitoringEventPublisher>();
+            if (publisher != null)
+            {
+                var @event = new MonitoringEvent(
+                    eventType: eventType,
+                    severity: severity,
+                    source: "Exchange",
+                    component: "BybitWebSocket",
+                    status: status,
+                    message: message
+                );
+                await publisher.PublishAsync(@event, forceSynchronous: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish WebSocket monitoring event.");
         }
     }
 }

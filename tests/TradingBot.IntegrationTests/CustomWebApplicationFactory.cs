@@ -21,6 +21,7 @@ namespace TradingBot.IntegrationTests;
 public class FakeExchangeStreamClient : IExchangeStreamClient
 {
     public TradingBot.Application.Enums.ConnectionState State => TradingBot.Application.Enums.ConnectionState.Connected;
+    public bool IsRecoveryIncomplete => false;
 
     public IMarketStream MarketStream { get; } = new Mock<IMarketStream>().Object;
     public IOrderStream OrderStream { get; } = new Mock<IOrderStream>().Object;
@@ -33,6 +34,7 @@ public class FakeExchangeStreamClient : IExchangeStreamClient
 public class FakeWebSocketClient : IExchangeStreamClient
 {
     public TradingBot.Application.Enums.ConnectionState State => TradingBot.Application.Enums.ConnectionState.Connected;
+    public bool IsRecoveryIncomplete => false;
 
     public IMarketStream MarketStream { get; }
     public IOrderStream OrderStream { get; }

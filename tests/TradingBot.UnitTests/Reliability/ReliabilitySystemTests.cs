@@ -21,6 +21,15 @@ public class ReliabilitySystemTests
 {
     private readonly Mock<ILogger<ReliabilityService>> _loggerMock = new();
 
+    private ReliabilityService CreateReliabilityService(ReliabilityOptions options, IRetryDelayCalculator delayCalculator, IErrorClassifier errorClassifier)
+    {
+        var cbMock = new Mock<ICircuitBreaker>();
+        cbMock.Setup(c => c.IsAllowed()).Returns(true);
+        var cbRegistryMock = new Mock<ICircuitBreakerRegistry>();
+        cbRegistryMock.Setup(r => r.GetOrCreate(It.IsAny<string>())).Returns(cbMock.Object);
+        return new ReliabilityService(options, delayCalculator, errorClassifier, cbRegistryMock.Object, _loggerMock.Object);
+    }
+
     #region Configuration (ReliabilityOptions) Tests
 
     [Fact]
@@ -271,7 +280,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 
@@ -298,7 +307,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 
@@ -329,7 +338,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 
@@ -358,7 +367,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 
@@ -388,7 +397,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 
@@ -421,7 +430,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         using var cts = new CancellationTokenSource();
         int attempts = 0;
@@ -454,7 +463,7 @@ public class ReliabilitySystemTests
 
         var delayCalculator = new RetryDelayCalculator();
         var errorClassifier = new ErrorClassifier();
-        var service = new ReliabilityService(options, delayCalculator, errorClassifier, _loggerMock.Object);
+        var service = CreateReliabilityService(options, delayCalculator, errorClassifier);
 
         int attempts = 0;
 

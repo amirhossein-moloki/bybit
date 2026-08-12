@@ -6,11 +6,13 @@ public class ReliabilityOptions
 {
     public RetrySettings Retry { get; set; } = new();
     public TimeoutSettings Timeout { get; set; } = new();
+    public CircuitBreakerSettings CircuitBreaker { get; set; } = new();
 
     public void Validate()
     {
         if (Retry == null) throw new ArgumentNullException(nameof(Retry));
         if (Timeout == null) throw new ArgumentNullException(nameof(Timeout));
+        if (CircuitBreaker == null) throw new ArgumentNullException(nameof(CircuitBreaker));
 
         if (Retry.Enabled)
         {
@@ -28,6 +30,16 @@ public class ReliabilityOptions
         {
             if (Timeout.DefaultTimeoutSeconds <= 0)
                 throw new ArgumentException("DefaultTimeout must be greater than zero.");
+        }
+
+        if (CircuitBreaker.Enabled)
+        {
+            if (CircuitBreaker.FailureThreshold <= 0)
+                throw new ArgumentException("FailureThreshold must be greater than zero.");
+            if (CircuitBreaker.BreakDurationSeconds <= 0)
+                throw new ArgumentException("BreakDuration must be greater than zero.");
+            if (CircuitBreaker.HalfOpenProbeCount <= 0)
+                throw new ArgumentException("HalfOpenProbeCount must be greater than zero.");
         }
     }
 }
@@ -51,4 +63,14 @@ public class TimeoutSettings
     public double DefaultTimeoutSeconds { get; set; } = 15.0;
 
     public TimeSpan DefaultTimeout => TimeSpan.FromSeconds(DefaultTimeoutSeconds);
+}
+
+public class CircuitBreakerSettings
+{
+    public bool Enabled { get; set; } = true;
+    public int FailureThreshold { get; set; } = 5;
+    public double BreakDurationSeconds { get; set; } = 30.0;
+    public int HalfOpenProbeCount { get; set; } = 3;
+
+    public TimeSpan BreakDuration => TimeSpan.FromSeconds(BreakDurationSeconds);
 }
