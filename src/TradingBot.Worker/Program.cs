@@ -87,6 +87,13 @@ try
 
     var app = builder.Build();
 
+    // Check for 'doctor' CLI command before starting the runtime
+    if (args.Length > 0 && (args[0].Equals("doctor", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--doctor", StringComparison.OrdinalIgnoreCase)))
+    {
+        await TradingBotDoctor.RunDiagnosticsAsync(app.Services);
+        return;
+    }
+
     // 5. Apply Migrations and Seed Database (Development/Production)
     using (var scope = app.Services.CreateScope())
     {
