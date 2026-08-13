@@ -36,7 +36,19 @@ public static class ParserDependencyInjection
         }
 
         // Register AI-related services
-        services.AddScoped<TradingBot.Application.SignalIntelligence.Contracts.IAIProvider, TradingBot.Parser.Services.MockAIProvider>();
+        services.AddHttpClient<TradingBot.Parser.Services.OpenRouterAIProvider>();
+        services.AddScoped<TradingBot.Parser.Services.MockAIProvider>();
+
+        services.AddScoped<TradingBot.Application.SignalIntelligence.Contracts.IAIProvider>(sp =>
+        {
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<TradingBot.Parser.Configuration.AIOptions>>().Value;
+            if (string.Equals(options.Provider, "OpenRouter", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return sp.GetRequiredService<TradingBot.Parser.Services.OpenRouterAIProvider>();
+            }
+            return sp.GetRequiredService<TradingBot.Parser.Services.MockAIProvider>();
+        });
+
         services.AddScoped<TradingBot.Parser.Interfaces.IAIDecisionEngine, TradingBot.Parser.Services.AIDecisionEngine>();
         services.AddScoped<TradingBot.Parser.Interfaces.IPromptTemplateEngine, TradingBot.Parser.Services.PromptTemplateEngine>();
         services.AddScoped<TradingBot.Parser.Interfaces.IConversationContextManager, TradingBot.Parser.Services.ConversationContextManager>();
