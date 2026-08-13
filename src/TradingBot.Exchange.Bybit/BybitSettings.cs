@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using TradingBot.Application.Interfaces;
+
 namespace TradingBot.Exchange.Bybit;
 
 public class BybitSettings
@@ -7,4 +10,5 @@ public class BybitSettings
     public bool UseSandbox { get; set; } = true;
     public string Environment { get; set; } = "Testnet";
     public int RecvWindow { get; set; } = 5000;
+    public List<BybitAccountSettings> Accounts { get; set; } = new();
 }

@@ -195,9 +195,11 @@ public class BybitWebSocketClient : IExchangeStreamClient
             ? "wss://stream-testnet.bybit.com/v5/public/spot"
             : "wss://stream.bybit.com/v5/public/spot";
 
-        var privateUrl = _settings.UseSandbox
-            ? "wss://stream-testnet.bybit.com/v5/private"
-            : "wss://stream.bybit.com/v5/private";
+        var privateUrl = string.Equals(_settings.Environment, "Demo", StringComparison.OrdinalIgnoreCase)
+            ? "wss://stream-demo.bybit.com/v5/private"
+            : (_settings.UseSandbox
+                ? "wss://stream-testnet.bybit.com/v5/private"
+                : "wss://stream.bybit.com/v5/private");
 
         _publicSocket = new ClientWebSocket();
         _privateSocket = new ClientWebSocket();

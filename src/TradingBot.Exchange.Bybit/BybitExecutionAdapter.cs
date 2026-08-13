@@ -23,30 +23,37 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
     private readonly BybitSettings _settings;
     private readonly IResilienceService _resilienceService;
     private readonly ILogger<BybitExecutionAdapter> _logger;
+    private readonly IBybitAccountProvider _accountProvider;
 
     public BybitExecutionAdapter(
         HttpClient httpClient,
         BybitSettings settings,
         IResilienceService resilienceService,
-        ILogger<BybitExecutionAdapter> logger)
+        ILogger<BybitExecutionAdapter> logger,
+        IBybitAccountProvider? accountProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _accountProvider = accountProvider ?? new SingleBybitAccountProvider(settings.ApiKey, settings.ApiSecret, settings.Environment);
 
         if (_httpClient.BaseAddress == null)
         {
-            var baseUrl = ResolveBaseUrl();
+            var baseUrl = ResolveBaseUrl(_settings.Environment);
             _httpClient.BaseAddress = new Uri(baseUrl);
         }
     }
 
-    private string ResolveBaseUrl()
+    private string ResolveBaseUrl(string environment)
     {
-        if (string.Equals(_settings.Environment, "Production", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
         {
             return "https://api.bybit.com";
+        }
+        if (string.Equals(environment, "Demo", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://api-demo.bybit.com";
         }
         return "https://api-testnet.bybit.com";
     }
@@ -55,8 +62,21 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
     {
         if (request == null) throw new ArgumentNullException(nameof(request));
 
-        _logger.LogInformation("BybitExecutionRequested: Creating linear order for Symbol={Symbol}, Side={Side}, Type={Type}, Quantity={Quantity}",
+        _logger.LogInformation("BybitExecutionRequested: Creating linear order for Symbol={Symbol}, Side={Side}, Type={Type}, Quantity={Quantity} across all active accounts...",
             request.Symbol, request.Side, request.Type, request.Quantity);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Failed,
+                ErrorMessage = "No active Bybit accounts configured.",
+                ErrorCode = "NO_ACTIVE_ACCOUNTS",
+                ErrorType = ExchangeErrorType.Unavailable
+            };
+        }
 
         var sideStr = request.Side == OrderSide.Buy ? "Buy" : "Sell";
         var orderTypeStr = request.Type == OrderType.Limit ? "Limit" : "Market";
@@ -81,63 +101,86 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             payload.Add("reduceOnly", true);
         }
 
-        try
-        {
-            var response = await SendPrivateRequestAsync<BybitOrderResult>(
-                HttpMethod.Post, "/v5/order/create", payload, cancellationToken);
+        var results = new List<OrderResult>();
 
-            if (response == null)
+        foreach (var account in accounts)
+        {
+            try
             {
-                _logger.LogError("BybitExecutionFailed: Received null response from Bybit Create Order API.");
-                return new OrderResult
+                var response = await SendPrivateRequestAsync<BybitOrderResult>(
+                    account, HttpMethod.Post, "/v5/order/create", payload, cancellationToken);
+
+                if (response == null)
+                {
+                    _logger.LogError("BybitExecutionFailed: Received null response from Bybit Create Order API for account {Account}.", account.Name);
+                    results.Add(new OrderResult
+                    {
+                        Success = false,
+                        Status = OrderStatus.Failed,
+                        ErrorMessage = $"Null response from exchange for account {account.Name}.",
+                        ErrorCode = "NULL_RESPONSE",
+                        ErrorType = ExchangeErrorType.Unavailable
+                    });
+                    continue;
+                }
+
+                if (response.RetCode != 0)
+                {
+                    var errorType = MapBybitErrorCode(response.RetCode);
+                    _logger.LogWarning("BybitExecutionFailed: Create Order API returned non-zero code for account {Account}. RetCode={RetCode}, Msg={Msg}",
+                        account.Name, response.RetCode, response.RetMsg);
+
+                    results.Add(new OrderResult
+                    {
+                        Success = false,
+                        Status = OrderStatus.Rejected,
+                        ErrorMessage = response.RetMsg,
+                        ErrorCode = response.RetCode.ToString(),
+                        ErrorType = errorType
+                    });
+                    continue;
+                }
+
+                _logger.LogInformation("BybitOrderCreated: Linear order created successfully on account {Account}. Symbol={Symbol}, Side={Side}, Qty={Quantity}, ExchangeOrderId={ExchangeOrderId}",
+                    account.Name, request.Symbol, sideStr, request.Quantity, response.Result?.OrderId);
+
+                results.Add(new OrderResult
+                {
+                    Success = true,
+                    ExchangeOrderId = response.Result?.OrderId,
+                    Status = OrderStatus.New,
+                    ErrorMessage = "Order created successfully."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BybitExecutionFailed: Exception during CreateOrderAsync on account {Account}.", account.Name);
+                results.Add(new OrderResult
                 {
                     Success = false,
                     Status = OrderStatus.Failed,
-                    ErrorMessage = "Null response from exchange.",
-                    ErrorCode = "NULL_RESPONSE",
-                    ErrorType = ExchangeErrorType.Unavailable
-                };
+                    ErrorMessage = ex.Message,
+                    ErrorCode = "EXCEPTION",
+                    ErrorType = ExchangeErrorType.Unknown
+                });
             }
-
-            if (response.RetCode != 0)
-            {
-                var errorType = MapBybitErrorCode(response.RetCode);
-                _logger.LogWarning("BybitExecutionFailed: Create Order API returned non-zero code. RetCode={RetCode}, Msg={Msg}",
-                    response.RetCode, response.RetMsg);
-
-                return new OrderResult
-                {
-                    Success = false,
-                    Status = OrderStatus.Rejected,
-                    ErrorMessage = response.RetMsg,
-                    ErrorCode = response.RetCode.ToString(),
-                    ErrorType = errorType
-                };
-            }
-
-            _logger.LogInformation("BybitOrderCreated: Linear order created successfully. Symbol={Symbol}, Side={Side}, Qty={Quantity}, ExchangeOrderId={ExchangeOrderId}",
-                request.Symbol, sideStr, request.Quantity, response.Result?.OrderId);
-
-            return new OrderResult
-            {
-                Success = true,
-                ExchangeOrderId = response.Result?.OrderId,
-                Status = OrderStatus.New,
-                ErrorMessage = "Order created successfully."
-            };
         }
-        catch (Exception ex)
+
+        // Return the first successful result, or the first failure if all failed
+        var firstSuccess = results.FirstOrDefault(r => r.Success);
+        if (firstSuccess != null)
         {
-            _logger.LogError(ex, "BybitExecutionFailed: Exception during CreateOrderAsync.");
-            return new OrderResult
-            {
-                Success = false,
-                Status = OrderStatus.Failed,
-                ErrorMessage = ex.Message,
-                ErrorCode = "EXCEPTION",
-                ErrorType = ExchangeErrorType.Unknown
-            };
+            return firstSuccess;
         }
+
+        return results.FirstOrDefault() ?? new OrderResult
+        {
+            Success = false,
+            Status = OrderStatus.Failed,
+            ErrorMessage = "All submissions failed.",
+            ErrorCode = "ALL_FAILED",
+            ErrorType = ExchangeErrorType.Unknown
+        };
     }
 
     public async Task<OrderResult> GetOrderAsync(string exchangeOrderId, string symbol, CancellationToken cancellationToken = default)
@@ -145,8 +188,21 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
         if (string.IsNullOrEmpty(exchangeOrderId)) throw new ArgumentException("Exchange Order ID cannot be null or empty.", nameof(exchangeOrderId));
         if (string.IsNullOrEmpty(symbol)) throw new ArgumentException("Symbol cannot be null or empty.", nameof(symbol));
 
-        _logger.LogInformation("BybitOrderQueryStarted: Querying order details. ExchangeOrderId={ExchangeOrderId}, Symbol={Symbol}",
+        _logger.LogInformation("BybitOrderQueryStarted: Querying order details across all active accounts. ExchangeOrderId={ExchangeOrderId}, Symbol={Symbol}",
             exchangeOrderId, symbol);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Failed,
+                ErrorMessage = "No active Bybit accounts configured.",
+                ErrorCode = "NO_ACTIVE_ACCOUNTS",
+                ErrorType = ExchangeErrorType.Unavailable
+            };
+        }
 
         var queryParams = new Dictionary<string, string>
         {
@@ -163,93 +219,65 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             queryParams.Add("orderId", exchangeOrderId);
         }
 
-        try
+        foreach (var account in accounts)
         {
-            var response = await SendPrivateRequestAsync<BybitOrderQueryResponse>(
-                HttpMethod.Get, "/v5/order/realtime", queryParams, cancellationToken);
-
-            if (response == null)
+            try
             {
-                _logger.LogError("BybitExecutionFailed: Received null response from Bybit Order Query API.");
+                var response = await SendPrivateRequestAsync<BybitOrderQueryResponse>(
+                    account, HttpMethod.Get, "/v5/order/realtime", queryParams, cancellationToken);
+
+                if (response == null || response.RetCode != 0)
+                {
+                    continue;
+                }
+
+                var orderInfo = response.Result?.List?.FirstOrDefault();
+                if (orderInfo == null)
+                {
+                    continue;
+                }
+
+                var internalStatus = MapBybitStatus(orderInfo.OrderStatus);
+
+                decimal.TryParse(orderInfo.CumExecQty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cumExecQty);
+                decimal.TryParse(orderInfo.AvgPrice, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var avgPrice);
+                decimal.TryParse(orderInfo.Qty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var origQty);
+
+                if (avgPrice == 0 && !string.IsNullOrEmpty(orderInfo.Price))
+                {
+                    decimal.TryParse(orderInfo.Price, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out avgPrice);
+                }
+
+                var remainingQty = Math.Max(0m, origQty - cumExecQty);
+
+                _logger.LogInformation("BybitOrderQueryCompleted: Order query completed for account {Account}. ExchangeOrderId={ExchangeOrderId}, Status={Status}, ExecQty={ExecQty}",
+                    account.Name, exchangeOrderId, internalStatus, cumExecQty);
+
                 return new OrderResult
                 {
-                    Success = false,
-                    Status = OrderStatus.Failed,
-                    ErrorMessage = "Null response from exchange.",
-                    ErrorCode = "NULL_RESPONSE",
-                    ErrorType = ExchangeErrorType.Unavailable
+                    Success = true,
+                    ExchangeOrderId = orderInfo.OrderId,
+                    Status = internalStatus,
+                    ErrorMessage = "Order queried successfully.",
+                    ExecutedQuantity = cumExecQty,
+                    ExecutedPrice = avgPrice,
+                    RemainingQuantity = remainingQty
                 };
             }
-
-            if (response.RetCode != 0)
+            catch (Exception ex)
             {
-                var errorType = MapBybitErrorCode(response.RetCode);
-                _logger.LogWarning("BybitExecutionFailed: Order Query API returned non-zero code. RetCode={RetCode}, Msg={Msg}",
-                    response.RetCode, response.RetMsg);
-
-                return new OrderResult
-                {
-                    Success = false,
-                    Status = OrderStatus.Failed,
-                    ErrorMessage = response.RetMsg,
-                    ErrorCode = response.RetCode.ToString(),
-                    ErrorType = errorType
-                };
+                _logger.LogWarning(ex, "BybitExecutionFailed: Exception during GetOrderAsync on account {Account}.", account.Name);
             }
-
-            var orderInfo = response.Result?.List?.FirstOrDefault();
-            if (orderInfo == null)
-            {
-                _logger.LogWarning("BybitExecutionFailed: Order {ExchangeOrderId} not found in query result list.", exchangeOrderId);
-                return new OrderResult
-                {
-                    Success = false,
-                    Status = OrderStatus.Failed,
-                    ErrorMessage = "Order not found in exchange response.",
-                    ErrorCode = "ORDER_NOT_FOUND",
-                    ErrorType = ExchangeErrorType.InvalidRequest
-                };
-            }
-
-            var internalStatus = MapBybitStatus(orderInfo.OrderStatus);
-
-            decimal.TryParse(orderInfo.CumExecQty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cumExecQty);
-            decimal.TryParse(orderInfo.AvgPrice, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var avgPrice);
-            decimal.TryParse(orderInfo.Qty, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var origQty);
-
-            if (avgPrice == 0 && !string.IsNullOrEmpty(orderInfo.Price))
-            {
-                decimal.TryParse(orderInfo.Price, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out avgPrice);
-            }
-
-            var remainingQty = Math.Max(0m, origQty - cumExecQty);
-
-            _logger.LogInformation("BybitOrderQueryCompleted: Order query completed. ExchangeOrderId={ExchangeOrderId}, Status={Status}, ExecQty={ExecQty}, AvgPrice={AvgPrice}",
-                exchangeOrderId, internalStatus, cumExecQty, avgPrice);
-
-            return new OrderResult
-            {
-                Success = true,
-                ExchangeOrderId = orderInfo.OrderId,
-                Status = internalStatus,
-                ErrorMessage = "Order queried successfully.",
-                ExecutedQuantity = cumExecQty,
-                ExecutedPrice = avgPrice,
-                RemainingQuantity = remainingQty
-            };
         }
-        catch (Exception ex)
+
+        return new OrderResult
         {
-            _logger.LogError(ex, "BybitExecutionFailed: Exception during GetOrderAsync.");
-            return new OrderResult
-            {
-                Success = false,
-                Status = OrderStatus.Failed,
-                ErrorMessage = ex.Message,
-                ErrorCode = "EXCEPTION",
-                ErrorType = ExchangeErrorType.Unknown
-            };
-        }
+            Success = false,
+            Status = OrderStatus.Failed,
+            ErrorMessage = "Order not found on any active configured Bybit accounts.",
+            ErrorCode = "ORDER_NOT_FOUND",
+            ErrorType = ExchangeErrorType.InvalidRequest
+        };
     }
 
     public async Task<OrderResult> CancelOrderAsync(string exchangeOrderId, string symbol, CancellationToken cancellationToken = default)
@@ -257,8 +285,21 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
         if (string.IsNullOrEmpty(exchangeOrderId)) throw new ArgumentException("Exchange Order ID cannot be null or empty.", nameof(exchangeOrderId));
         if (string.IsNullOrEmpty(symbol)) throw new ArgumentException("Symbol cannot be null or empty.", nameof(symbol));
 
-        _logger.LogInformation("BybitOrderCancelled: Initializing cancellation. ExchangeOrderId={ExchangeOrderId}, Symbol={Symbol}",
+        _logger.LogInformation("BybitOrderCancelled: Initializing cancellation across all active accounts. ExchangeOrderId={ExchangeOrderId}, Symbol={Symbol}",
             exchangeOrderId, symbol);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Failed,
+                ErrorMessage = "No active Bybit accounts configured.",
+                ErrorCode = "NO_ACTIVE_ACCOUNTS",
+                ErrorType = ExchangeErrorType.Unavailable
+            };
+        }
 
         var payload = new Dictionary<string, object>
         {
@@ -267,66 +308,72 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             { "orderId", exchangeOrderId }
         };
 
-        try
-        {
-            var response = await SendPrivateRequestAsync<BybitOrderResult>(
-                HttpMethod.Post, "/v5/order/cancel", payload, cancellationToken);
+        var results = new List<OrderResult>();
 
-            if (response == null)
+        foreach (var account in accounts)
+        {
+            try
             {
-                _logger.LogError("BybitExecutionFailed: Received null response from Bybit Cancel Order API.");
-                return new OrderResult
+                var response = await SendPrivateRequestAsync<BybitOrderResult>(
+                    account, HttpMethod.Post, "/v5/order/cancel", payload, cancellationToken);
+
+                if (response == null || response.RetCode != 0)
+                {
+                    _logger.LogWarning("BybitExecutionFailed: Cancel failed or not found on account {Account}.", account.Name);
+                    results.Add(new OrderResult
+                    {
+                        Success = false,
+                        Status = OrderStatus.Failed,
+                        ErrorMessage = response?.RetMsg ?? "Failed response.",
+                        ErrorCode = response?.RetCode.ToString() ?? "ERROR",
+                        ErrorType = ExchangeErrorType.Unknown
+                    });
+                    continue;
+                }
+
+                _logger.LogInformation("BybitOrderCancelled: Order cancelled successfully on account {Account}. ExchangeOrderId={ExchangeOrderId}",
+                    account.Name, exchangeOrderId);
+
+                results.Add(new OrderResult
+                {
+                    Success = true,
+                    ExchangeOrderId = response.Result?.OrderId ?? exchangeOrderId,
+                    Status = OrderStatus.Cancelled,
+                    ErrorMessage = "Order cancelled successfully."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BybitExecutionFailed: Exception during CancelOrderAsync on account {Account}.", account.Name);
+                results.Add(new OrderResult
                 {
                     Success = false,
                     Status = OrderStatus.Failed,
-                    ErrorMessage = "Null response from exchange.",
-                    ErrorCode = "NULL_RESPONSE",
-                    ErrorType = ExchangeErrorType.Unavailable
-                };
+                    ErrorMessage = ex.Message,
+                    ErrorCode = "EXCEPTION",
+                    ErrorType = ExchangeErrorType.Unknown
+                });
             }
-
-            if (response.RetCode != 0)
-            {
-                var errorType = MapBybitErrorCode(response.RetCode);
-                _logger.LogWarning("BybitExecutionFailed: Order Cancel API returned non-zero code. RetCode={RetCode}, Msg={Msg}",
-                    response.RetCode, response.RetMsg);
-
-                return new OrderResult
-                {
-                    Success = false,
-                    Status = OrderStatus.Failed,
-                    ErrorMessage = response.RetMsg,
-                    ErrorCode = response.RetCode.ToString(),
-                    ErrorType = errorType
-                };
-            }
-
-            _logger.LogInformation("BybitOrderCancelled: Order cancelled successfully. ExchangeOrderId={ExchangeOrderId}",
-                exchangeOrderId);
-
-            return new OrderResult
-            {
-                Success = true,
-                ExchangeOrderId = response.Result?.OrderId ?? exchangeOrderId,
-                Status = OrderStatus.Cancelled,
-                ErrorMessage = "Order cancelled successfully."
-            };
         }
-        catch (Exception ex)
+
+        var firstSuccess = results.FirstOrDefault(r => r.Success);
+        if (firstSuccess != null)
         {
-            _logger.LogError(ex, "BybitExecutionFailed: Exception during CancelOrderAsync.");
-            return new OrderResult
-            {
-                Success = false,
-                Status = OrderStatus.Failed,
-                ErrorMessage = ex.Message,
-                ErrorCode = "EXCEPTION",
-                ErrorType = ExchangeErrorType.Unknown
-            };
+            return firstSuccess;
         }
+
+        return results.FirstOrDefault() ?? new OrderResult
+        {
+            Success = false,
+            Status = OrderStatus.Failed,
+            ErrorMessage = "All cancellations failed.",
+            ErrorCode = "ALL_FAILED",
+            ErrorType = ExchangeErrorType.Unknown
+        };
     }
 
     private async Task<BybitResponse<TResult>?> SendPrivateRequestAsync<TResult>(
+        BybitAccountInfo account,
         HttpMethod method,
         string path,
         object? payloadOrParams,
@@ -349,8 +396,8 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
         {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
             var recvWindow = _settings.RecvWindow.ToString();
-            var apiKey = _settings.ApiKey;
-            var apiSecret = _settings.ApiSecret;
+            var apiKey = account.ApiKey;
+            var apiSecret = account.ApiSecret;
 
             string requestPayload = string.Empty;
             string requestPathAndQuery = path;
@@ -375,7 +422,10 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
 
             var signature = BybitSignatureGenerator.GenerateSignature(apiSecret, apiKey, timestamp, recvWindow, requestPayload);
 
-            var request = new HttpRequestMessage(method, requestPathAndQuery);
+            var baseUrl = ResolveBaseUrl(account.Environment);
+            var requestUrl = new Uri(new Uri(baseUrl), requestPathAndQuery);
+
+            var request = new HttpRequestMessage(method, requestUrl);
             request.Headers.Add("X-BAPI-API-KEY", apiKey);
             request.Headers.Add("X-BAPI-SIGN", signature);
             request.Headers.Add("X-BAPI-SIGN-TYPE", "2");
@@ -388,7 +438,7 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             }
 
             // Secure logging - NEVER log Secret, Signature, Authentication Headers, or Telegram Session
-            _logger.LogInformation("BybitRequestPrepared: Sending private request. Method={Method}, Path={Path}", method, path);
+            _logger.LogInformation("BybitRequestPrepared: Sending private request for account {AccountName}. Method={Method}, Path={Path}", account.Name, method, path);
 
             var startTime = System.Diagnostics.Stopwatch.StartNew();
             var responseMessage = await _httpClient.SendAsync(request, ct);
@@ -396,11 +446,11 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
 
             var responseContent = await responseMessage.Content.ReadAsStringAsync(ct);
 
-            _logger.LogInformation("BybitResponseReceived: Received response. StatusCode={StatusCode}, Latency={Latency}ms", responseMessage.StatusCode, durationMs);
+            _logger.LogInformation("BybitResponseReceived: Received response for account {AccountName}. StatusCode={StatusCode}, Latency={Latency}ms", account.Name, responseMessage.StatusCode, durationMs);
 
             if (!responseMessage.IsSuccessStatusCode)
             {
-                _logger.LogError("BybitExecutionFailed: Private Request returned error status code {StatusCode}. Path={Path}", responseMessage.StatusCode, path);
+                _logger.LogError("BybitExecutionFailed: Private Request returned error status code {StatusCode} for account {AccountName}. Path={Path}", responseMessage.StatusCode, account.Name, path);
                 return new BybitResponse<TResult>
                 {
                     RetCode = (int)responseMessage.StatusCode,
@@ -422,8 +472,21 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
     {
         if (string.IsNullOrEmpty(symbol)) throw new ArgumentException("Symbol cannot be null or empty.", nameof(symbol));
 
-        _logger.LogInformation("BybitSetTradingStopRequested: Symbol={Symbol}, Side={Side}, SL={StopLoss}, TP={TakeProfit}",
+        _logger.LogInformation("BybitSetTradingStopRequested: Setting SL/TP across all active accounts. Symbol={Symbol}, Side={Side}, SL={StopLoss}, TP={TakeProfit}",
             symbol, side, stopLoss, takeProfit);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return new OrderResult
+            {
+                Success = false,
+                Status = OrderStatus.Failed,
+                ErrorMessage = "No active Bybit accounts configured.",
+                ErrorCode = "NO_ACTIVE_ACCOUNTS",
+                ErrorType = ExchangeErrorType.Unavailable
+            };
+        }
 
         var payload = new Dictionary<string, object>
         {
@@ -432,7 +495,6 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             { "positionIdx", 0 }
         };
 
-        // Bybit V5 requires "0" to cancel/remove TP/SL, or string value to update
         payload.Add("stopLoss", stopLoss.HasValue
             ? stopLoss.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
             : "0");
@@ -450,62 +512,69 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             payload.Add("tpTriggerBy", "LastPrice");
         }
 
-        try
-        {
-            var response = await SendPrivateRequestAsync<BybitOrderResult>(
-                HttpMethod.Post, "/v5/position/set-trading-stop", payload, cancellationToken);
+        var results = new List<OrderResult>();
 
-            if (response == null)
+        foreach (var account in accounts)
+        {
+            try
             {
-                _logger.LogError("BybitExecutionFailed: Received null response from Bybit Set Trading Stop API.");
-                return new OrderResult
+                var response = await SendPrivateRequestAsync<BybitOrderResult>(
+                    account, HttpMethod.Post, "/v5/position/set-trading-stop", payload, cancellationToken);
+
+                if (response == null || response.RetCode != 0)
+                {
+                    _logger.LogWarning("BybitExecutionFailed: Set Trading Stop API returned error code for account {Account}. RetCode={RetCode}, Msg={Msg}",
+                        account.Name, response?.RetCode, response?.RetMsg);
+
+                    results.Add(new OrderResult
+                    {
+                        Success = false,
+                        Status = OrderStatus.Rejected,
+                        ErrorMessage = response?.RetMsg ?? "Failed.",
+                        ErrorCode = response?.RetCode.ToString() ?? "ERROR",
+                        ErrorType = ExchangeErrorType.Unknown
+                    });
+                    continue;
+                }
+
+                _logger.LogInformation("BybitTradingStopSet: Stop parameters updated successfully on account {Account}. Symbol={Symbol}, SL={StopLoss}, TP={TakeProfit}",
+                    account.Name, symbol, stopLoss, takeProfit);
+
+                results.Add(new OrderResult
+                {
+                    Success = true,
+                    Status = OrderStatus.Filled,
+                    ErrorMessage = "Trading stop set successfully."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BybitExecutionFailed: Exception during SetTradingStopAsync on account {Account}.", account.Name);
+                results.Add(new OrderResult
                 {
                     Success = false,
                     Status = OrderStatus.Failed,
-                    ErrorMessage = "Null response from exchange.",
-                    ErrorCode = "NULL_RESPONSE",
-                    ErrorType = ExchangeErrorType.Unavailable
-                };
+                    ErrorMessage = ex.Message,
+                    ErrorCode = "EXCEPTION",
+                    ErrorType = ExchangeErrorType.Unknown
+                });
             }
-
-            if (response.RetCode != 0)
-            {
-                var errorType = MapBybitErrorCode(response.RetCode);
-                _logger.LogWarning("BybitExecutionFailed: Set Trading Stop API returned non-zero code. RetCode={RetCode}, Msg={Msg}",
-                    response.RetCode, response.RetMsg);
-
-                return new OrderResult
-                {
-                    Success = false,
-                    Status = OrderStatus.Rejected,
-                    ErrorMessage = response.RetMsg,
-                    ErrorCode = response.RetCode.ToString(),
-                    ErrorType = errorType
-                };
-            }
-
-            _logger.LogInformation("BybitTradingStopSet: Stop parameters updated successfully. Symbol={Symbol}, SL={StopLoss}, TP={TakeProfit}",
-                symbol, stopLoss, takeProfit);
-
-            return new OrderResult
-            {
-                Success = true,
-                Status = OrderStatus.Filled,
-                ErrorMessage = "Trading stop set successfully."
-            };
         }
-        catch (Exception ex)
+
+        var firstSuccess = results.FirstOrDefault(r => r.Success);
+        if (firstSuccess != null)
         {
-            _logger.LogError(ex, "BybitExecutionFailed: Exception during SetTradingStopAsync.");
-            return new OrderResult
-            {
-                Success = false,
-                Status = OrderStatus.Failed,
-                ErrorMessage = ex.Message,
-                ErrorCode = "EXCEPTION",
-                ErrorType = ExchangeErrorType.Unknown
-            };
+            return firstSuccess;
         }
+
+        return results.FirstOrDefault() ?? new OrderResult
+        {
+            Success = false,
+            Status = OrderStatus.Failed,
+            ErrorMessage = "All SetTradingStop operations failed.",
+            ErrorCode = "ALL_FAILED",
+            ErrorType = ExchangeErrorType.Unknown
+        };
     }
 
     public static ExchangeErrorType MapBybitErrorCode(int retCode)
@@ -545,4 +614,5 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
             _ => OrderStatus.Unknown
         };
     }
+
 }
