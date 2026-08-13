@@ -11,6 +11,11 @@ COPY src/TradingBot.Application/TradingBot.Application.csproj src/TradingBot.App
 COPY src/TradingBot.Infrastructure/TradingBot.Infrastructure.csproj src/TradingBot.Infrastructure/
 COPY src/TradingBot.Exchange.Bybit/TradingBot.Exchange.Bybit.csproj src/TradingBot.Exchange.Bybit/
 COPY src/TradingBot.Worker/TradingBot.Worker.csproj src/TradingBot.Worker/
+COPY src/TradingBot.Persistence/TradingBot.Persistence.csproj src/TradingBot.Persistence/
+COPY src/TradingBot.Telegram/TradingBot.Telegram.csproj src/TradingBot.Telegram/
+COPY src/TradingBot.Parser/TradingBot.Parser.csproj src/TradingBot.Parser/
+COPY tests/TradingBot.UnitTests/TradingBot.UnitTests.csproj tests/TradingBot.UnitTests/
+COPY tests/TradingBot.IntegrationTests/TradingBot.IntegrationTests.csproj tests/TradingBot.IntegrationTests/
 
 # Restore dependencies
 RUN dotnet restore src/TradingBot.sln
