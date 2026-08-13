@@ -24,6 +24,7 @@ public class BybitExchangeClient : IExchangeClient
     private readonly BybitSettings _settings;
     private readonly IResilienceService _resilienceService;
     private readonly ILogger<BybitExchangeClient> _logger;
+    private readonly IBybitAccountProvider _accountProvider;
 
     public string ExchangeName => "Bybit";
 
@@ -31,44 +32,70 @@ public class BybitExchangeClient : IExchangeClient
         HttpClient httpClient,
         BybitSettings settings,
         IResilienceService resilienceService,
-        ILogger<BybitExchangeClient> logger)
+        ILogger<BybitExchangeClient> logger,
+        IBybitAccountProvider? accountProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _accountProvider = accountProvider ?? new SingleBybitAccountProvider(settings.ApiKey, settings.ApiSecret, settings.Environment);
 
-        // Configure Base Address if not configured externally
         if (_httpClient.BaseAddress == null)
         {
-            var baseUrl = _settings.UseSandbox
-                ? "https://api-testnet.bybit.com"
-                : "https://api.bybit.com";
+            var baseUrl = ResolveBaseUrl(_settings.Environment);
             _httpClient.BaseAddress = new Uri(baseUrl);
         }
     }
 
-    private string GetApiKey() => _settings.ApiKey;
-    private string GetApiSecret() => _settings.ApiSecret;
+    private string ResolveBaseUrl(string environment)
+    {
+        if (string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://api.bybit.com";
+        }
+        if (string.Equals(environment, "Demo", StringComparison.OrdinalIgnoreCase))
+        {
+            return "https://api-demo.bybit.com";
+        }
+        return "https://api-testnet.bybit.com";
+    }
 
     public async Task<bool> PingAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("PingAsync: Checking connectivity to Bybit...");
+        _logger.LogInformation("PingAsync: Checking connectivity to Bybit for all active accounts...");
         try
         {
-            var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(
-                    "/v5/market/time", ct), cancellationToken);
-
-            if (response == null || response.RetCode != 0)
+            var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+            if (!accounts.Any())
             {
-                _logger.LogWarning("PingAsync: Received non-zero code or empty response. RetCode={RetCode}, Msg={Msg}",
-                    response?.RetCode, response?.RetMsg);
+                _logger.LogWarning("PingAsync: No active Bybit accounts found.");
                 return false;
             }
 
-            _logger.LogInformation("PingAsync: Connection successful. Bybit Server Time: {TimeSecond}", response.Result?.TimeSecond);
-            return true;
+            bool allSuccessful = true;
+            foreach (var account in accounts)
+            {
+                var baseUrl = ResolveBaseUrl(account.Environment);
+                var requestUrl = new Uri(new Uri(baseUrl), "/v5/market/time");
+
+                var response = await _resilienceService.ExecuteHttpAsync(async ct =>
+                    await _httpClient.GetFromJsonAsync<BybitResponse<BybitServerTime>>(requestUrl, ct), cancellationToken);
+
+                if (response == null || response.RetCode != 0)
+                {
+                    _logger.LogWarning("PingAsync: Account {Name} received non-zero code or empty response. RetCode={RetCode}, Msg={Msg}",
+                        account.Name, response?.RetCode, response?.RetMsg);
+                    allSuccessful = false;
+                }
+                else
+                {
+                    _logger.LogInformation("PingAsync: Connection successful for {Name}. Bybit Server Time: {TimeSecond}",
+                        account.Name, response.Result?.TimeSecond);
+                }
+            }
+
+            return allSuccessful;
         }
         catch (Exception ex)
         {
@@ -79,8 +106,14 @@ public class BybitExchangeClient : IExchangeClient
 
     public async Task<Order> PlaceOrderAsync(Order order, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("PlaceOrderAsync: Placing order {ClientOrderId} for symbol {Symbol}...",
+        _logger.LogInformation("PlaceOrderAsync: Placing order {ClientOrderId} for symbol {Symbol} across all active accounts...",
             order.ClientOrderId, order.Symbol.Value);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            throw new ExchangeException("No active Bybit accounts configured.");
+        }
 
         // Map domain side to Bybit side
         var sideStr = order.Side == OrderSide.Buy ? "Buy" : "Sell";
@@ -103,35 +136,61 @@ public class BybitExchangeClient : IExchangeClient
         }
 
         var jsonPayload = JsonSerializer.Serialize(payload);
-        var response = await SendPrivateRequestAsync<BybitOrderResult>(
-            HttpMethod.Post, "/v5/order/create", jsonPayload, cancellationToken);
+        Order? primaryOrder = null;
 
-        if (response == null || response.Result == null)
+        foreach (var account in accounts)
         {
-            throw new ExchangeException("PlaceOrderAsync: Received empty response from Bybit.");
+            try
+            {
+                var response = await SendPrivateRequestAsync<BybitOrderResult>(
+                    account, HttpMethod.Post, "/v5/order/create", jsonPayload, cancellationToken);
+
+                if (response == null || response.Result == null)
+                {
+                    throw new ExchangeException($"PlaceOrderAsync: Received empty response from Bybit for account {account.Name}.");
+                }
+
+                _logger.LogInformation("PlaceOrderAsync: Order placed successfully on account {Name}. Bybit OrderId: {OrderId}",
+                    account.Name, response.Result.OrderId);
+
+                if (primaryOrder == null)
+                {
+                    // Fetch the fresh status or construct updated order based on the first successful account
+                    primaryOrder = new Order(
+                        order.ClientOrderId,
+                        order.Symbol,
+                        order.Side,
+                        order.Type,
+                        order.Quantity,
+                        order.Price
+                    );
+                    primaryOrder.Submit();
+                    primaryOrder.Accept(response.Result.OrderId ?? "BYBIT_PLACEHOLDER_ID");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "PlaceOrderAsync: Failed to place order on account {Name}", account.Name);
+                if (account == accounts.First())
+                {
+                    // If the first/primary account fails, throw the exception
+                    throw;
+                }
+            }
         }
 
-        _logger.LogInformation("PlaceOrderAsync: Order placed successfully. Bybit OrderId: {OrderId}", response.Result.OrderId);
-
-        // Fetch the fresh status or construct updated order
-        var updatedOrder = new Order(
-            order.ClientOrderId,
-            order.Symbol,
-            order.Side,
-            order.Type,
-            order.Quantity,
-            order.Price
-        );
-
-        // Mark as Submitted then Accept using the exchange order id
-        updatedOrder.Submit();
-        updatedOrder.Accept(response.Result.OrderId ?? "BYBIT_PLACEHOLDER_ID");
-        return updatedOrder;
+        return primaryOrder ?? throw new ExchangeException("Failed to place order on any configured Bybit accounts.");
     }
 
     public async Task<Order> GetOrderStatusAsync(string clientOrderId, string symbol, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetOrderStatusAsync: Querying order {ClientOrderId} for symbol {Symbol}...", clientOrderId, symbol);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            throw new ExchangeException("No active Bybit accounts configured.");
+        }
 
         var queryParams = new Dictionary<string, string>
         {
@@ -140,54 +199,70 @@ public class BybitExchangeClient : IExchangeClient
             { "orderLinkId", clientOrderId }
         };
 
-        var response = await SendPrivateRequestAsync<BybitOrderQueryResponse>(
-            HttpMethod.Get, "/v5/order/realtime", queryParams, cancellationToken);
-
-        if (response == null || response.Result == null || response.Result.List == null || !response.Result.List.Any())
+        foreach (var account in accounts)
         {
-            _logger.LogWarning("GetOrderStatusAsync: Order {ClientOrderId} not found or empty response.", clientOrderId);
-            throw new ExchangeException($"Order with Link ID {clientOrderId} not found on Bybit.");
+            try
+            {
+                var response = await SendPrivateRequestAsync<BybitOrderQueryResponse>(
+                    account, HttpMethod.Get, "/v5/order/realtime", queryParams, cancellationToken);
+
+                if (response == null || response.Result == null || response.Result.List == null || !response.Result.List.Any())
+                {
+                    continue;
+                }
+
+                var bybitOrder = response.Result.List.First();
+                _logger.LogInformation("GetOrderStatusAsync: Order found on account {Name}. Status={Status}, Qty={Qty}",
+                    account.Name, bybitOrder.OrderStatus, bybitOrder.Qty);
+
+                var orderType = Enum.TryParse<OrderType>(bybitOrder.OrderStatus, true, out var ot) ? ot : OrderType.Limit;
+                var side = string.Equals(bybitOrder.Side, "Buy", StringComparison.OrdinalIgnoreCase) ? OrderSide.Buy : OrderSide.Sell;
+
+                decimal.TryParse(bybitOrder.Price, System.Globalization.CultureInfo.InvariantCulture, out var price);
+                decimal.TryParse(bybitOrder.Qty, System.Globalization.CultureInfo.InvariantCulture, out var quantity);
+
+                var order = new Order(
+                    bybitOrder.OrderLinkId,
+                    new TradingBot.Domain.ValueObjects.Symbol(bybitOrder.Symbol),
+                    side,
+                    orderType,
+                    new Quantity(quantity),
+                    new Money(price)
+                );
+
+                var status = MapStatus(bybitOrder.OrderStatus);
+                if (status == OrderStatus.Accepted)
+                {
+                    order.Submit();
+                    order.Accept(bybitOrder.OrderId);
+                }
+                else
+                {
+                    order.Submit();
+                    order.Accept(bybitOrder.OrderId);
+                    order.UpdateStatus(status);
+                }
+
+                return order;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "GetOrderStatusAsync: Failed to query order on account {Name}", account.Name);
+            }
         }
 
-        var bybitOrder = response.Result.List.First();
-        _logger.LogInformation("GetOrderStatusAsync: Order found. Status={Status}, Qty={Qty}, CumExecQty={CumExecQty}",
-            bybitOrder.OrderStatus, bybitOrder.Qty, bybitOrder.CumExecQty);
-
-        var orderType = Enum.TryParse<OrderType>(bybitOrder.OrderStatus, true, out var ot) ? ot : OrderType.Limit;
-        var side = string.Equals(bybitOrder.Side, "Buy", StringComparison.OrdinalIgnoreCase) ? OrderSide.Buy : OrderSide.Sell;
-
-        decimal.TryParse(bybitOrder.Price, System.Globalization.CultureInfo.InvariantCulture, out var price);
-        decimal.TryParse(bybitOrder.Qty, System.Globalization.CultureInfo.InvariantCulture, out var quantity);
-
-        var order = new Order(
-            bybitOrder.OrderLinkId,
-            new TradingBot.Domain.ValueObjects.Symbol(bybitOrder.Symbol),
-            side,
-            orderType,
-            new Quantity(quantity),
-            new Money(price)
-        );
-
-        // Map Bybit OrderStatus to Domain OrderStatus
-        var status = MapStatus(bybitOrder.OrderStatus);
-        if (status == OrderStatus.Accepted)
-        {
-            order.Submit();
-            order.Accept(bybitOrder.OrderId);
-        }
-        else
-        {
-            order.Submit();
-            order.Accept(bybitOrder.OrderId);
-            order.UpdateStatus(status);
-        }
-
-        return order;
+        throw new ExchangeException($"Order with Link ID {clientOrderId} not found on any configured Bybit accounts.");
     }
 
     public async Task<decimal> GetAccountBalanceAsync(string coin = "USDT", CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("GetAccountBalanceAsync: Retrieving balance for coin {Coin}...", coin);
+        _logger.LogInformation("GetAccountBalanceAsync: Retrieving balance for coin {Coin} across all active accounts...", coin);
+
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return 0m;
+        }
 
         var queryParams = new Dictionary<string, string>
         {
@@ -195,44 +270,60 @@ public class BybitExchangeClient : IExchangeClient
             { "coin", coin.ToUpperInvariant() }
         };
 
-        var response = await SendPrivateRequestAsync<BybitWalletBalanceResponse>(
-            HttpMethod.Get, "/v5/account/wallet-balance", queryParams, cancellationToken);
+        decimal totalBalance = 0m;
+        bool anySuccess = false;
 
-        if (response == null || response.Result == null || response.Result.List == null || !response.Result.List.Any())
+        foreach (var account in accounts)
         {
-            _logger.LogWarning("GetAccountBalanceAsync: No wallet balance found in response.");
-            return 0m;
+            try
+            {
+                var response = await SendPrivateRequestAsync<BybitWalletBalanceResponse>(
+                    account, HttpMethod.Get, "/v5/account/wallet-balance", queryParams, cancellationToken);
+
+                if (response == null || response.Result == null || response.Result.List == null || !response.Result.List.Any())
+                {
+                    continue;
+                }
+
+                var walletInfo = response.Result.List.FirstOrDefault();
+                if (walletInfo == null) continue;
+
+                var coinBalance = walletInfo.Coin.FirstOrDefault(c => string.Equals(c.CoinName, coin, StringComparison.OrdinalIgnoreCase));
+                if (coinBalance != null && decimal.TryParse(coinBalance.WalletBalance, System.Globalization.CultureInfo.InvariantCulture, out var balance))
+                {
+                    _logger.LogInformation("GetAccountBalanceAsync: Balance for account {Name} is {Balance}", account.Name, balance);
+                    totalBalance += balance;
+                    anySuccess = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "GetAccountBalanceAsync: Failed to retrieve balance for account {Name}", account.Name);
+            }
         }
 
-        var account = response.Result.List.FirstOrDefault();
-        if (account == null) return 0m;
-
-        var coinBalance = account.Coin.FirstOrDefault(c => string.Equals(c.CoinName, coin, StringComparison.OrdinalIgnoreCase));
-        if (coinBalance == null)
-        {
-            _logger.LogInformation("GetAccountBalanceAsync: Coin {Coin} not found in UNIFIED account balance, defaulting to 0.", coin);
-            return 0m;
-        }
-
-        if (decimal.TryParse(coinBalance.WalletBalance, System.Globalization.CultureInfo.InvariantCulture, out var balance))
-        {
-            _logger.LogInformation("GetAccountBalanceAsync: Balance for {Coin} is {Balance}", coin, balance);
-            return balance;
-        }
-
-        return 0m;
+        return anySuccess ? totalBalance : 0m;
     }
 
     public async Task<bool> IsSymbolValidAsync(string symbol, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("IsSymbolValidAsync: Checking validity of symbol {Symbol}...", symbol);
 
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            return false;
+        }
+
         var symbolUpper = symbol.ToUpperInvariant();
+        var primaryAccount = accounts.First();
+        var baseUrl = ResolveBaseUrl(primaryAccount.Environment);
+        var requestUrl = new Uri(new Uri(baseUrl), $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}");
+
         try
         {
             var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(
-                    $"/v5/market/instruments-info?category=spot&symbol={symbolUpper}", ct), cancellationToken);
+                await _httpClient.GetFromJsonAsync<BybitResponse<BybitInstrumentsResponse>>(requestUrl, ct), cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null)
             {
@@ -257,12 +348,21 @@ public class BybitExchangeClient : IExchangeClient
     {
         _logger.LogInformation("GetLastPriceAsync: Querying last price for symbol {Symbol}...", symbol);
 
+        var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
+        if (!accounts.Any())
+        {
+            throw new ExchangeException("No active Bybit accounts configured.");
+        }
+
         var symbolUpper = symbol.ToUpperInvariant();
+        var primaryAccount = accounts.First();
+        var baseUrl = ResolveBaseUrl(primaryAccount.Environment);
+        var requestUrl = new Uri(new Uri(baseUrl), $"/v5/market/tickers?category=spot&symbol={symbolUpper}");
+
         try
         {
             var response = await _resilienceService.ExecuteHttpAsync(async ct =>
-                await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(
-                    $"/v5/market/tickers?category=spot&symbol={symbolUpper}", ct), cancellationToken);
+                await _httpClient.GetFromJsonAsync<BybitResponse<BybitTickerResponse>>(requestUrl, ct), cancellationToken);
 
             if (response == null || response.RetCode != 0 || response.Result == null || response.Result.List == null || !response.Result.List.Any())
             {
@@ -290,6 +390,7 @@ public class BybitExchangeClient : IExchangeClient
     #region Helper Methods
 
     private async Task<BybitResponse<T>> SendPrivateRequestAsync<T>(
+        BybitAccountInfo account,
         HttpMethod method,
         string path,
         object? payloadOrParams,
@@ -311,8 +412,8 @@ public class BybitExchangeClient : IExchangeClient
         {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
             var recvWindow = "5000";
-            var apiKey = GetApiKey();
-            var apiSecret = GetApiSecret();
+            var apiKey = account.ApiKey;
+            var apiSecret = account.ApiSecret;
 
             string requestPayload = string.Empty;
             string requestPathAndQuery = path;
@@ -330,7 +431,10 @@ public class BybitExchangeClient : IExchangeClient
 
             var signature = BybitSignatureGenerator.GenerateSignature(apiSecret, apiKey, timestamp, recvWindow, requestPayload);
 
-            var request = new HttpRequestMessage(method, requestPathAndQuery);
+            var baseUrl = ResolveBaseUrl(account.Environment);
+            var requestUrl = new Uri(new Uri(baseUrl), requestPathAndQuery);
+
+            var request = new HttpRequestMessage(method, requestUrl);
             request.Headers.Add("X-BAPI-API-KEY", apiKey);
             request.Headers.Add("X-BAPI-SIGN", signature);
             request.Headers.Add("X-BAPI-SIGN-TYPE", "2");
@@ -347,8 +451,8 @@ public class BybitExchangeClient : IExchangeClient
 
             if (!responseMessage.IsSuccessStatusCode)
             {
-                _logger.LogError("Bybit Private Request returned error status code {StatusCode}. Content: {Content}",
-                    responseMessage.StatusCode, responseContent);
+                _logger.LogError("Bybit Private Request returned error status code {StatusCode} for account {AccountName}. Content: {Content}",
+                    responseMessage.StatusCode, account.Name, responseContent);
                 throw new ExchangeException($"Bybit Private Request failed with status {responseMessage.StatusCode}. Response: {responseContent}");
             }
 
@@ -360,8 +464,8 @@ public class BybitExchangeClient : IExchangeClient
 
             if (response.RetCode != 0)
             {
-                _logger.LogWarning("Bybit Private Request returned non-zero code. Path={Path}, RetCode={RetCode}, Msg={Msg}",
-                    path, response.RetCode, response.RetMsg);
+                _logger.LogWarning("Bybit Private Request returned non-zero code for account {AccountName}. Path={Path}, RetCode={RetCode}, Msg={Msg}",
+                    account.Name, path, response.RetCode, response.RetMsg);
                 throw new ExchangeException($"Bybit API Error (RetCode={response.RetCode}): {response.RetMsg}");
             }
 
@@ -383,4 +487,5 @@ public class BybitExchangeClient : IExchangeClient
     }
 
     #endregion
+
 }
