@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -99,6 +100,42 @@ public class TelegramClientService : ITelegramClient, IDisposable
             _logger.Error(ex, "Failed to connect to Telegram.");
             throw new TelegramConnectionException("Failed to establish connection to Telegram.", ex);
         }
+    }
+
+    public async Task<TL.User?> LoginWithQrCodeAsync(Action<string> qrDisplay, CancellationToken ct = default)
+    {
+        if (!_options.Enabled)
+        {
+            throw new InvalidOperationException("Telegram integration is disabled in configuration.");
+        }
+
+        if (_client == null)
+        {
+            var sessionStream = _sessionManager.LoadSession();
+            _client = new WTelegram.Client(ConfigProvider, sessionStream);
+        }
+
+        if (_client.Disconnected)
+        {
+            await _client.ConnectAsync();
+        }
+
+        return await _client.LoginWithQRCode(qrDisplay, ct: ct);
+    }
+
+    public TelegramAccountDto? GetConnectedAccount()
+    {
+        if (_client?.User == null) return null;
+
+        var user = _client.User;
+        return new TelegramAccountDto
+        {
+            Id = user.id,
+            Username = user.username,
+            FirstName = user.first_name,
+            LastName = user.last_name,
+            Phone = user.phone
+        };
     }
 
     public async Task DisconnectAsync()

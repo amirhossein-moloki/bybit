@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -344,6 +345,8 @@ public class TelegramIntegrationTests
         // Arrange
         var mockClient = new Mock<ITelegramClient>();
         var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        mockSessionManager.Setup(s => s.SessionExists()).Returns(true);
         var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
 
         var options = new TelegramOptions { Enabled = true };
@@ -366,11 +369,10 @@ public class TelegramIntegrationTests
         mockClient.Setup(c => c.IsConnected()).Returns(false);
         mockClient.Setup(c => c.CurrentState).Returns(TelegramConnectionState.Disconnected);
 
-        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockOptions, mockLogger.Object);
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockSessionManager.Object, mockOptions, mockLogger.Object);
         using var cts = new CancellationTokenSource();
 
         // Act
-        // Run ExecuteAsync in background, cancellation token will stop the worker after a short delay
         var runTask = worker.StartAsync(cts.Token);
         await Task.Delay(100);
         await worker.StopAsync(cts.Token);
@@ -380,11 +382,42 @@ public class TelegramIntegrationTests
     }
 
     [Fact]
+    public async Task TelegramListenerWorker_ShouldSetNotConnected_WhenSessionDoesNotExist()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        mockSessionManager.Setup(s => s.SessionExists()).Returns(false);
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
+
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+
+        mockClient.Setup(c => c.IsConnected()).Returns(false);
+        mockClient.Setup(c => c.CurrentState).Returns(TelegramConnectionState.Disconnected);
+
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockSessionManager.Object, mockOptions, mockLogger.Object);
+        using var cts = new CancellationTokenSource();
+
+        // Act
+        var runTask = worker.StartAsync(cts.Token);
+        await Task.Delay(50);
+        await worker.StopAsync(cts.Token);
+
+        // Assert
+        mockClient.Verify(c => c.SetState(TelegramConnectionState.NotConnected), Times.AtLeastOnce);
+        mockClient.Verify(c => c.ConnectAsync(), Times.Never);
+    }
+
+    [Fact]
     public async Task Telegram_Client_Worker_Pipeline_ShouldReceiveAndMapIncomingMessage()
     {
         // Arrange
         var mockClient = new Mock<ITelegramClient>();
         var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        mockSessionManager.Setup(s => s.SessionExists()).Returns(true);
         var mockReceiver = new Mock<ITelegramMessageReceiver>();
         var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
 
@@ -394,7 +427,7 @@ public class TelegramIntegrationTests
         mockClient.Setup(c => c.IsConnected()).Returns(true);
         mockClient.Setup(c => c.CurrentState).Returns(TelegramConnectionState.Listening);
 
-        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockOptions, mockLogger.Object);
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockSessionManager.Object, mockOptions, mockLogger.Object);
         using var cts = new CancellationTokenSource();
 
         // Start worker

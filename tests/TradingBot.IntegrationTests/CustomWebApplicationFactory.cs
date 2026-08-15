@@ -70,8 +70,23 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             services.AddSingleton<IExchangeStreamClient, FakeExchangeStreamClient>();
 
+            // Remove real ITelegramClient registration and substitute with mock for E2E tests
+            var tgClientDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITelegramClient));
+            if (tgClientDescriptor != null)
+            {
+                services.Remove(tgClientDescriptor);
+            }
+
             var mockTelegramClient = new Mock<ITelegramClient>();
             mockTelegramClient.Setup(x => x.CurrentState).Returns(TelegramConnectionState.Connected);
+            mockTelegramClient.Setup(x => x.IsConnected()).Returns(true);
+            mockTelegramClient.Setup(x => x.LoginWithQrCodeAsync(It.IsAny<Action<string>>(), It.IsAny<CancellationToken>()))
+                .Callback<Action<string>, CancellationToken>((qrDisplay, ct) =>
+                {
+                    qrDisplay("tg://login?token=test_integration_qr_token");
+                })
+                .ReturnsAsync(new TL.User { id = 123456, username = "integration_test_user", first_name = "Test", last_name = "User" });
+            mockTelegramClient.Setup(x => x.GetConnectedAccount()).Returns(new TelegramAccountDto { Id = 123456, Username = "integration_test_user", FirstName = "Test", LastName = "User" });
             services.AddSingleton(mockTelegramClient.Object);
 
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));

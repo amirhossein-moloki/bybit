@@ -13,8 +13,11 @@ services:
       - Exchange__ApiKey=${BYBIT_API_KEY}
       - Exchange__ApiSecret=${BYBIT_API_SECRET}
       - Security__EncryptionKey=${ENCRYPTION_KEY}
+      - Telegram__SessionPath=/app/data/telegram/session
     ports:
       - "5000:80"
+    volumes:
+      - botdata:/app/data
     depends_on:
       - postgres
       - redis
@@ -48,6 +51,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  botdata:
 
 networks:
   tradingbot-network:

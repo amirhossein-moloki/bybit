@@ -19,6 +19,7 @@ public class TelegramListenerWorker : BackgroundService
 {
     private readonly ITelegramClient _client;
     private readonly ITelegramAuthenticationService _authService;
+    private readonly ITelegramSessionManager _sessionManager;
     private readonly TelegramOptions _options;
     private readonly ILogger<TelegramListenerWorker> _logger;
     private readonly ResiliencePipeline _resiliencePipeline;
@@ -26,11 +27,13 @@ public class TelegramListenerWorker : BackgroundService
     public TelegramListenerWorker(
         ITelegramClient client,
         ITelegramAuthenticationService authService,
+        ITelegramSessionManager sessionManager,
         IOptions<TelegramOptions> options,
         ILogger<TelegramListenerWorker> logger)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -54,10 +57,7 @@ public class TelegramListenerWorker : BackgroundService
                 MaxDelay = TimeSpan.FromSeconds(60),
                 OnRetry = args =>
                 {
-                    if (_client is TelegramClientService cs)
-                    {
-                        cs.SetState(TelegramConnectionState.Reconnecting);
-                    }
+                    _client.SetState(TelegramConnectionState.Reconnecting);
                     _logger.LogWarning("Reconnect Attempt {Count}/10 in {Delay} seconds due to: {Exception}",
                         args.AttemptNumber + 1, args.RetryDelay.TotalSeconds, args.Outcome.Exception?.Message);
                     return default;
@@ -99,6 +99,18 @@ public class TelegramListenerWorker : BackgroundService
         {
             try
             {
+                if (!_sessionManager.SessionExists() || _client.CurrentState == TelegramConnectionState.Authenticating)
+                {
+                    if (_client.CurrentState != TelegramConnectionState.NotConnected && _client.CurrentState != TelegramConnectionState.Authenticating)
+                    {
+                        _client.SetState(TelegramConnectionState.NotConnected);
+                        _logger.LogInformation("No Telegram session found. Waiting for Dashboard authentication...");
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+                    continue;
+                }
+
                 if (!_client.IsConnected() || _client.CurrentState != TelegramConnectionState.Listening)
                 {
                     await _resiliencePipeline.ExecuteAsync(async ct =>
@@ -114,10 +126,7 @@ public class TelegramListenerWorker : BackgroundService
                         _logger.LogInformation("Initializing Update Listener...");
                         await _client.InitializeListeningAsync();
 
-                        if (_client is TelegramClientService service)
-                        {
-                            service.SetState(TelegramConnectionState.Listening);
-                        }
+                        _client.SetState(TelegramConnectionState.Listening);
                         _logger.LogInformation("Listening Started");
                     }, stoppingToken);
                 }
@@ -134,13 +143,17 @@ public class TelegramListenerWorker : BackgroundService
             {
                 _logger.LogError(ex, "Error occurred in Telegram listener background loop.");
 
-                if (_client is TelegramClientService service)
+                if (!_sessionManager.SessionExists())
                 {
-                    service.SetState(TelegramConnectionState.Error);
+                    _client.SetState(TelegramConnectionState.NotConnected);
+                    _logger.LogInformation("Telegram session not present. Waiting for Dashboard authentication...");
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    continue;
                 }
 
-                _logger.LogCritical("Telegram listener worker reached maximum reconnection retries (10) or encountered a critical error. Stopping.");
-                break;
+                _client.SetState(TelegramConnectionState.Error);
+                _logger.LogWarning("Telegram listener worker encountered an error. Retrying in 10 seconds...");
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }
         }
 
