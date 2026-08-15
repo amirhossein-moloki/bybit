@@ -14,6 +14,7 @@ import {
   Newspaper,
   RadioTower,
   ScrollText,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -28,6 +29,7 @@ const navigation = [
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/events", label: "Events", icon: RadioTower },
   { href: "/reports", label: "Reports", icon: FileBarChart2 },
+  { href: "/integrations/telegram", label: "Telegram", icon: Send },
 ];
 
 function NavItem({

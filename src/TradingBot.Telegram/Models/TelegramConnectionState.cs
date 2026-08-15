@@ -2,6 +2,7 @@ namespace TradingBot.Telegram.Models;
 
 public enum TelegramConnectionState
 {
+    NotConnected,
     Disconnected,
     Connecting,
     Connected,

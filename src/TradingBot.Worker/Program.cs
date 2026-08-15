@@ -201,6 +201,9 @@ try
     // Map Analytics Endpoints
     app.MapAnalyticsEndpoints();
 
+    // Map Telegram Endpoints
+    app.MapTelegramEndpoints();
+
     app.Run();
 }
 catch (Exception ex)

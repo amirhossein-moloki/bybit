@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
@@ -72,5 +73,26 @@ public class ControllableTelegramClient : ITelegramClient
 
         _messageCount++;
         return Task.CompletedTask;
+    }
+
+    public Task<TL.User?> LoginWithQrCodeAsync(Action<string> qrDisplay, CancellationToken ct = default)
+    {
+        qrDisplay?.Invoke("tg://login?token=test_qr_token");
+        _state = TelegramConnectionState.Connected;
+        var mockUser = new TL.User { id = 123456789, username = "testuser", first_name = "Test", last_name = "User", phone = "12345678" };
+        return Task.FromResult<TL.User?>(mockUser);
+    }
+
+    public TelegramAccountDto? GetConnectedAccount()
+    {
+        if (!IsConnected()) return null;
+        return new TelegramAccountDto
+        {
+            Id = 123456789,
+            Username = "testuser",
+            FirstName = "Test",
+            LastName = "User",
+            Phone = "12345678"
+        };
     }
 }
