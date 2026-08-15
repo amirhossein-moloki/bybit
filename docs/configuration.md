@@ -1,6 +1,6 @@
 # Configuration Documentation
 
-This document describes every environment variable utilized by the **Telegram Signal Trading Bot**, structured across the 10 required configuration groups.
+This document describes every environment variable utilized by the **Telegram Signal Trading Bot**, structured across the 11 required configuration groups.
 
 ---
 
@@ -123,7 +123,7 @@ This document describes every environment variable utilized by the **Telegram Si
 ## 6. AI Provider Settings
 
 ### `Parser__AI__ProviderName`
-* **Purpose**: Chooses between LLM AI analysis (`OpenAI`, `Anthropic`) or a fallback mock.
+* **Purpose**: Chooses between LLM AI analysis (`OpenAI`, `Anthropic`, `OpenRouter`) or a fallback mock.
 * **Required**: Optional (Defaults to `MockAI`)
 * **Example**: `OpenAI`
 * **Security**: Non-sensitive.
@@ -191,3 +191,25 @@ This document describes every environment variable utilized by the **Telegram Si
 * **Required**: Optional
 * **Example**: `12345678,98765432`
 * **Security**: Secondary access-control shield preventing malicious Telegram accounts from injecting trade updates.
+
+---
+
+## 11. Dashboard Settings
+
+### `DASHBOARD_PORT`
+* **Purpose**: Host port mapped to Next.js dashboard container port 3000 in Docker Compose orchestration.
+* **Required**: Optional (Defaults to `3000`)
+* **Example**: `3000`
+* **Security**: Controls external access port for web dashboard UI.
+
+### `API_PROXY_TARGET`
+* **Purpose**: Internal Docker service target URL used by Next.js server rewrites to proxy API requests to the backend worker.
+* **Required**: Optional (Defaults to `http://tradingbot-worker:80`)
+* **Example**: `http://tradingbot-worker:80`
+* **Security**: Internal container networking URL.
+
+### `NEXT_PUBLIC_API_URL`
+* **Purpose**: Public API base URL if calls should bypass same-origin proxy rewrites and go directly from the browser to backend.
+* **Required**: Optional (Defaults to empty for same-origin proxying)
+* **Example**: `http://localhost:5000`
+* **Security**: Public CORS endpoint target when enabled.

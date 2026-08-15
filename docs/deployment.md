@@ -1,13 +1,13 @@
 # Deployment Documentation
 
-This document describes the server requirements and guides you step-by-step through setting up, deploying, and maintaining the **Telegram Signal Trading Bot** in both development and production environments.
+This document describes the server requirements and guides you step-by-step through setting up, deploying, and maintaining the **Telegram Signal Trading Bot** and its Next.js Dashboard in both development and production environments.
 
 ---
 
 ## Server Requirements
 
 * **Operating System**: Linux (Ubuntu 22.04 LTS / Debian 11 recommended), macOS, or Windows Server 2022.
-* **Runtime Environments**: .NET SDK 8.0 or .NET SDK 10.0 runtime.
+* **Runtime Environments**: .NET SDK 8.0/10.0 runtime and Node.js 20+ (for local dashboard development).
 * **Database Requirements**: PostgreSQL 14, 15, or 16.
 * **Redis Requirements**: Redis 7.0 or newer.
 * **Docker Requirements**: Docker Engine 24.0.0+ and Docker Compose v2.20.0+.
@@ -21,7 +21,7 @@ Follow this sequence to prepare a local development and testing environment:
 ```
  Clone Repository
         ↓
- Install Dependencies  (--project parameters on dotnet command)
+ Install Dependencies  (dotnet restore & npm install in dashboard)
         ↓
  Configure Environment  (local .env and appsettings.json)
         ↓
@@ -29,9 +29,9 @@ Start Database Services (docker-compose postgres and redis containers)
         ↓
    Run Migrations      (dotnet ef database update)
         ↓
-  Start Application    (dotnet run)
+  Start Applications   (dotnet run for worker & npm run dev for dashboard)
         ↓
-   Verify Health       (curl localhost:5000/health)
+   Verify Health       (curl localhost:5000/health & curl localhost:3000)
 ```
 
 ### 1. Clone Repository
@@ -41,17 +41,22 @@ cd tradingbot
 ```
 
 ### 2. Install Dependencies
-Restore NuGet dependencies across the entire solution:
+Restore NuGet dependencies across the solution:
 ```bash
 dotnet restore src/TradingBot.sln
 ```
+Install dashboard npm dependencies:
+```bash
+cd dashboard && npm install && cd ..
+```
 
 ### 3. Configure Environment
-Create a local `.env` configuration from the template:
+Create local `.env` configurations from the templates:
 ```bash
 cp .env.example .env
+cp dashboard/.env.example dashboard/.env
 ```
-Fill out the required API keys and settings inside the `.env` file.
+Fill out the required API keys and settings inside the `.env` files.
 
 ### 4. Start Infrastructure Containers
 Bring up local PostgreSQL and Redis servers using Docker:
@@ -71,17 +76,23 @@ Run the worker process in development mode:
 dotnet run --project src/TradingBot.Worker/TradingBot.Worker.csproj
 ```
 
+Run the dashboard in local development mode:
+```bash
+cd dashboard && npm run dev
+```
+
 ### 7. Verify Health
 Verify that the Web host and background services are up:
 ```bash
 curl http://localhost:5000/health
+curl http://localhost:3000
 ```
 
 ---
 
-## Production Deployment
+## Production Deployment via Docker Compose
 
-For live trading systems, configure and run the application inside dedicated Docker containers:
+For live trading systems, run the complete 4-service stack inside dedicated Docker containers:
 
 ```
   Server Preparation     (Install Docker / Docker Compose / secure firewall)
@@ -92,7 +103,7 @@ Environment Configuration (Provision production .env keys and encryption)
           ↓
   Application Build      (Compile optimized Release Docker containers)
           ↓
-   Service Startup       (Launch in detached container orchestrations)
+   Service Startup       (docker-compose up -d --build)
           ↓
  Health Verification     (Monitor live logs and trigger doctor checks)
 ```
@@ -100,7 +111,7 @@ Environment Configuration (Provision production .env keys and encryption)
 ### Step 1: Server Preparation
 Install Docker on the production host and secure the ports:
 * Ensure database port `5432` and Redis port `6379` are not exposed to the public internet.
-* Open Web port `5000` only if you need external dashboard access.
+* Open Web port `5000` (Worker API) and `3000` (Dashboard UI) as required for external management.
 
 ### Step 2: Environment Configuration
 Copy `.env.example` to `.env` on the host server:
@@ -108,23 +119,34 @@ Copy `.env.example` to `.env` on the host server:
 cp .env.example .env
 nano .env
 ```
-Set the `Application__Environment=Production` environment variable, assign a strong `Security__EncryptionKey` (32 characters), and configure Bybit live API credentials.
+Set `Application__Environment=Production`, assign a strong `Security__EncryptionKey` (32 characters), set `API_PROXY_TARGET=http://tradingbot-worker:80`, and configure Bybit live API credentials.
 
 ### Step 3: Application Build and Startup
-Build the container images and launch the orchestrations in detached background mode:
+Build the container images and launch the orchestration in detached background mode:
 ```bash
 docker-compose up -d --build
 ```
 This command automatically:
 * Pulls PostgreSQL and Redis base images.
-* Builds the multi-stage C# runtime image.
+* Builds the multi-stage C# runtime image for `tradingbot-worker`.
+* Builds the multi-stage Node.js runtime image for `tradingbot-dashboard`.
 * Mounts database files locally to preserve persistence across service restarts.
-* Runs the database seeder and automatically applies schema migrations.
+* Runs database migrations and seeds initial configurations.
+
+The full stack services will show as:
+- `tradingbot-postgres` (Running / Healthy)
+- `tradingbot-redis` (Running)
+- `tradingbot-worker` (Running / Healthy)
+- `tradingbot-dashboard` (Running / Healthy)
 
 ### Step 4: Health Verification
-Confirm the application is fully operational by executing the diagnostic command inside the container:
+Confirm the application is fully operational:
 ```bash
+# Verify worker doctor diagnostic checks
 docker-compose exec tradingbot-worker dotnet TradingBot.Worker.dll doctor
+
+# Verify dashboard http status
+curl -I http://localhost:3000
 ```
 
 ---
@@ -146,16 +168,17 @@ dotnet ef database update --project src/TradingBot.Persistence/TradingBot.Persis
 ```
 
 ### 3. Restart Procedures
-To restart only the trading worker process safely without restarting the database:
+To restart specific container services safely:
 ```bash
 docker-compose restart tradingbot-worker
+docker-compose restart tradingbot-dashboard
 ```
 
 ### 4. Log Inspection
-Inspect the live console output or query specific lines using the Docker engine:
+Inspect the live console output or query specific lines using Docker:
 ```bash
-# Follow live container logs
-docker-compose logs -f tradingbot-worker
+# Follow live container logs for worker and dashboard
+docker-compose logs -f tradingbot-worker tradingbot-dashboard
 
 # Inspect error-only events from the persistent log file
 tail -f -n 100 logs/tradingbot.log | grep -i "error"
