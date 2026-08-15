@@ -4,14 +4,14 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://www.postgresql.org/)
 
-An enterprise-grade, highly resilient, and fully automated cryptocurrency trading bot. The system processes multilingual and multi-format Telegram signals (using rule-based extractors and an AI-driven LLM understanding layer), executes risk-managed leveraged trading operations via Bybit's Unified V5 API, maintains thread-safe positions with complex trailing stop-losses/take-profits, and provides an observable dashboard with advanced metrics and report generation.
+An enterprise-grade, highly resilient, and fully automated cryptocurrency trading bot. The system processes multilingual and multi-format Telegram signals (using rule-based extractors and an AI-driven LLM understanding layer), executes risk-managed leveraged trading operations via Bybit's Unified V5 API, maintains thread-safe positions with complex trailing stop-losses/take-profits, and provides an observable Next.js web dashboard with advanced metrics and report generation.
 
 ---
 
 # Project Overview
 
 ## What is this project?
-This project is an advanced, production-ready, asynchronous trading bot built on the **.NET 8.0/10.0** platform. It integrates a Telegram channel message listener, a multi-stage Signal Intelligence pipeline, a deterministic and AI-powered Parsing Engine, a high-precision Risk Management Rule Engine, a fail-closed Order Execution System, a state-managed Position Protection & Lifecycle module, and a comprehensive Analytics & Reporting Engine.
+This project is an advanced, production-ready, asynchronous trading bot built on the **.NET 8.0/10.0** platform. It integrates a Telegram channel message listener, a multi-stage Signal Intelligence pipeline, a deterministic and AI-powered Parsing Engine, a high-precision Risk Management Rule Engine, a fail-closed Order Execution System, a state-managed Position Protection & Lifecycle module, a Next.js operational web dashboard, and a comprehensive Analytics & Reporting Engine.
 
 The system is designed with a strict **Clean Architecture & Domain-Driven Design (DDD)** approach, isolating business rules from infrastructure, databases, and physical exchanges. It guarantees millisecond-level signal validation and order building, with native resilience patterns (exponential backoff, retry, circuit breakers, and state reconciliation loops) protecting live trading funds against API limits, WebSocket drops, and database connection downtime.
 
@@ -20,7 +20,7 @@ The system is designed with a strict **Clean Architecture & Domain-Driven Design
 * **Fail-Closed Execution**: Prevent market orders from executing unless they meet strict risk, leverage, margin, and exchange-specific lot/tick-size rules.
 * **Resilient Position Management**: Protect positions via dynamic break-even triggers, multiple take-profit targets, trailing stop-losses, and active WebSocket-to-REST synchronization.
 * **100% Operational Observability**: Keep system operators informed via Telegram notifications, audit logs with automated credential scrubbing, and direct diagnostic health probes.
-* **Advanced Analytics & Performance**: Expose high-precision read models to evaluate trade statistics, profit factors, equity curves, drawdown curves, and schedule reports.
+* **Advanced Analytics & Web Dashboard**: Expose high-precision read models and an interactive Next.js Dashboard to monitor system health, evaluate trade statistics, profit factors, equity curves, drawdown curves, and schedule reports.
 
 ## Current Features
 * **Multilingual Message Classifier**: Detects trading signals, updates, cancellations, and casual channel chatter in English and Persian using custom language dictionaries and score heuristics.
@@ -29,11 +29,12 @@ The system is designed with a strict **Clean Architecture & Domain-Driven Design
 * **Bybit V5 Execution Adapter**: Integrates with Bybit Unified Trading Accounts (Linear Perpetuals) over secure, signed HMAC-SHA256 REST requests and parallel WebSocket streams.
 * **Position Protection Lifecycle**: Supports dynamic Break-even offsets, Multi-target Take Profits (TP), Trailing Stops (Fixed and Percentage), and custom partial closing reasons.
 * **Deduplication & Self-Healing Loops**: Protects against concurrent duplicate signals using database unique indexes and resolves "Unknown" order states automatically via background reconciliation workers.
-* **Secured API & Analytics endpoints**: Minimal APIs protected under custom claim-based token validation exposing metrics, aggregation, CSV exports, and report schedulers.
+* **Secured API, Analytics & Next.js Dashboard**: Minimal APIs protected under custom claim-based token validation paired with a multi-stage Dockerized Next.js Dashboard for live system monitoring and QR authentication.
 * **Self-Diagnostics (`doctor` mode)**: Probes internal databases, Redis networking, Bybit connectivity, Telegram authentication, and configuration safety from the command line.
 
 ## Technology Stack
 * **Runtime**: .NET 8.0 & .NET 10.0 SDK
+* **Frontend Dashboard**: Next.js 14, React 18, Tailwind CSS, TypeScript
 * **Framework**: ASP.NET Core Minimal APIs
 * **Database & ORM**: EF Core 8.0, PostgreSQL (Production), SQLite (Integration Testing)
 * **Caching & Networking**: System.Net.WebSockets, HttpClient
@@ -62,6 +63,9 @@ The project strictly follows **Clean Architecture** pointing dependencies inward
                            +---------------+----------------+
                                            │
                                    TradingBot.Worker (Runtime Host)
+                                           ▲
+                                           │ (Proxied API)
+                                 tradingbot-dashboard (Next.js)
 ```
 
 1. **TradingBot.Domain**: Contains core entities, value objects, domain events, and state machine invariants (e.g., `SignalContext`, `Order`, `Position`, `Trade`, `SystemLog`, `TradeOperation`).
@@ -71,12 +75,14 @@ The project strictly follows **Clean Architecture** pointing dependencies inward
 5. **TradingBot.Parser**: Contains preprocessing, template matcher, rule-based extraction rules, and AI providers (`MockAIProvider`, prompt builders).
 6. **TradingBot.Telegram**: Controls session management, update receiver loops, notification channels, and Telegram authentication paths.
 7. **TradingBot.Worker**: Acts as the Composition Root bootstrapping configurations, scheduling background workers, and mapping Web host endpoints.
+8. **tradingbot-dashboard**: A Next.js 14 production service built via multi-stage Docker orchestration, providing real-time operational views and status endpoints.
 
 ---
 
 # Project Structure
 
 ```
+dashboard/                           # Next.js 14 frontend web application & Dockerfile
 src/
 ├── TradingBot.Domain/               # Core Domain models, enums, exceptions, and events
 ├── TradingBot.Application/          # Use cases, contract interfaces, repositories interfaces, workflow services
@@ -90,6 +96,24 @@ tests/
 ├── TradingBot.UnitTests/            # Domain, calculator, parser, and risk engine unit tests
 └── TradingBot.IntegrationTests/     # End-to-end integration, API endpoint tests, and high-concurrency stress tests
 ```
+
+---
+
+# Docker Compose Full-Stack Deployment
+
+To run the complete system stack (PostgreSQL, Redis, Worker, and Dashboard):
+
+```bash
+docker compose up -d --build
+```
+
+The stack launches 4 interconnected services on the `tradingbot-network` bridge:
+- `tradingbot-postgres` (PostgreSQL database on port 5432)
+- `tradingbot-redis` (Redis caching on port 6379)
+- `tradingbot-worker` (Backend API & background worker on port 5000)
+- `tradingbot-dashboard` (Next.js Dashboard on port 3000)
+
+Access the Next.js Dashboard at: `http://localhost:3000`
 
 ---
 
@@ -183,7 +207,15 @@ To run the main Worker host locally:
 dotnet run --project src/TradingBot.Worker/TradingBot.Worker.csproj
 ```
 
-The Web Host starts by default on `http://localhost:5000` (or `https://localhost:5001`), exposing OpenAPI documentation and health endpoints.
+To run the Next.js Dashboard locally in development mode:
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+The Web Host starts by default on `http://localhost:5000` (exposing APIs and health endpoints), while the Next.js Dashboard runs at `http://localhost:3000`.
 
 ## Testing
 

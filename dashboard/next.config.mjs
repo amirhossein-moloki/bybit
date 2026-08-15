@@ -2,6 +2,7 @@ const backendTarget = process.env.API_PROXY_TARGET || "http://localhost:5293";
 
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   async rewrites() {
     // When NEXT_PUBLIC_API_URL is not set, the dashboard calls the same-origin
     // "/api/*" path and Next.js proxies those requests to the backend host.
