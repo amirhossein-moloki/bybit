@@ -13,8 +13,8 @@ services:
       - Exchange__ApiSecret=${BYBIT_API_SECRET}
       - Security__EncryptionKey=${ENCRYPTION_KEY}
       - Telegram__SessionPath=/app/data/telegram/session
-    ports:
-      - "5000:80"
+    expose:
+      - "80"
     volumes:
       - botdata:/app/data
     depends_on:
@@ -28,10 +28,10 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: tradingbot-dashboard
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://tradingbot-worker
+      - API_PROXY_TARGET=http://tradingbot-worker
     depends_on:
       - tradingbot-worker
     restart: unless-stopped
@@ -51,6 +51,8 @@ services:
     container_name: tradingbot-nginx
     ports:
       - "80:80"
+    expose:
+      - "80"
     depends_on:
       - dashboard
       - tradingbot-worker
