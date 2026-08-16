@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   tradingbot-worker:
     image: tradingbot-worker:latest
@@ -9,6 +7,7 @@ services:
     container_name: tradingbot-worker
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
       - Database__ConnectionString=Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}
       - Exchange__ApiKey=${BYBIT_API_KEY}
       - Exchange__ApiSecret=${BYBIT_API_SECRET}
@@ -21,6 +20,47 @@ services:
     depends_on:
       - postgres
       - redis
+    networks:
+      - tradingbot-network
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: tradingbot-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://tradingbot-worker
+    depends_on:
+      - tradingbot-worker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/login || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - tradingbot-network
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: tradingbot-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - dashboard
+      - tradingbot-worker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/login || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - tradingbot-network
 
