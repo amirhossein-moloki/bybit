@@ -12,7 +12,12 @@ services:
       - Exchange__ApiKey=${BYBIT_API_KEY}
       - Exchange__ApiSecret=${BYBIT_API_SECRET}
       - Security__EncryptionKey=${ENCRYPTION_KEY}
-      - Telegram__SessionPath=/app/data/telegram/session
+      - Telegram__ApiId=${TELEGRAM_API_ID:-}
+      - Telegram__ApiHash=${TELEGRAM_API_HASH:-}
+      - Telegram__PhoneNumber=${TELEGRAM_PHONE_NUMBER:-}
+      - Telegram__SessionPath=${TELEGRAM_SESSION_PATH:-/app/data/telegram/session}
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID:-}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH:-}
     expose:
       - "80"
     volumes:
