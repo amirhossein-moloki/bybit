@@ -1,4 +1,6 @@
 using System;
+using System.Net;
+using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Streams;
@@ -22,9 +24,21 @@ public static class DependencyInjection
         configure(settings);
         services.AddSingleton(settings);
 
-        services.AddHttpClient<IExchangeClient, BybitExchangeClient>();
-        services.AddHttpClient<IExchangeTradingGateway, BybitExecutionAdapter>();
-        services.AddHttpClient<IPositionGateway, PositionGateway>();
+        void ConfigureHttpClientProxy(IHttpClientBuilder builder)
+        {
+            if (!string.IsNullOrWhiteSpace(settings.ProxyUrl) && Uri.TryCreate(settings.ProxyUrl, UriKind.Absolute, out var proxyUri))
+            {
+                builder.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    Proxy = new WebProxy(proxyUri),
+                    UseProxy = true
+                });
+            }
+        }
+
+        ConfigureHttpClientProxy(services.AddHttpClient<IExchangeClient, BybitExchangeClient>());
+        ConfigureHttpClientProxy(services.AddHttpClient<IExchangeTradingGateway, BybitExecutionAdapter>());
+        ConfigureHttpClientProxy(services.AddHttpClient<IPositionGateway, PositionGateway>());
 
         // Register WebSockets and Stream Clients
         services.AddSingleton<SubscriptionManager>();
