@@ -258,38 +258,47 @@ public static class TradingBotDoctor
             {
                 Console.WriteLine("  Status: OK (Disabled in configuration)");
             }
-            else if (string.IsNullOrWhiteSpace(telegramOptions.ApiId) || string.IsNullOrWhiteSpace(telegramOptions.ApiHash))
-            {
-                Console.WriteLine("  Status: WARNING");
-                Console.WriteLine("  Reason: ApiId or ApiHash is missing.");
-                recommendations.Add("Add Telegram__ApiId and Telegram__ApiHash to .env settings.");
-            }
             else
             {
-                // Connectivity check to Telegram Server
-                try
-                {
-                    using var tc = new TcpClient();
-                    var tcConnect = tc.ConnectAsync("telegram.org", 443);
-                    if (await Task.WhenAny(tcConnect, Task.Delay(3000)) == tcConnect)
-                    {
-                        await tcConnect;
-                        Console.WriteLine("  Status: OK");
-                        Console.WriteLine($"  PhoneNumber: {telegramOptions.PhoneNumber}");
-                        Console.WriteLine($"  Monitored Channels: {string.Join(", ", telegramOptions.Channels)}");
-                    }
-                    else
-                    {
-                        Console.WriteLine("  Status: WARNING");
-                        Console.WriteLine("  Reason: Connection to telegram.org timed out.");
-                        recommendations.Add("Ensure outbound connection to Telegram network is allowed.");
-                    }
-                }
-                catch (Exception ex)
+                bool hasApiId = !string.IsNullOrWhiteSpace(telegramOptions.ApiId);
+                bool hasApiHash = !string.IsNullOrWhiteSpace(telegramOptions.ApiHash);
+
+                Console.WriteLine($"  API ID configured: {hasApiId}");
+                Console.WriteLine($"  API Hash configured: {hasApiHash}");
+
+                if (!hasApiId || !hasApiHash)
                 {
                     Console.WriteLine("  Status: WARNING");
-                    Console.WriteLine($"  Reason: DNS or Network Connection failure ({ex.Message})");
-                    recommendations.Add("Check DNS and network firewall for Telegram API routing.");
+                    Console.WriteLine("  Reason: ApiId or ApiHash is missing.");
+                    recommendations.Add("Add TELEGRAM_API_ID and TELEGRAM_API_HASH (or Telegram__ApiId and Telegram__ApiHash) to .env settings.");
+                }
+                else
+                {
+                    // Connectivity check to Telegram Server
+                    try
+                    {
+                        using var tc = new TcpClient();
+                        var tcConnect = tc.ConnectAsync("telegram.org", 443);
+                        if (await Task.WhenAny(tcConnect, Task.Delay(3000)) == tcConnect)
+                        {
+                            await tcConnect;
+                            Console.WriteLine("  Status: OK");
+                            Console.WriteLine($"  PhoneNumber: {(string.IsNullOrWhiteSpace(telegramOptions.PhoneNumber) ? "Not set" : "Configured")}");
+                            Console.WriteLine($"  Monitored Channels: {string.Join(", ", telegramOptions.Channels)}");
+                        }
+                        else
+                        {
+                            Console.WriteLine("  Status: WARNING");
+                            Console.WriteLine("  Reason: Connection to telegram.org timed out.");
+                            recommendations.Add("Ensure outbound connection to Telegram network is allowed.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("  Status: WARNING");
+                        Console.WriteLine($"  Reason: DNS or Network Connection failure ({ex.Message})");
+                        recommendations.Add("Check DNS and network firewall for Telegram API routing.");
+                    }
                 }
             }
         }

@@ -19,28 +19,40 @@ public static class DependencyInjection
 
         services.PostConfigure<TelegramOptions>(options =>
         {
-            var envApiId = Environment.GetEnvironmentVariable("TELEGRAM_API_ID");
-            if (!string.IsNullOrEmpty(envApiId))
+            var envApiId = Environment.GetEnvironmentVariable("TELEGRAM_API_ID")
+                           ?? Environment.GetEnvironmentVariable("Telegram__ApiId");
+            if (!string.IsNullOrWhiteSpace(envApiId) && string.IsNullOrWhiteSpace(options.ApiId))
             {
-                options.ApiId = envApiId;
+                options.ApiId = envApiId.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(envApiId))
+            {
+                options.ApiId = envApiId.Trim();
             }
 
-            var envApiHash = Environment.GetEnvironmentVariable("TELEGRAM_API_HASH");
-            if (!string.IsNullOrEmpty(envApiHash))
+            var envApiHash = Environment.GetEnvironmentVariable("TELEGRAM_API_HASH")
+                             ?? Environment.GetEnvironmentVariable("Telegram__ApiHash");
+            if (!string.IsNullOrWhiteSpace(envApiHash) && string.IsNullOrWhiteSpace(options.ApiHash))
             {
-                options.ApiHash = envApiHash;
+                options.ApiHash = envApiHash.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(envApiHash))
+            {
+                options.ApiHash = envApiHash.Trim();
             }
 
-            var envPhone = Environment.GetEnvironmentVariable("TELEGRAM_PHONE");
-            if (!string.IsNullOrEmpty(envPhone))
+            var envPhone = Environment.GetEnvironmentVariable("TELEGRAM_PHONE")
+                           ?? Environment.GetEnvironmentVariable("Telegram__PhoneNumber");
+            if (!string.IsNullOrWhiteSpace(envPhone))
             {
-                options.PhoneNumber = envPhone;
+                options.PhoneNumber = envPhone.Trim();
             }
 
-            var envSessionPath = Environment.GetEnvironmentVariable("TELEGRAM_SESSION_PATH");
-            if (!string.IsNullOrEmpty(envSessionPath))
+            var envSessionPath = Environment.GetEnvironmentVariable("TELEGRAM_SESSION_PATH")
+                                 ?? Environment.GetEnvironmentVariable("Telegram__SessionPath");
+            if (!string.IsNullOrWhiteSpace(envSessionPath))
             {
-                options.SessionPath = envSessionPath;
+                options.SessionPath = envSessionPath.Trim();
             }
         });
 

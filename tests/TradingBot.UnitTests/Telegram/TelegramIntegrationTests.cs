@@ -135,13 +135,13 @@ public class TelegramIntegrationTests
     }
 
     [Fact]
-    public async Task TelegramClientService_ShouldTransitionToErrorState_WhenConnectThrowsException()
+    public async Task TelegramClientService_ShouldThrowInvalidTelegramConfigurationException_WhenApiIdIsMissing()
     {
         // Arrange
         var options = new TelegramOptions
         {
-            ApiId = "", // Invalid to trigger exception during config check or construction
-            ApiHash = "test_hash",
+            ApiId = "",
+            ApiHash = "00112233445566778899aabbccddeeff",
             PhoneNumber = "+123456",
             Enabled = true
         };
@@ -153,13 +153,71 @@ public class TelegramIntegrationTests
         var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object, mockReceiver.Object);
 
         // Act & Assert
-        clientService.CurrentState.Should().Be(TelegramConnectionState.Disconnected);
-
         Func<Task> act = async () => await clientService.ConnectAsync();
-        await act.Should().ThrowAsync<TelegramConnectionException>();
+        var ex = await act.Should().ThrowAsync<TelegramConnectionException>();
+        ex.WithInnerException<InvalidTelegramConfigurationException>()
+          .WithMessage("*Telegram ApiId is not configured.*");
 
         clientService.CurrentState.Should().Be(TelegramConnectionState.Error);
-        clientService.IsConnected().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TelegramClientService_ShouldThrowInvalidTelegramConfigurationException_WhenApiHashIsMissing()
+    {
+        // Arrange
+        var options = new TelegramOptions
+        {
+            ApiId = "123456",
+            ApiHash = "",
+            PhoneNumber = "+123456",
+            Enabled = true
+        };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        mockSessionManager.Setup(s => s.LoadSession()).Returns(new MemoryStream());
+        var mockReceiver = new Mock<ITelegramMessageReceiver>();
+
+        var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object, mockReceiver.Object);
+
+        // Act & Assert
+        Func<Task> act = async () => await clientService.ConnectAsync();
+        var ex = await act.Should().ThrowAsync<TelegramConnectionException>();
+        ex.WithInnerException<InvalidTelegramConfigurationException>()
+          .WithMessage("*Telegram ApiHash is not configured.*");
+
+        clientService.CurrentState.Should().Be(TelegramConnectionState.Error);
+    }
+
+    [Fact]
+    public void TelegramOptions_ShouldBindFromDirectEnvironmentVariables()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var myConfiguration = new Dictionary<string, string>();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(myConfiguration!)
+            .Build();
+
+        Environment.SetEnvironmentVariable("Telegram__ApiId", "777777");
+        Environment.SetEnvironmentVariable("Telegram__ApiHash", "direct_hash");
+
+        try
+        {
+            // Act
+            services.AddTelegramIntegration(configuration);
+            var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+
+            // Assert
+            options.ApiId.Should().Be("777777");
+            options.ApiHash.Should().Be("direct_hash");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Telegram__ApiId", null);
+            Environment.SetEnvironmentVariable("Telegram__ApiHash", null);
+        }
     }
 
     [Fact]
