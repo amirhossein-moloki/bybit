@@ -34,6 +34,11 @@ try
     {
         settings.Database.ConnectionString = envDbConn;
     }
+    var envProxyUrl = Environment.GetEnvironmentVariable("BYBIT_PROXY_URL");
+    if (!string.IsNullOrEmpty(envProxyUrl))
+    {
+        settings.Exchange.ProxyUrl = envProxyUrl;
+    }
 
     // 2. Logging Infrastructure (Serilog)
     Log.Logger = SerilogConfiguration.CreateLoggerConfiguration(settings)
@@ -69,6 +74,7 @@ try
         options.UseSandbox = settings.Exchange.UseSandbox;
         options.Environment = settings.Exchange.Environment;
         options.RecvWindow = settings.Exchange.RecvWindow;
+        options.ProxyUrl = settings.Exchange.ProxyUrl;
     });
     builder.Services.AddTelegramIntegration(builder.Configuration);
 

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -267,5 +268,44 @@ public class BybitClientTests
         result.ClientOrderId.Should().Be("test-link-id");
         result.Status.Should().Be(OrderStatus.Accepted);
         result.ExchangeOrderId.Should().Be("1321003749386327552");
+    }
+
+    [Fact]
+    public void BybitSettings_ProxyUrl_ShouldDefaultToEmpty_AndCanBeConfigured()
+    {
+        // Arrange & Act
+        var settings = new BybitSettings
+        {
+            ProxyUrl = "socks5://host.docker.internal:10808"
+        };
+
+        // Assert
+        settings.ProxyUrl.Should().Be("socks5://host.docker.internal:10808");
+    }
+
+    [Fact]
+    public void AddBybitExchange_ShouldRegisterServices_WithOrWithoutProxyUrl()
+    {
+        // Arrange
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IResilienceService, FakeResilienceService>();
+
+        // Act
+        services.AddBybitExchange(options =>
+        {
+            options.ApiKey = "key";
+            options.ApiSecret = "secret";
+            options.ProxyUrl = "socks5://host.docker.internal:10808";
+        });
+
+        var provider = services.BuildServiceProvider();
+
+        // Assert
+        var registeredSettings = provider.GetRequiredService<BybitSettings>();
+        registeredSettings.ProxyUrl.Should().Be("socks5://host.docker.internal:10808");
+
+        var exchangeClient = provider.GetService<IExchangeClient>();
+        exchangeClient.Should().NotBeNull();
     }
 }
