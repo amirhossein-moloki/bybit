@@ -19,6 +19,31 @@ try
     builder.Configuration.Bind(settings);
 
     // Override from explicit production environment variables if present
+    var envBybitEnv = Environment.GetEnvironmentVariable("BYBIT_ENVIRONMENT");
+    if (!string.IsNullOrEmpty(envBybitEnv))
+    {
+        settings.Exchange.Environment = envBybitEnv;
+    }
+    var envDemoApiKey = Environment.GetEnvironmentVariable("BYBIT_DEMO_API_KEY");
+    if (!string.IsNullOrEmpty(envDemoApiKey))
+    {
+        settings.Exchange.DemoApiKey = envDemoApiKey;
+    }
+    var envDemoApiSecret = Environment.GetEnvironmentVariable("BYBIT_DEMO_API_SECRET");
+    if (!string.IsNullOrEmpty(envDemoApiSecret))
+    {
+        settings.Exchange.DemoApiSecret = envDemoApiSecret;
+    }
+    var envMainnetApiKey = Environment.GetEnvironmentVariable("BYBIT_MAINNET_API_KEY");
+    if (!string.IsNullOrEmpty(envMainnetApiKey))
+    {
+        settings.Exchange.MainnetApiKey = envMainnetApiKey;
+    }
+    var envMainnetApiSecret = Environment.GetEnvironmentVariable("BYBIT_MAINNET_API_SECRET");
+    if (!string.IsNullOrEmpty(envMainnetApiSecret))
+    {
+        settings.Exchange.MainnetApiSecret = envMainnetApiSecret;
+    }
     var envApiKey = Environment.GetEnvironmentVariable("BYBIT_API_KEY");
     if (!string.IsNullOrEmpty(envApiKey))
     {
@@ -71,6 +96,10 @@ try
     {
         options.ApiKey = settings.Exchange.ApiKey;
         options.ApiSecret = settings.Exchange.ApiSecret;
+        options.DemoApiKey = settings.Exchange.DemoApiKey;
+        options.DemoApiSecret = settings.Exchange.DemoApiSecret;
+        options.MainnetApiKey = settings.Exchange.MainnetApiKey;
+        options.MainnetApiSecret = settings.Exchange.MainnetApiSecret;
         options.UseSandbox = settings.Exchange.UseSandbox;
         options.Environment = settings.Exchange.Environment;
         options.RecvWindow = settings.Exchange.RecvWindow;

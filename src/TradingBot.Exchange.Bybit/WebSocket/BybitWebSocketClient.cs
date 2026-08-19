@@ -191,15 +191,8 @@ public class BybitWebSocketClient : IExchangeStreamClient
         }
         catch { }
 
-        var publicUrl = _settings.UseSandbox
-            ? "wss://stream-testnet.bybit.com/v5/public/spot"
-            : "wss://stream.bybit.com/v5/public/spot";
-
-        var privateUrl = string.Equals(_settings.Environment, "Demo", StringComparison.OrdinalIgnoreCase)
-            ? "wss://stream-demo.bybit.com/v5/private"
-            : (_settings.UseSandbox
-                ? "wss://stream-testnet.bybit.com/v5/private"
-                : "wss://stream.bybit.com/v5/private");
+        var publicUrl = BybitOptions.GetPublicWebSocketUrl(_settings.Environment, "spot");
+        var privateUrl = BybitOptions.GetPrivateWebSocketUrl(_settings.Environment);
 
         _publicSocket = new ClientWebSocket();
         _privateSocket = new ClientWebSocket();
@@ -216,7 +209,10 @@ public class BybitWebSocketClient : IExchangeStreamClient
 
     private async Task AuthenticatePrivateSocketAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(_settings.ApiKey) || string.IsNullOrEmpty(_settings.ApiSecret))
+        var apiKey = _settings.EffectiveApiKey;
+        var apiSecret = _settings.EffectiveApiSecret;
+
+        if (string.IsNullOrEmpty(apiKey) || string.IsNullOrEmpty(apiSecret))
         {
             _logger.LogWarning("WebSocket: API Key or Secret is not configured. Private stream will not be authenticated.");
             return;
@@ -226,7 +222,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
         var rawSig = $"GET/realtime{expires}";
 
         string signature;
-        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_settings.ApiSecret)))
+        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(apiSecret)))
         {
             var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawSig));
             signature = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
@@ -235,7 +231,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
         var authPayload = new
         {
             op = "auth",
-            args = new object[] { _settings.ApiKey, expires, signature }
+            args = new object[] { apiKey, expires, signature }
         };
 
         var json = JsonSerializer.Serialize(authPayload);

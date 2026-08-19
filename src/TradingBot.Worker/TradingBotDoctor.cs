@@ -160,9 +160,9 @@ public static class TradingBotDoctor
         {
             var exchangeClient = scopedServices.GetRequiredService<IExchangeClient>();
             var config = scopedServices.GetRequiredService<IConfiguration>();
-            var apiKey = config["Exchange:ApiKey"] ?? config["BYBIT_API_KEY"] ?? "";
-            var apiSecret = config["Exchange:ApiSecret"] ?? config["BYBIT_SECRET_KEY"] ?? "";
-            var useSandbox = config.GetValue<bool>("Exchange:UseSandbox");
+            var environment = config["Exchange:Environment"] ?? config["BYBIT_ENVIRONMENT"] ?? "Demo";
+            var apiKey = config["Exchange:DemoApiKey"] ?? config["BYBIT_DEMO_API_KEY"] ?? config["BYBIT_API_KEY"] ?? "";
+            var apiSecret = config["Exchange:DemoApiSecret"] ?? config["BYBIT_DEMO_API_SECRET"] ?? config["BYBIT_SECRET_KEY"] ?? "";
 
             var sw = Stopwatch.StartNew();
             var pingOk = await exchangeClient.PingAsync(CancellationToken.None);
@@ -181,7 +181,7 @@ public static class TradingBotDoctor
                 {
                     Console.WriteLine("  Status: WARNING");
                     Console.WriteLine("  Reason: API Keys not configured.");
-                    recommendations.Add("Set BYBIT_API_KEY and BYBIT_SECRET_KEY inside .env.");
+                    recommendations.Add("Set BYBIT_DEMO_API_KEY and BYBIT_DEMO_API_SECRET or BYBIT_MAINNET_API_KEY and BYBIT_MAINNET_API_SECRET inside .env.");
                 }
                 else
                 {
@@ -209,10 +209,11 @@ public static class TradingBotDoctor
                 }
 
                 Console.WriteLine($"  REST Latency: {sw.ElapsedMilliseconds} ms");
-                Console.WriteLine($"  Endpoint Environment: {(useSandbox ? "Testnet/Sandbox" : "Production/Live")}");
+                Console.WriteLine($"  Endpoint Environment: {environment}");
 
                 // WebSocket check
-                var wsHost = useSandbox ? "stream-testnet.bybit.com" : "stream.bybit.com";
+                var isDemo = string.Equals(environment, "Demo", StringComparison.OrdinalIgnoreCase);
+                var wsHost = isDemo ? "stream-demo.bybit.com" : "stream.bybit.com";
                 try
                 {
                     using var wsClient = new TcpClient();

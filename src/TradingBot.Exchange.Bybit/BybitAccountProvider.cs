@@ -29,13 +29,15 @@ public class BybitAccountProvider : IBybitAccountProvider
         var accounts = new List<BybitAccountInfo>();
 
         // 1. Add default account if configured in root BybitSettings
-        if (!string.IsNullOrEmpty(_settings.ApiKey) && !string.IsNullOrEmpty(_settings.ApiSecret))
+        var defaultApiKey = _settings.EffectiveApiKey;
+        var defaultApiSecret = _settings.EffectiveApiSecret;
+        if (!string.IsNullOrEmpty(defaultApiKey) && !string.IsNullOrEmpty(defaultApiSecret))
         {
             accounts.Add(new BybitAccountInfo
             {
                 Name = "Default",
-                ApiKey = _settings.ApiKey,
-                ApiSecret = _settings.ApiSecret,
+                ApiKey = defaultApiKey,
+                ApiSecret = defaultApiSecret,
                 Environment = _settings.Environment
             });
         }
@@ -113,8 +115,8 @@ public class BybitAccountProvider : IBybitAccountProvider
             accounts.Add(new BybitAccountInfo
             {
                 Name = "Fallback",
-                ApiKey = _settings.ApiKey,
-                ApiSecret = _settings.ApiSecret,
+                ApiKey = defaultApiKey,
+                ApiSecret = defaultApiSecret,
                 Environment = _settings.Environment
             });
         }

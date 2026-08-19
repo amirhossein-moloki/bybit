@@ -51,14 +51,14 @@ public class BybitExecutionIntegrationTests
         _httpMessageHandlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         _httpClient = new HttpClient(_httpMessageHandlerMock.Object)
         {
-            BaseAddress = new Uri("https://api-testnet.bybit.com")
+            BaseAddress = new Uri("https://api-demo.bybit.com")
         };
 
         _settings = new BybitSettings
         {
             ApiKey = "test_api_key",
             ApiSecret = "test_api_secret",
-            Environment = "Testnet",
+            Environment = "Demo",
             RecvWindow = 5000
         };
 
@@ -130,10 +130,10 @@ public class BybitExecutionIntegrationTests
     }
 
     [Fact]
-    public async Task Real_BybitTestnet_OrderSubmission_GatedByEnvironmentFlag()
+    public async Task Real_BybitDemo_OrderSubmission_GatedByEnvironmentFlag()
     {
         // Check gating flag
-        var integrationEnabledEnv = Environment.GetEnvironmentVariable("BYBIT_TESTNET_INTEGRATION");
+        var integrationEnabledEnv = Environment.GetEnvironmentVariable("BYBIT_DEMO_INTEGRATION") ?? Environment.GetEnvironmentVariable("BYBIT_TESTNET_INTEGRATION");
         var isEnabled = string.Equals(integrationEnabledEnv, "true", StringComparison.OrdinalIgnoreCase);
 
         if (!isEnabled)
@@ -143,14 +143,14 @@ public class BybitExecutionIntegrationTests
         }
 
         // Arrange: Real configuration from environment variables
-        var apiKey = Environment.GetEnvironmentVariable("BYBIT_API_KEY") ?? throw new Exception("BYBIT_API_KEY missing for integration test");
-        var apiSecret = Environment.GetEnvironmentVariable("BYBIT_SECRET_KEY") ?? throw new Exception("BYBIT_SECRET_KEY missing for integration test");
+        var apiKey = Environment.GetEnvironmentVariable("BYBIT_DEMO_API_KEY") ?? Environment.GetEnvironmentVariable("BYBIT_API_KEY") ?? throw new Exception("BYBIT_DEMO_API_KEY missing for integration test");
+        var apiSecret = Environment.GetEnvironmentVariable("BYBIT_DEMO_API_SECRET") ?? Environment.GetEnvironmentVariable("BYBIT_SECRET_KEY") ?? throw new Exception("BYBIT_DEMO_API_SECRET missing for integration test");
 
         var realSettings = new BybitSettings
         {
-            ApiKey = apiKey,
-            ApiSecret = apiSecret,
-            Environment = "Testnet",
+            DemoApiKey = apiKey,
+            DemoApiSecret = apiSecret,
+            Environment = "Demo",
             RecvWindow = 5000
         };
 
