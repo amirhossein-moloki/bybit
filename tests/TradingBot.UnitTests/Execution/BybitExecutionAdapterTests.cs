@@ -37,7 +37,7 @@ public class BybitExecutionAdapterTests
         {
             ApiKey = "test_api_key",
             ApiSecret = "test_api_secret",
-            Environment = "Testnet",
+            Environment = "Demo",
             RecvWindow = 5000
         };
 
@@ -68,11 +68,13 @@ public class BybitExecutionAdapterTests
     #region Configuration Tests
 
     [Theory]
-    [InlineData("Testnet", "https://api-testnet.bybit.com/")]
+    [InlineData("Demo", "https://api-demo.bybit.com/")]
+    [InlineData("Mainnet", "https://api.bybit.com/")]
+    [InlineData("demo", "https://api-demo.bybit.com/")]
+    [InlineData("mainnet", "https://api.bybit.com/")]
     [InlineData("Production", "https://api.bybit.com/")]
-    [InlineData("testnet", "https://api-testnet.bybit.com/")]
     [InlineData("production", "https://api.bybit.com/")]
-    [InlineData("RandomEnv", "https://api-testnet.bybit.com/")] // Invalid or unhandled defaults to Testnet
+    [InlineData("RandomEnv", "https://api-demo.bybit.com/")] // Invalid or unhandled defaults to Demo
     public void Configuration_ShouldResolveCorrectBaseUrl(string environment, string expectedUrl)
     {
         // Arrange

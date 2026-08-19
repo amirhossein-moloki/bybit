@@ -53,13 +53,14 @@ public class BybitClientTests
         _httpMessageHandlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         _httpClient = new HttpClient(_httpMessageHandlerMock.Object)
         {
-            BaseAddress = new Uri("https://api-testnet.bybit.com")
+            BaseAddress = new Uri("https://api-demo.bybit.com")
         };
 
         _settings = new BybitSettings
         {
             ApiKey = "test_api_key",
             ApiSecret = "test_api_secret",
+            Environment = "Demo",
             UseSandbox = true
         };
 

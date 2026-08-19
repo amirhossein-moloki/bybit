@@ -36,26 +36,20 @@ public class BybitExecutionAdapter : IExchangeTradingGateway
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _accountProvider = accountProvider ?? new SingleBybitAccountProvider(settings.ApiKey, settings.ApiSecret, settings.Environment);
+        var defaultApiKey = _settings.EffectiveApiKey;
+        var defaultApiSecret = _settings.EffectiveApiSecret;
+        _accountProvider = accountProvider ?? new SingleBybitAccountProvider(defaultApiKey, defaultApiSecret, settings.Environment);
 
         if (_httpClient.BaseAddress == null)
         {
-            var baseUrl = ResolveBaseUrl(_settings.Environment);
+            var baseUrl = BybitOptions.GetBaseUrl(_settings.Environment);
             _httpClient.BaseAddress = new Uri(baseUrl);
         }
     }
 
     private string ResolveBaseUrl(string environment)
     {
-        if (string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
-        {
-            return "https://api.bybit.com";
-        }
-        if (string.Equals(environment, "Demo", StringComparison.OrdinalIgnoreCase))
-        {
-            return "https://api-demo.bybit.com";
-        }
-        return "https://api-testnet.bybit.com";
+        return BybitOptions.GetBaseUrl(environment);
     }
 
     public async Task<OrderResult> CreateOrderAsync(OrderRequest request, CancellationToken cancellationToken = default)
