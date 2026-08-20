@@ -95,4 +95,31 @@ public class ControllableTelegramClient : ITelegramClient
             Phone = "12345678"
         };
     }
+
+    public Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync()
+    {
+        var list = new System.Collections.Generic.List<TelegramDialogDto>
+        {
+            new TelegramDialogDto
+            {
+                Id = 1001,
+                Title = "Test Signal Channel",
+                Username = "test_signals",
+                IsChannel = true,
+                IsGroup = false,
+                IsMonitored = true
+            }
+        };
+        return Task.FromResult(list);
+    }
+
+    public System.Collections.Generic.List<string> GetMonitoredChannels()
+    {
+        return new System.Collections.Generic.List<string> { "test_signals", "-100123456789" };
+    }
+
+    public bool ToggleMonitoredChannel(string identifier, bool enable)
+    {
+        return true;
+    }
 }

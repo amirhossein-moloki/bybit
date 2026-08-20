@@ -4,6 +4,7 @@ import type {
   TelegramStatusDto,
   TelegramQrStartResultDto,
   TelegramQrStatusDto,
+  TelegramDialogDto,
 } from "@/types/telegram";
 
 const base = "/api/telegram";
@@ -29,4 +30,23 @@ export async function fetchTelegramQrStatus(token: string, sessionId: string): P
 
 export async function logoutTelegram(token: string): Promise<{ message: string }> {
   return apiPost<ApiSuccess<{ message: string }>>(`${base}/auth/logout`, { token }).then(unwrap);
+}
+
+export async function fetchTelegramDialogs(token: string): Promise<TelegramDialogDto[]> {
+  return apiGet<ApiSuccess<TelegramDialogDto[]>>(`${base}/dialogs`, { token }).then(unwrap);
+}
+
+export async function fetchMonitoredChannels(token: string): Promise<string[]> {
+  return apiGet<ApiSuccess<string[]>>(`${base}/channels`, { token }).then(unwrap);
+}
+
+export async function toggleMonitoredChannel(
+  token: string,
+  identifier: string,
+  enable: boolean
+): Promise<{ identifier: string; enabled: boolean }> {
+  return apiPost<ApiSuccess<{ identifier: string; enabled: boolean }>>(`${base}/channels/toggle`, {
+    token,
+    body: { identifier, enable },
+  }).then(unwrap);
 }
