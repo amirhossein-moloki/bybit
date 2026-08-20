@@ -285,7 +285,24 @@ public static class TradingBotDoctor
                             await tcConnect;
                             Console.WriteLine("  Status: OK");
                             Console.WriteLine($"  PhoneNumber: {(string.IsNullOrWhiteSpace(telegramOptions.PhoneNumber) ? "Not set" : "Configured")}");
-                            Console.WriteLine($"  Monitored Channels: {string.Join(", ", telegramOptions.Channels)}");
+                            try
+                            {
+                                var sourceRepo = scopedServices.GetService<TradingBot.Application.Interfaces.Persistence.ITelegramSourceRepository>();
+                                if (sourceRepo != null)
+                                {
+                                    var dbSources = await sourceRepo.GetActiveSourcesAsync();
+                                    var titles = dbSources.Select(s => s.Title).ToList();
+                                    Console.WriteLine($"  Monitored Channels (Database): {(titles.Any() ? string.Join(", ", titles) : "None")}");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"  Monitored Channels: {string.Join(", ", telegramOptions.Channels)}");
+                                }
+                            }
+                            catch
+                            {
+                                Console.WriteLine($"  Monitored Channels: {string.Join(", ", telegramOptions.Channels)}");
+                            }
                         }
                         else
                         {

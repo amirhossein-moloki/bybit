@@ -36,6 +36,9 @@ public static class DependencyInjection
         services.AddScoped<IMessageClassifier, MessageClassifier>();
         services.AddScoped<IIntelligenceEventPublisher, IntelligenceEventPublisher>();
 
+        // Register Telegram Source Service
+        services.AddScoped<ITelegramSourceService, TelegramSourceService>();
+
         return services;
     }
 }

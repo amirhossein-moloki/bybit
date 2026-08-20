@@ -1,21 +1,34 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  Send,
+  RefreshCw,
+  Search,
   CheckCircle2,
   XCircle,
-  QrCode,
-  LogOut,
-  RefreshCw,
-  Send,
-  Loader2,
-  ShieldCheck,
-  User,
-  Search,
-  Radio,
-  Check,
+  Clock,
+  AlertTriangle,
+  Play,
+  Pause,
+  Power,
+  Shield,
+  Activity,
   Plus,
+  Trash2,
+  FileText,
+  Radio,
+  Sliders,
+  Check,
+  ChevronRight,
+  Loader2,
+  Info,
+  User,
+  LogOut,
+  QrCode,
+  ShieldCheck,
+  Settings,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
@@ -25,21 +38,62 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Pagination } from "@/components/shared/pagination";
+
 import {
   fetchTelegramStatus,
   startTelegramQrAuth,
   fetchTelegramQrStatus,
   logoutTelegram,
-  fetchTelegramDialogs,
-  toggleMonitoredChannel,
+  fetchTelegramSources,
+  updateTelegramSource,
+  deleteTelegramSource,
+  syncTelegramSources,
+  bulkUpdateSources,
+  fetchSourceMessages,
+  fetchSourceSignals,
+  fetchSourceHealth,
+  testTelegramSource,
 } from "@/services/telegram-service";
-import type { TelegramStatusDto, TelegramQrStatusDto, TelegramDialogDto } from "@/types/telegram";
 
-export default function TelegramIntegrationPage() {
+import type {
+  TelegramStatusDto,
+  TelegramQrStatusDto,
+  TelegramSourceDto,
+  SyncSourcesResultDto,
+  TestSourceResultDto,
+  TelegramMessagePreviewDto,
+  TelegramSignalPreviewDto,
+  TelegramSourceHealthDto,
+  TelegramDialogDto,
+} from "@/types/telegram";
+
+export default function TelegramControlCenterPage() {
   const { token } = useAuth();
   const { toast } = useToast();
+
+  // Auth & Client Status
   const [status, setStatus] = useState<TelegramStatusDto | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingStatus, setLoadingStatus] = useState(true);
   const [qrSession, setQrSession] = useState<{
     sessionId: string;
     qrData: string;
@@ -49,97 +103,100 @@ export default function TelegramIntegrationPage() {
   const [startingQr, setStartingQr] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Dialogs / Channel Monitoring state
-  const [dialogs, setDialogs] = useState<TelegramDialogDto[]>([]);
-  const [loadingDialogs, setLoadingDialogs] = useState(false);
-  const [togglingMap, setTogglingMap] = useState<Record<string, boolean>>({});
-  const [dialogSearch, setDialogSearch] = useState("");
+  // Control Center Sources State
+  const [sources, setSources] = useState<TelegramSourceDto[]>([]);
+  const [loadingSources, setLoadingSources] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selectedType, setSelectedType] = useState("All");
+  const [selectedStatus, setSelectedStatus] = useState("All");
 
+  // Selection & Bulk Actions State
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
+  // Sync UX State
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncSourcesResultDto | null>(null);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+
+  // Add Source Wizard State
+  const [showAddWizard, setShowAddWizard] = useState(false);
+  const [addStep, setAddStep] = useState(1);
+  const [dialogs, setDialogs] = useState<TelegramDialogDto[]>([]);
+  const [selectedDialog, setSelectedDialog] = useState<TelegramDialogDto | null>(null);
+  const [addForm, setAddStepForm] = useState({
+    isEnabled: true,
+    listenForSignals: true,
+    processMessages: true,
+  });
+  const [creatingSource, setCreatingSource] = useState(false);
+
+  // Source Details Drawer / Modal State
+  const [activeSource, setActiveSource] = useState<TelegramSourceDto | null>(null);
+  const [detailsTab, setDetailsTab] = useState("overview");
+  const [messages, setMessages] = useState<TelegramMessagePreviewDto[]>([]);
+  const [signals, setSignals] = useState<TelegramSignalPreviewDto[]>([]);
+  const [health, setHealth] = useState<TelegramSourceHealthDto | null>(null);
+  const [testResult, setTestResult] = useState<TestSourceResultDto | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [testingSource, setTestingSource] = useState(false);
+  const [msgPage, setMsgPage] = useState(1);
+  const [sigPage, setSigPage] = useState(1);
+
+  // Pause Duration Modal State
+  const [pauseTargetId, setPauseTargetId] = useState<string | null>(null);
+  const [pauseMinutes, setPauseMinutes] = useState(60);
+
+  // Load Status & Sources
   const loadStatus = useCallback(async () => {
     if (!token) return;
     try {
-      setLoading(true);
+      setLoadingStatus(true);
       const res = await fetchTelegramStatus(token);
       setStatus(res);
     } catch (err) {
-      toast({
-        title: "Failed to load Telegram status",
-        description: err instanceof Error ? err.message : "Unknown error",
-        variant: "error",
-      });
+      console.error("Failed to fetch Telegram status", err);
     } finally {
-      setLoading(false);
-    }
-  }, [token, toast]);
-
-  const loadDialogs = useCallback(async () => {
-    if (!token) return;
-    try {
-      setLoadingDialogs(true);
-      const res = await fetchTelegramDialogs(token);
-      setDialogs(res || []);
-    } catch (err) {
-      console.error("Failed to load Telegram dialogs", err);
-    } finally {
-      setLoadingDialogs(false);
+      setLoadingStatus(false);
     }
   }, [token]);
 
-  useEffect(() => {
-    loadStatus();
-  }, [loadStatus]);
-
-  useEffect(() => {
-    if (status?.connected || status?.status === "Active" || status?.status === "Connected" || status?.status === "Listening") {
-      loadDialogs();
-    }
-  }, [status, loadDialogs]);
-
-  const handleToggleChannel = async (dialog: TelegramDialogDto) => {
+  const loadSources = useCallback(async () => {
     if (!token) return;
-    const identifier = dialog.username ? `@${dialog.username}` : dialog.id.toString();
-    const enable = !dialog.isMonitored;
-
     try {
-      setTogglingMap((prev) => ({ ...prev, [identifier]: true }));
-      await toggleMonitoredChannel(token, identifier, enable);
-      toast({
-        title: enable ? "Channel Added" : "Channel Removed",
-        description: `${dialog.title} is now ${enable ? "monitored for signals" : "unmonitored"}.`,
-        variant: "success",
+      setLoadingSources(true);
+      const res = await fetchTelegramSources(token, {
+        search: search || undefined,
+        type: selectedType !== "All" ? selectedType : undefined,
+        status: selectedStatus !== "All" ? selectedStatus : undefined,
       });
-      await loadDialogs();
+      setSources(res || []);
     } catch (err) {
       toast({
-        title: "Failed to update channel status",
+        title: "Failed to load Telegram sources",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "error",
       });
     } finally {
-      setTogglingMap((prev) => ({ ...prev, [identifier]: false }));
+      setLoadingSources(false);
     }
-  };
+  }, [token, search, selectedType, selectedStatus, toast]);
 
-  const filteredDialogs = dialogs.filter((d) => {
-    if (!dialogSearch) return true;
-    const term = dialogSearch.toLowerCase();
-    return (
-      d.title.toLowerCase().includes(term) ||
-      d.username.toLowerCase().includes(term) ||
-      d.id.toString().includes(term)
-    );
-  });
-
-  // QR Auth Status Polling Loop
   useEffect(() => {
-    if (!token || !qrSession || qrSession.sessionId === "") return;
+    loadStatus();
+    loadSources();
+  }, [loadStatus, loadSources]);
+
+  // QR Auth Polling
+  useEffect(() => {
+    if (!token || !qrSession || !qrSession.sessionId) return;
 
     const interval = setInterval(async () => {
       try {
-        const statusRes = await fetchTelegramQrStatus(token, qrSession.sessionId);
-        setQrStatus(statusRes);
+        const res = await fetchTelegramQrStatus(token, qrSession.sessionId);
+        setQrStatus(res);
 
-        if (statusRes.status === "Connected") {
+        if (res.status === "Connected") {
           clearInterval(interval);
           setQrSession(null);
           toast({
@@ -148,39 +205,28 @@ export default function TelegramIntegrationPage() {
             variant: "success",
           });
           loadStatus();
-        } else if (statusRes.status === "Expired" || statusRes.status === "Failed") {
+          loadSources();
+        } else if (res.status === "Expired" || res.status === "Failed") {
           clearInterval(interval);
-          if (statusRes.error) {
-            toast({
-              title: "QR Auth Failed",
-              description: statusRes.error,
-              variant: "error",
-            });
-          }
-        } else if (statusRes.qrData && statusRes.qrData !== qrSession.qrData) {
+        } else if (res.qrData && res.qrData !== qrSession.qrData) {
           setQrSession((prev) =>
-            prev ? { ...prev, qrData: statusRes.qrData!, expiresAt: statusRes.expiresAt || prev.expiresAt } : null
+            prev ? { ...prev, qrData: res.qrData!, expiresAt: res.expiresAt || prev.expiresAt } : null
           );
         }
       } catch (err) {
-        console.error("Failed to poll QR status", err);
+        console.error("QR Status polling error", err);
       }
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [token, qrSession, loadStatus, toast]);
+  }, [token, qrSession, loadStatus, loadSources, toast]);
 
   const handleStartQr = async () => {
     if (!token) return;
     try {
       setStartingQr(true);
-      setQrStatus(null);
       const res = await startTelegramQrAuth(token);
-      setQrSession({
-        sessionId: res.sessionId,
-        qrData: res.qrData,
-        expiresAt: res.expiresAt,
-      });
+      setQrSession(res);
       toast({
         title: "QR Code Generated",
         description: "Scan the QR code with your Telegram mobile app.",
@@ -188,7 +234,7 @@ export default function TelegramIntegrationPage() {
       });
     } catch (err) {
       toast({
-        title: "Failed to start QR auth",
+        title: "Failed to start QR authentication",
         description: err instanceof Error ? err.message : "Unknown error",
         variant: "error",
       });
@@ -197,24 +243,18 @@ export default function TelegramIntegrationPage() {
     }
   };
 
-  const handleCancelQr = () => {
-    setQrSession(null);
-    setQrStatus(null);
-  };
-
   const handleLogout = async () => {
     if (!token) return;
     try {
       setLoggingOut(true);
       await logoutTelegram(token);
       setQrSession(null);
-      setQrStatus(null);
       toast({
         title: "Logged Out",
         description: "Telegram account disconnected successfully.",
         variant: "success",
       });
-      await loadStatus();
+      loadStatus();
     } catch (err) {
       toast({
         title: "Logout Failed",
@@ -226,285 +266,924 @@ export default function TelegramIntegrationPage() {
     }
   };
 
-  const isConnected = status?.connected || status?.status === "Active" || status?.status === "Connected" || status?.status === "Listening";
+  // Sync Telegram Action
+  const handleSyncTelegram = async () => {
+    if (!token) return;
+    try {
+      setSyncing(true);
+      const result = await syncTelegramSources(token);
+      setSyncResult(result);
+      setShowSyncModal(true);
+      toast({
+        title: "Sync Completed",
+        description: `Discovered ${result.discoveredCount} chats (${result.newCount} new, ${result.updatedCount} updated).`,
+        variant: "success",
+      });
+      await loadSources();
+    } catch (err) {
+      toast({
+        title: "Synchronization Failed",
+        description: err instanceof Error ? err.message : "Failed to sync Telegram dialogs",
+        variant: "error",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Toggle Capability directly on card/row
+  const handleToggleCapability = async (
+    source: TelegramSourceDto,
+    key: "isEnabled" | "listenForSignals" | "processMessages",
+    value: boolean
+  ) => {
+    if (!token) return;
+
+    // Optimistic Update
+    setSources((prev) =>
+      prev.map((s) => (s.id === source.id ? { ...s, [key]: value } : s))
+    );
+
+    try {
+      await updateTelegramSource(token, source.id, { [key]: value });
+      toast({
+        title: "Source Updated",
+        description: `'${source.title}' updated successfully.`,
+        variant: "success",
+      });
+      await loadSources();
+    } catch (err) {
+      // Revert Optimistic Update
+      setSources((prev) =>
+        prev.map((s) => (s.id === source.id ? { ...s, [key]: !value } : s))
+      );
+      toast({
+        title: "Update Failed",
+        description: err instanceof Error ? err.message : "Failed to update source",
+        variant: "error",
+      });
+    }
+  };
+
+  // Delete Source Action
+  const handleDeleteSource = async (source: TelegramSourceDto) => {
+    if (!token) return;
+    if (!confirm(`Are you sure you want to delete source '${source.title}'?`)) return;
+
+    try {
+      await deleteTelegramSource(token, source.id);
+      toast({
+        title: "Source Deleted",
+        description: `'${source.title}' was deleted successfully.`,
+        variant: "success",
+      });
+      if (activeSource?.id === source.id) {
+        setActiveSource(null);
+      }
+      await loadSources();
+    } catch (err) {
+      toast({
+        title: "Delete Failed",
+        description: err instanceof Error ? err.message : "Failed to delete source",
+        variant: "error",
+      });
+    }
+  };
+
+  // Bulk Actions
+  const handleBulkAction = async (action: string, minutes?: number) => {
+    if (!token || selectedIds.length === 0) return;
+
+    try {
+      setBulkActionLoading(true);
+      const res = await bulkUpdateSources(token, {
+        sourceIds: selectedIds,
+        action,
+        pauseMinutes: minutes,
+      });
+      toast({
+        title: "Bulk Action Executed",
+        description: `Updated ${res.updatedCount} sources successfully.`,
+        variant: "success",
+      });
+      setSelectedIds([]);
+      await loadSources();
+    } catch (err) {
+      toast({
+        title: "Bulk Action Failed",
+        description: err instanceof Error ? err.message : "Failed to execute bulk action",
+        variant: "error",
+      });
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Selection Checkboxes
+  const toggleSelectAll = () => {
+    if (selectedIds.length === sources.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(sources.map((s) => s.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // Source Details & Diagnostics
+  const handleOpenDetails = async (source: TelegramSourceDto) => {
+    setActiveSource(source);
+    setDetailsTab("overview");
+    setTestResult(null);
+    setMsgPage(1);
+    setSigPage(1);
+
+    if (!token) return;
+
+    try {
+      setLoadingDetails(true);
+      const [msgs, sigs, h] = await Promise.all([
+        fetchSourceMessages(token, source.id, 1, 20),
+        fetchSourceSignals(token, source.id, 1, 20),
+        fetchSourceHealth(token, source.id),
+      ]);
+      setMessages(msgs || []);
+      setSignals(sigs || []);
+      setHealth(h);
+    } catch (err) {
+      console.error("Failed to load source details", err);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handlePageChangeMessages = async (p: number) => {
+    if (!token || !activeSource) return;
+    setMsgPage(p);
+    const msgs = await fetchSourceMessages(token, activeSource.id, p, 20);
+    setMessages(msgs || []);
+  };
+
+  const handlePageChangeSignals = async (p: number) => {
+    if (!token || !activeSource) return;
+    setSigPage(p);
+    const sigs = await fetchSourceSignals(token, activeSource.id, p, 20);
+    setSignals(sigs || []);
+  };
+
+  const handleTestSource = async (id: string) => {
+    if (!token) return;
+    try {
+      setTestingSource(true);
+      const res = await testTelegramSource(token, id);
+      setTestResult(res);
+      toast({
+        title: res.success ? "Test Passed" : "Test Issues Detected",
+        description: res.message,
+        variant: res.success ? "success" : "error",
+      });
+    } catch (err) {
+      toast({
+        title: "Test Execution Failed",
+        description: err instanceof Error ? err.message : "Failed to test source",
+        variant: "error",
+      });
+    } finally {
+      setTestingSource(false);
+    }
+  };
+
+  // Overview Metrics
+  const metrics = useMemo(() => {
+    const isConnected = status?.connected || status?.status === "Active" || status?.status === "Connected" || status?.status === "Listening";
+    const total = sources.length;
+    const active = sources.filter((s) => s.status === "Listening").length;
+    const paused = sources.filter((s) => s.status === "Paused").length;
+    const disabled = sources.filter((s) => s.status === "Disabled").length;
+    const errors = sources.filter((s) => s.status === "Error").length;
+
+    return {
+      isConnected,
+      total,
+      active,
+      paused,
+      disabled,
+      errors,
+    };
+  }, [status, sources]);
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <PageHeader
-        title="Telegram Integration"
-        description="Connect your Telegram account via QR code to listen for trading signal messages."
+        title="Telegram Control Center"
+        description="Centralized management of Telegram Signal Channels, Groups, and Listener Capabilities."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={loadSources} disabled={loadingSources}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loadingSources ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+
+            <Button size="sm" onClick={handleSyncTelegram} disabled={syncing}>
+              {syncing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Syncing Telegram...
+                </>
+              ) : (
+                <>
+                  <Radio className="mr-2 h-4 w-4 text-emerald-400" />
+                  Sync Telegram
+                </>
+              )}
+            </Button>
+          </div>
+        }
       />
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Connection Status Card */}
-        <Card className="flex flex-col justify-between">
-          <CardHeader>
+      {/* Overview Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="bg-card">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase font-medium">Connection</p>
+              <p className="text-lg font-bold mt-1 flex items-center gap-2">
+                {metrics.isConnected ? (
+                  <span className="text-emerald-500 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" /> Connected
+                  </span>
+                ) : (
+                  <span className="text-amber-500 flex items-center gap-1.5">
+                    <XCircle className="h-4 w-4" /> Not Connected
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="p-2.5 bg-primary/10 text-primary rounded-lg">
+              <Send className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase font-medium">Active Sources</p>
+              <p className="text-xl font-bold mt-1 text-foreground">{metrics.active} / {metrics.total}</p>
+            </div>
+            <div className="p-2.5 bg-emerald-500/10 text-emerald-500 rounded-lg">
+              <Activity className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase font-medium">Paused Sources</p>
+              <p className="text-xl font-bold mt-1 text-amber-500">{metrics.paused}</p>
+            </div>
+            <div className="p-2.5 bg-amber-500/10 text-amber-500 rounded-lg">
+              <Pause className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase font-medium">Errors / Disabled</p>
+              <p className="text-xl font-bold mt-1 text-muted-foreground">
+                {metrics.errors} / {metrics.disabled}
+              </p>
+            </div>
+            <div className="p-2.5 bg-muted/20 text-muted-foreground rounded-lg">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Account QR Auth Card if Disconnected */}
+      {!metrics.isConnected && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Send className="h-5 w-5 text-primary" />
-                <CardTitle>Telegram Connection</CardTitle>
-              </div>
-              <Badge variant={isConnected ? "default" : "secondary"}>
-                {isConnected ? "Active" : "Not Connected"}
+              <CardTitle className="text-base flex items-center gap-2 text-amber-500">
+                <QrCode className="h-5 w-5" /> Telegram Client Authentication Required
+              </CardTitle>
+              <Badge variant="outline" className="border-amber-500/50 text-amber-500">
+                Action Required
               </Badge>
             </div>
             <CardDescription>
-              Manage your Telegram session and active signal channel monitoring.
+              Connect your Telegram account using QR Login to enable active channel monitoring and signal listening.
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="space-y-4">
-            {loading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Checking connection status...</span>
-              </div>
-            ) : isConnected && status?.account ? (
-              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <User className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground">
-                      {status.account.firstName} {status.account.lastName}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {status.account.username ? `@${status.account.username}` : `ID: ${status.account.id}`}
-                    </p>
-                  </div>
+          <CardContent className="pt-0">
+            {qrSession?.qrData ? (
+              <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-card rounded-lg border border-border">
+                <div className="p-3 bg-white rounded-lg shadow-sm">
+                  <QRCodeSVG value={qrSession.qrData} size={160} level="M" />
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 text-xs border-t border-border">
-                  <div>
-                    <span className="text-muted-foreground">Status:</span>{" "}
-                    <span className="font-medium text-emerald-500">{status.status}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Phone:</span>{" "}
-                    <span className="font-medium">{status.account.phone || "Hidden"}</span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-amber-500 font-medium">
-                  <XCircle className="h-4 w-4" />
-                  <span>Not Connected</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Connect Telegram using QR code login to enable automated message ingestion and signal detection.
-                </p>
-              </div>
-            )}
-          </CardContent>
-
-          <CardFooter className="border-t border-border pt-4">
-            {isConnected ? (
-              <Button
-                variant="destructive"
-                className="w-full"
-                onClick={handleLogout}
-                disabled={loggingOut}
-              >
-                {loggingOut ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Disconnecting...
-                  </>
-                ) : (
-                  <>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Disconnect Telegram
-                  </>
-                )}
-              </Button>
-            ) : !qrSession ? (
-              <Button className="w-full" onClick={handleStartQr} disabled={startingQr}>
-                {startingQr ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Initializing QR Code...
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="mr-2 h-4 w-4" />
-                    Connect Telegram
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button variant="outline" className="w-full" onClick={handleCancelQr}>
-                Cancel Login
-              </Button>
-            )}
-          </CardFooter>
-        </Card>
-
-        {/* QR Code Scan Card */}
-        <Card className="flex flex-col justify-between">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <QrCode className="h-5 w-5 text-primary" />
-              <span>QR Authentication</span>
-            </CardTitle>
-            <CardDescription>
-              Scan the QR code from Telegram app (Settings → Devices → Link Desktop Device)
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="flex flex-col items-center justify-center p-6 space-y-4">
-            {qrSession && qrSession.qrData ? (
-              <div className="flex flex-col items-center space-y-4">
-                <div className="p-4 bg-white rounded-xl shadow-md border border-border">
-                  <QRCodeSVG value={qrSession.qrData} size={220} level="M" includeMargin />
-                </div>
-
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-medium flex items-center justify-center gap-2 text-primary">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Waiting for scan...
+                <div className="space-y-2 text-center sm:text-left">
+                  <p className="font-semibold text-foreground text-sm flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" /> Waiting for Telegram Scan...
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Open Telegram on your phone → Settings → Devices → Link Desktop Device
                   </p>
-                </div>
-
-                {qrStatus?.status === "Expired" && (
-                  <div className="text-center text-xs text-destructive space-y-2">
-                    <p>QR Code expired.</p>
-                    <Button size="sm" variant="outline" onClick={handleStartQr}>
-                      <RefreshCw className="mr-2 h-3 w-3" /> Refresh QR Code
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ) : isConnected ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
-                  <ShieldCheck className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Account Connected & Active</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Your Telegram session is active and securely persisted. Signals are ingested automatically.
-                  </p>
+                  <Button size="sm" variant="outline" onClick={() => setQrSession(null)} className="mt-2 text-xs">
+                    Cancel
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground space-y-3">
-                <QrCode className="h-12 w-12 stroke-[1.5] text-muted-foreground/50" />
-                <p className="text-sm">Click &quot;Connect Telegram&quot; to generate a QR login code.</p>
-              </div>
-            )}
-          </CardContent>
-
-          <CardFooter className="border-t border-border pt-4 text-xs text-muted-foreground">
-            Session stored securely in persistent encrypted volume. No terminal interaction required.
-          </CardFooter>
-        </Card>
-      </div>
-
-      {/* Monitored Channels & Groups Section */}
-      {isConnected && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Radio className="h-5 w-5 text-primary" />
-                  <span>Monitored Signal Channels & Groups</span>
-                </CardTitle>
-                <CardDescription>
-                  Select which channels or groups from your Telegram account should be monitored for trading signals.
-                </CardDescription>
-              </div>
-              <Button size="sm" variant="outline" onClick={loadDialogs} disabled={loadingDialogs}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${loadingDialogs ? "animate-spin" : ""}`} />
-                Refresh Channels
-              </Button>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search channels & groups by title, @username or ID..."
-                className="pl-9"
-                value={dialogSearch}
-                onChange={(e) => setDialogSearch(e.target.value)}
-              />
-            </div>
-
-            {loadingDialogs ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span>Loading available channels & groups from Telegram...</span>
-              </div>
-            ) : filteredDialogs.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground border border-dashed rounded-lg">
-                <p>No channels or groups found matching your search.</p>
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredDialogs.map((dialog) => {
-                  const identifier = dialog.username ? `@${dialog.username}` : dialog.id.toString();
-                  const isToggling = togglingMap[identifier];
-
-                  return (
-                    <div
-                      key={dialog.id}
-                      className={`flex flex-col justify-between p-4 rounded-lg border transition-colors ${
-                        dialog.isMonitored
-                          ? "border-primary/50 bg-primary/5"
-                          : "border-border bg-card hover:bg-muted/30"
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="font-semibold text-sm line-clamp-1">{dialog.title}</p>
-                          <Badge variant={dialog.isMonitored ? "default" : "outline"} className="text-[10px] shrink-0">
-                            {dialog.isMonitored ? "Monitored" : dialog.isChannel ? "Channel" : "Group"}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {dialog.username ? `@${dialog.username}` : `ID: ${dialog.id}`}
-                        </p>
-                      </div>
-
-                      <div className="pt-3 mt-2 border-t border-border/50 flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">
-                          {dialog.isChannel ? "Channel" : "Group"}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant={dialog.isMonitored ? "destructive" : "default"}
-                          className="h-8 text-xs"
-                          onClick={() => handleToggleChannel(dialog)}
-                          disabled={isToggling}
-                        >
-                          {isToggling ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : dialog.isMonitored ? (
-                            <>
-                              <XCircle className="mr-1.5 h-3.5 w-3.5" /> Stop Monitoring
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="mr-1.5 h-3.5 w-3.5" /> Monitor Signal
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Click the button to generate a QR login session.
+                </p>
+                <Button size="sm" onClick={handleStartQr} disabled={startingQr}>
+                  {startingQr ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
+                  Connect Telegram Account
+                </Button>
               </div>
             )}
           </CardContent>
         </Card>
       )}
+
+      {/* Bulk Action Bar when selection exists */}
+      {selectedIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-primary/10 border border-primary/30 rounded-lg">
+          <div className="flex items-center gap-2 text-sm font-medium text-primary">
+            <Check className="h-4 w-4" />
+            <span>{selectedIds.length} source(s) selected</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Enable")} disabled={bulkActionLoading}>
+              <Play className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> Enable
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Disable")} disabled={bulkActionLoading}>
+              <Power className="mr-1.5 h-3.5 w-3.5 text-destructive" /> Disable
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={() => handleBulkAction("EnableSignals")} disabled={bulkActionLoading}>
+              <Radio className="mr-1.5 h-3.5 w-3.5 text-primary" /> Enable Signals
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={() => handleBulkAction("DisableSignals")} disabled={bulkActionLoading}>
+              <Radio className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" /> Disable Signals
+            </Button>
+
+            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Pause", 60)} disabled={bulkActionLoading}>
+              <Clock className="mr-1.5 h-3.5 w-3.5 text-amber-500" /> Pause 1h
+            </Button>
+
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])} className="text-xs">
+              Deselect All
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Filter & Control Toolbar */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            {/* Search Input */}
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by Title or Username..."
+                className="pl-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Dropdown Filters */}
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <Select value={selectedType} onValueChange={setSelectedType}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Types</SelectItem>
+                  <SelectItem value="Channel">Channel</SelectItem>
+                  <SelectItem value="Group">Group</SelectItem>
+                  <SelectItem value="Supergroup">Supergroup</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Statuses</SelectItem>
+                  <SelectItem value="Listening">Listening</SelectItem>
+                  <SelectItem value="Paused">Paused</SelectItem>
+                  <SelectItem value="Disabled">Disabled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Sources Data Table */}
+      <Card>
+        <CardContent className="p-0">
+          {loadingSources ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <span>Loading Telegram sources...</span>
+            </div>
+          ) : sources.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground space-y-3">
+              <Radio className="h-12 w-12 text-muted-foreground/30 stroke-[1.5]" />
+              <p className="text-base font-semibold text-foreground">No Telegram Sources Found</p>
+              <p className="text-xs max-w-sm">
+                Click &quot;Sync Telegram&quot; to discover channels and groups accessible from your connected Telegram account.
+              </p>
+              <Button size="sm" onClick={handleSyncTelegram} disabled={syncing}>
+                <Radio className="mr-2 h-4 w-4" /> Sync Telegram Dialogs
+              </Button>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.length === sources.length && sources.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-border"
+                    />
+                  </TableHead>
+                  <TableHead>Source Title & Username</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Listen</TableHead>
+                  <TableHead className="text-center">Signals</TableHead>
+                  <TableHead className="text-center">Messages</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sources.map((source) => {
+                  const isSelected = selectedIds.includes(source.id);
+
+                  return (
+                    <TableRow key={source.id} className={isSelected ? "bg-primary/5" : ""}>
+                      <TableCell className="text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(source.id)}
+                          className="rounded border-border"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <div>
+                          <p className="font-semibold text-sm text-foreground">{source.title}</p>
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {source.username || "No Username"}
+                          </p>
+                        </div>
+                      </TableCell>
+
+                      <TableCell>
+                        <Badge variant="outline" className="text-[11px]">
+                          {source.type}
+                        </Badge>
+                      </TableCell>
+
+                      <TableCell>
+                        {source.status === "Listening" ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                            Listening
+                          </Badge>
+                        ) : source.status === "Paused" ? (
+                          <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">
+                            Paused
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">Disabled</Badge>
+                        )}
+                      </TableCell>
+
+                      {/* IsEnabled Toggle */}
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={source.isEnabled}
+                          onCheckedChange={(val) => handleToggleCapability(source, "isEnabled", val)}
+                        />
+                      </TableCell>
+
+                      {/* ListenForSignals Toggle */}
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={source.listenForSignals}
+                          disabled={!source.isEnabled}
+                          onCheckedChange={(val) => handleToggleCapability(source, "listenForSignals", val)}
+                        />
+                      </TableCell>
+
+                      {/* ProcessMessages Toggle */}
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={source.processMessages}
+                          disabled={!source.isEnabled}
+                          onCheckedChange={(val) => handleToggleCapability(source, "processMessages", val)}
+                        />
+                      </TableCell>
+
+                      {/* Quick Actions */}
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => handleOpenDetails(source)}>
+                            <FileText className="h-4 w-4" />
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleTestSource(source.id)}
+                            disabled={testingSource}
+                          >
+                            <Shield className="h-4 w-4 text-primary" />
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteSource(source)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Sync Result Summary Modal */}
+      <Dialog open={showSyncModal} onOpenChange={setShowSyncModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Radio className="h-5 w-5 text-emerald-500" /> Telegram Discovery Sync Summary
+            </DialogTitle>
+            <DialogDescription>
+              Synchronization completed successfully with your connected Telegram account.
+            </DialogDescription>
+          </DialogHeader>
+
+          {syncResult && (
+            <div className="space-y-4 py-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-3 bg-muted/30 rounded-lg border">
+                  <p className="text-xs text-muted-foreground">Discovered</p>
+                  <p className="text-lg font-bold mt-1 text-foreground">{syncResult.discoveredCount}</p>
+                </div>
+                <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                  <p className="text-xs text-emerald-500 font-medium">New</p>
+                  <p className="text-lg font-bold mt-1 text-emerald-500">{syncResult.newCount}</p>
+                </div>
+                <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
+                  <p className="text-xs text-primary font-medium">Updated</p>
+                  <p className="text-lg font-bold mt-1 text-primary">{syncResult.updatedCount}</p>
+                </div>
+              </div>
+
+              {syncResult.discoveredTitles.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">Discovered Sources:</p>
+                  <div className="max-h-36 overflow-y-auto border rounded-md p-2 space-y-1 bg-muted/10">
+                    {syncResult.discoveredTitles.map((t, i) => (
+                      <p key={i} className="text-xs text-foreground font-medium flex items-center gap-2">
+                        <Check className="h-3 w-3 text-emerald-500" /> {t}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setShowSyncModal(false)} className="w-full">
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Source Details & Diagnostics Modal */}
+      <Dialog open={!!activeSource} onOpenChange={(open) => !open && setActiveSource(null)}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+          {activeSource && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <DialogTitle className="text-xl flex items-center gap-2">
+                      <Radio className="h-5 w-5 text-primary" /> {activeSource.title}
+                    </DialogTitle>
+                    <DialogDescription className="font-mono text-xs mt-1">
+                      {activeSource.username || "No Username"}
+                    </DialogDescription>
+                  </div>
+                  <Badge variant={activeSource.isEnabled ? "default" : "secondary"}>
+                    {activeSource.status}
+                  </Badge>
+                </div>
+              </DialogHeader>
+
+              <Tabs value={detailsTab} onValueChange={setDetailsTab} className="mt-2">
+                <TabsList className="grid grid-cols-5 w-full">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="config">Capabilities</TabsTrigger>
+                  <TabsTrigger value="messages">Messages</TabsTrigger>
+                  <TabsTrigger value="signals">Signals</TabsTrigger>
+                  <TabsTrigger value="health">Health & Test</TabsTrigger>
+                </TabsList>
+
+                {/* Tab: Overview */}
+                <TabsContent value="overview" className="space-y-4 pt-4">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="p-3 bg-muted/20 border rounded-lg space-y-1">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Type</span>
+                      <p className="font-semibold text-foreground">{activeSource.type}</p>
+                    </div>
+
+                    <div className="p-3 bg-muted/20 border rounded-lg space-y-1">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Status</span>
+                      <p className="font-semibold text-foreground">{activeSource.status}</p>
+                    </div>
+
+                    <div className="p-3 bg-muted/20 border rounded-lg space-y-1">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Signal Listening</span>
+                      <p className="font-semibold text-foreground">
+                        {activeSource.listenForSignals ? "Enabled" : "Disabled"}
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-muted/20 border rounded-lg space-y-1">
+                      <span className="text-xs text-muted-foreground uppercase font-medium">Message Processing</span>
+                      <p className="font-semibold text-foreground">
+                        {activeSource.processMessages ? "Enabled" : "Disabled"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 border rounded-lg bg-card space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase">Advanced Details</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div>
+                        <span className="text-muted-foreground">Chat ID:</span> {activeSource.telegramChatId}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Source ID:</span> {activeSource.id}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Created At:</span>{" "}
+                        {new Date(activeSource.createdAt).toLocaleString()}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Updated At:</span>{" "}
+                        {activeSource.updatedAt ? new Date(activeSource.updatedAt).toLocaleString() : "Never"}
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Tab: Capabilities & Configuration */}
+                <TabsContent value="config" className="space-y-4 pt-4">
+                  <div className="space-y-4 border rounded-lg p-4 bg-card">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-sm">Source Listener</p>
+                        <p className="text-xs text-muted-foreground">Enable or disable total listener ingestion for this source.</p>
+                      </div>
+                      <Switch
+                        checked={activeSource.isEnabled}
+                        onCheckedChange={(val) => {
+                          handleToggleCapability(activeSource, "isEnabled", val);
+                          setActiveSource((prev) => (prev ? { ...prev, isEnabled: val } : null));
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <div>
+                        <p className="font-semibold text-sm">Signal Intelligence Listening</p>
+                        <p className="text-xs text-muted-foreground">Forward messages from this source to Signal Detection engine.</p>
+                      </div>
+                      <Switch
+                        checked={activeSource.listenForSignals}
+                        disabled={!activeSource.isEnabled}
+                        onCheckedChange={(val) => {
+                          handleToggleCapability(activeSource, "listenForSignals", val);
+                          setActiveSource((prev) => (prev ? { ...prev, listenForSignals: val } : null));
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <div>
+                        <p className="font-semibold text-sm">Message Processing & Storage</p>
+                        <p className="text-xs text-muted-foreground">Store messages in TelegramMessages database history.</p>
+                      </div>
+                      <Switch
+                        checked={activeSource.processMessages}
+                        disabled={!activeSource.isEnabled}
+                        onCheckedChange={(val) => {
+                          handleToggleCapability(activeSource, "processMessages", val);
+                          setActiveSource((prev) => (prev ? { ...prev, processMessages: val } : null));
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pause Configuration */}
+                  <div className="p-4 border rounded-lg bg-card space-y-3">
+                    <p className="font-semibold text-sm flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-amber-500" /> Temporary Pause Controls
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Pause listening temporarily without losing configuration options.
+                    </p>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <Button size="sm" variant="outline" onClick={() => handleBulkAction("Pause", 60)}>
+                        Pause 1 Hour
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleBulkAction("Pause", 360)}>
+                        Pause 6 Hours
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleBulkAction("Pause", 1440)}>
+                        Pause 24 Hours
+                      </Button>
+                      {activeSource.status === "Paused" && (
+                        <Button size="sm" variant="default" onClick={() => handleBulkAction("Enable")}>
+                          Resume Listening
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                {/* Tab: Recent Messages */}
+                <TabsContent value="messages" className="space-y-4 pt-4">
+                  {messages.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-xs">
+                      No recent messages recorded for this channel.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Msg ID</TableHead>
+                          <TableHead>Preview</TableHead>
+                          <TableHead>Received At</TableHead>
+                          <TableHead>Processed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {messages.map((m) => (
+                          <TableRow key={m.id}>
+                            <TableCell className="font-mono text-xs">{m.messageId}</TableCell>
+                            <TableCell className="text-xs font-mono">{m.preview}</TableCell>
+                            <TableCell className="text-xs">
+                              {new Date(m.receivedAt).toLocaleTimeString()}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={m.processed ? "default" : "outline"} className="text-[10px]">
+                                {m.processed ? "Processed" : "Pending"}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+
+                {/* Tab: Signals */}
+                <TabsContent value="signals" className="space-y-4 pt-4">
+                  {signals.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-xs">
+                      No signals detected for this source yet.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Symbol</TableHead>
+                          <TableHead>Side</TableHead>
+                          <TableHead>Confidence</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {signals.map((s) => (
+                          <TableRow key={s.id}>
+                            <TableCell className="font-bold text-xs">{s.symbol}</TableCell>
+                            <TableCell className="text-xs">{s.action}</TableCell>
+                            <TableCell className="text-xs">{s.confidence}%</TableCell>
+                            <TableCell>
+                              <Badge className="text-[10px]">{s.status}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+
+                {/* Tab: Health & Test Source */}
+                <TabsContent value="health" className="space-y-4 pt-4">
+                  <div className="p-4 border rounded-lg bg-card space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-sm flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-emerald-500" /> Source Health Status
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => handleTestSource(activeSource.id)}
+                        disabled={testingSource}
+                      >
+                        {testingSource ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Shield className="mr-2 h-4 w-4" />
+                        )}
+                        Run Diagnostic Test
+                      </Button>
+                    </div>
+
+                    {health && (
+                      <div className="grid grid-cols-2 gap-3 text-xs pt-2">
+                        <div className="p-2.5 bg-muted/20 rounded-md">
+                          <span className="text-muted-foreground">Connection Status:</span>{" "}
+                          <span className="font-semibold text-foreground">{health.connectionStatus}</span>
+                        </div>
+                        <div className="p-2.5 bg-muted/20 rounded-md">
+                          <span className="text-muted-foreground">Listener State:</span>{" "}
+                          <span className="font-semibold text-foreground">{health.listenerState}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Diagnostic Test Output Breakdown */}
+                  {testResult && (
+                    <div className="p-4 border rounded-lg bg-card space-y-3">
+                      <p className="font-semibold text-sm flex items-center gap-2">
+                        {testResult.success ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-destructive" />
+                        )}
+                        Diagnostic Test Result
+                      </p>
+
+                      <p className="text-xs font-medium text-foreground">{testResult.message}</p>
+
+                      <div className="space-y-1.5 pt-2 border-t">
+                        {testResult.details.map((d, i) => (
+                          <p key={i} className="text-xs text-muted-foreground font-mono flex items-center gap-2">
+                            <Info className="h-3 w-3 text-primary shrink-0" /> {d}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
