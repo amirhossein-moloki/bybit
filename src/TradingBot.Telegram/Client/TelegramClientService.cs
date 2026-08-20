@@ -23,6 +23,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
     private WTelegram.UpdateManager? _updateManager;
     private TelegramConnectionState _currentState = TelegramConnectionState.Disconnected;
     private readonly object _stateLock = new();
+    private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     public Func<string>? VerificationCodeProvider { get; set; }
@@ -330,11 +331,107 @@ public class TelegramClientService : ITelegramClient, IDisposable
         await _messageReceiver.ReceiveMessageAsync(dto);
     }
 
+    public System.Collections.Generic.List<string> GetMonitoredChannels()
+    {
+        lock (_stateLock)
+        {
+            var set = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_options.Channels != null)
+            {
+                foreach (var ch in _options.Channels)
+                {
+                    if (!string.IsNullOrWhiteSpace(ch)) set.Add(ch.Trim());
+                }
+            }
+            foreach (var ch in _dynamicMonitoredChannels)
+            {
+                if (!string.IsNullOrWhiteSpace(ch)) set.Add(ch.Trim());
+            }
+            return new System.Collections.Generic.List<string>(set);
+        }
+    }
+
+    public bool ToggleMonitoredChannel(string identifier, bool enable)
+    {
+        if (string.IsNullOrWhiteSpace(identifier)) return false;
+        identifier = identifier.Trim();
+
+        lock (_stateLock)
+        {
+            _options.Channels ??= new System.Collections.Generic.List<string>();
+
+            if (enable)
+            {
+                _dynamicMonitoredChannels.Add(identifier);
+                if (!_options.Channels.Contains(identifier, StringComparer.OrdinalIgnoreCase))
+                {
+                    _options.Channels.Add(identifier);
+                }
+            }
+            else
+            {
+                _dynamicMonitoredChannels.Remove(identifier);
+                _options.Channels.RemoveAll(x => string.Equals(x, identifier, StringComparison.OrdinalIgnoreCase));
+            }
+            _logger.Information("Toggled monitored channel '{Identifier}' -> Enabled: {Enabled}", identifier, enable);
+            return true;
+        }
+    }
+
+    public async Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync()
+    {
+        if (_client == null || !IsConnected())
+        {
+            throw new TelegramConnectionException("Telegram client is not connected.");
+        }
+
+        var result = new System.Collections.Generic.List<TelegramDialogDto>();
+        var dialogs = await _client.Messages_GetAllDialogs();
+
+        var monitoredList = GetMonitoredChannels();
+
+        foreach (var chatKv in dialogs.chats)
+        {
+            var chat = chatKv.Value;
+            if (chat == null) continue;
+
+            bool isChannel = false;
+            bool isGroup = false;
+            string username = string.Empty;
+
+            if (chat is TL.Channel tlChannel)
+            {
+                isChannel = tlChannel.IsChannel;
+                isGroup = tlChannel.IsGroup;
+                username = tlChannel.username ?? string.Empty;
+            }
+            else if (chat is TL.Chat)
+            {
+                isGroup = true;
+            }
+
+            // Check if monitored
+            bool monitored = IsChannelMonitored(chat);
+
+            result.Add(new TelegramDialogDto
+            {
+                Id = chat.ID,
+                Title = chat.Title ?? "Unnamed Chat",
+                Username = username,
+                IsChannel = isChannel,
+                IsGroup = isGroup,
+                IsMonitored = monitored
+            });
+        }
+
+        return result;
+    }
+
     private bool IsChannelMonitored(TL.ChatBase chat)
     {
         if (chat == null) return false;
 
-        var monitoredChannels = _options.Channels;
+        var monitoredChannels = GetMonitoredChannels();
         if (monitoredChannels == null || monitoredChannels.Count == 0)
         {
             return false;

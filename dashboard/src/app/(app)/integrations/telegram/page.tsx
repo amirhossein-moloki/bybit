@@ -12,6 +12,10 @@ import {
   Loader2,
   ShieldCheck,
   User,
+  Search,
+  Radio,
+  Check,
+  Plus,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
@@ -20,13 +24,16 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   fetchTelegramStatus,
   startTelegramQrAuth,
   fetchTelegramQrStatus,
   logoutTelegram,
+  fetchTelegramDialogs,
+  toggleMonitoredChannel,
 } from "@/services/telegram-service";
-import type { TelegramStatusDto, TelegramQrStatusDto } from "@/types/telegram";
+import type { TelegramStatusDto, TelegramQrStatusDto, TelegramDialogDto } from "@/types/telegram";
 
 export default function TelegramIntegrationPage() {
   const { token } = useAuth();
@@ -41,6 +48,12 @@ export default function TelegramIntegrationPage() {
   const [qrStatus, setQrStatus] = useState<TelegramQrStatusDto | null>(null);
   const [startingQr, setStartingQr] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Dialogs / Channel Monitoring state
+  const [dialogs, setDialogs] = useState<TelegramDialogDto[]>([]);
+  const [loadingDialogs, setLoadingDialogs] = useState(false);
+  const [togglingMap, setTogglingMap] = useState<Record<string, boolean>>({});
+  const [dialogSearch, setDialogSearch] = useState("");
 
   const loadStatus = useCallback(async () => {
     if (!token) return;
@@ -59,9 +72,63 @@ export default function TelegramIntegrationPage() {
     }
   }, [token, toast]);
 
+  const loadDialogs = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoadingDialogs(true);
+      const res = await fetchTelegramDialogs(token);
+      setDialogs(res || []);
+    } catch (err) {
+      console.error("Failed to load Telegram dialogs", err);
+    } finally {
+      setLoadingDialogs(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  useEffect(() => {
+    if (status?.connected || status?.status === "Active" || status?.status === "Connected" || status?.status === "Listening") {
+      loadDialogs();
+    }
+  }, [status, loadDialogs]);
+
+  const handleToggleChannel = async (dialog: TelegramDialogDto) => {
+    if (!token) return;
+    const identifier = dialog.username ? `@${dialog.username}` : dialog.id.toString();
+    const enable = !dialog.isMonitored;
+
+    try {
+      setTogglingMap((prev) => ({ ...prev, [identifier]: true }));
+      await toggleMonitoredChannel(token, identifier, enable);
+      toast({
+        title: enable ? "Channel Added" : "Channel Removed",
+        description: `${dialog.title} is now ${enable ? "monitored for signals" : "unmonitored"}.`,
+        variant: "success",
+      });
+      await loadDialogs();
+    } catch (err) {
+      toast({
+        title: "Failed to update channel status",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "error",
+      });
+    } finally {
+      setTogglingMap((prev) => ({ ...prev, [identifier]: false }));
+    }
+  };
+
+  const filteredDialogs = dialogs.filter((d) => {
+    if (!dialogSearch) return true;
+    const term = dialogSearch.toLowerCase();
+    return (
+      d.title.toLowerCase().includes(term) ||
+      d.username.toLowerCase().includes(term) ||
+      d.id.toString().includes(term)
+    );
+  });
 
   // QR Auth Status Polling Loop
   useEffect(() => {
@@ -337,6 +404,107 @@ export default function TelegramIntegrationPage() {
           </CardFooter>
         </Card>
       </div>
+
+      {/* Monitored Channels & Groups Section */}
+      {isConnected && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Radio className="h-5 w-5 text-primary" />
+                  <span>Monitored Signal Channels & Groups</span>
+                </CardTitle>
+                <CardDescription>
+                  Select which channels or groups from your Telegram account should be monitored for trading signals.
+                </CardDescription>
+              </div>
+              <Button size="sm" variant="outline" onClick={loadDialogs} disabled={loadingDialogs}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${loadingDialogs ? "animate-spin" : ""}`} />
+                Refresh Channels
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search channels & groups by title, @username or ID..."
+                className="pl-9"
+                value={dialogSearch}
+                onChange={(e) => setDialogSearch(e.target.value)}
+              />
+            </div>
+
+            {loadingDialogs ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span>Loading available channels & groups from Telegram...</span>
+              </div>
+            ) : filteredDialogs.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground border border-dashed rounded-lg">
+                <p>No channels or groups found matching your search.</p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredDialogs.map((dialog) => {
+                  const identifier = dialog.username ? `@${dialog.username}` : dialog.id.toString();
+                  const isToggling = togglingMap[identifier];
+
+                  return (
+                    <div
+                      key={dialog.id}
+                      className={`flex flex-col justify-between p-4 rounded-lg border transition-colors ${
+                        dialog.isMonitored
+                          ? "border-primary/50 bg-primary/5"
+                          : "border-border bg-card hover:bg-muted/30"
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-sm line-clamp-1">{dialog.title}</p>
+                          <Badge variant={dialog.isMonitored ? "default" : "outline"} className="text-[10px] shrink-0">
+                            {dialog.isMonitored ? "Monitored" : dialog.isChannel ? "Channel" : "Group"}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {dialog.username ? `@${dialog.username}` : `ID: ${dialog.id}`}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 mt-2 border-t border-border/50 flex items-center justify-between">
+                        <span className="text-[11px] text-muted-foreground">
+                          {dialog.isChannel ? "Channel" : "Group"}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant={dialog.isMonitored ? "destructive" : "default"}
+                          className="h-8 text-xs"
+                          onClick={() => handleToggleChannel(dialog)}
+                          disabled={isToggling}
+                        >
+                          {isToggling ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : dialog.isMonitored ? (
+                            <>
+                              <XCircle className="mr-1.5 h-3.5 w-3.5" /> Stop Monitoring
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="mr-1.5 h-3.5 w-3.5" /> Monitor Signal
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -16,4 +16,7 @@ public interface ITelegramClient
     Task SendMessageAsync(long chatId, string message);
     Task<TL.User?> LoginWithQrCodeAsync(Action<string> qrDisplay, CancellationToken ct = default);
     TelegramAccountDto? GetConnectedAccount();
+    Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync();
+    System.Collections.Generic.List<string> GetMonitoredChannels();
+    bool ToggleMonitoredChannel(string identifier, bool enable);
 }

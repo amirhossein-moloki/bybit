@@ -26,3 +26,12 @@ export interface TelegramQrStatusDto {
   account?: TelegramAccountDto | null;
   error?: string | null;
 }
+
+export interface TelegramDialogDto {
+  id: number;
+  title: string;
+  username: string;
+  isChannel: boolean;
+  isGroup: boolean;
+  isMonitored: boolean;
+}
