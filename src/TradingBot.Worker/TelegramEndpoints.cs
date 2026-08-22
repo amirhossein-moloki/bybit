@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
 using TradingBot.Telegram.Interfaces;
+using TradingBot.Telegram.Models;
 
 namespace TradingBot.Worker;
 
@@ -42,14 +43,65 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = status });
         });
 
-        // 4. Logout
+        // 4. Start OTP Login
+        group.MapPost("/auth/otp/start", async (ITelegramAuthenticationService authService, OtpStartRequest request, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request?.PhoneNumber))
+            {
+                return Results.BadRequest(new { success = false, error = "PhoneNumber is required." });
+            }
+
+            var result = await authService.StartOtpLoginAsync(request.PhoneNumber, ct);
+            if (!result.Success)
+            {
+                return Results.BadRequest(result);
+            }
+
+            return Results.Ok(result);
+        });
+
+        // 5. Verify OTP Login
+        group.MapPost("/auth/otp/verify", async (ITelegramAuthenticationService authService, OtpVerifyRequest request, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request?.PhoneNumber) || string.IsNullOrWhiteSpace(request?.Code))
+            {
+                return Results.BadRequest(new { success = false, error = "PhoneNumber and Code are required." });
+            }
+
+            var result = await authService.VerifyOtpAsync(request.PhoneNumber, request.PhoneCodeHash, request.Code, ct);
+            if (!result.Success)
+            {
+                return Results.BadRequest(result);
+            }
+
+            return Results.Ok(result);
+        });
+
+        // 6. Verify 2FA Password
+        group.MapPost("/auth/password", async (ITelegramAuthenticationService authService, PasswordVerifyRequest request, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request?.Password))
+            {
+                return Results.BadRequest(new { success = false, error = "Password is required." });
+            }
+
+            var result = await authService.VerifyPasswordAsync(request.Password, ct);
+            if (!result.Success)
+            {
+                return Results.BadRequest(result);
+            }
+
+            return Results.Ok(result);
+        });
+
+        // 7. Logout
         group.MapPost("/auth/logout", async (ITelegramQrAuthService authService, CancellationToken ct) =>
         {
             await authService.LogoutAsync(ct);
             return Results.Ok(new { status = "success", data = new { message = "Logged out successfully" } });
         });
 
-        // 5. Get Dialogs (Channels and Groups)
+        // 8. Get Dialogs (Channels and Groups)
         group.MapGet("/dialogs", async (ITelegramClient telegramClient) =>
         {
             try
@@ -63,14 +115,14 @@ public static class TelegramEndpoints
             }
         });
 
-        // 6. Get Monitored Channels (Backward compatibility)
+        // 9. Get Monitored Channels (Backward compatibility)
         group.MapGet("/channels", (ITelegramClient telegramClient) =>
         {
             var channels = telegramClient.GetMonitoredChannels();
             return Results.Ok(new { status = "success", data = channels });
         });
 
-        // 7. Toggle Monitored Channel (Backward compatibility)
+        // 10. Toggle Monitored Channel (Backward compatibility)
         group.MapPost("/channels/toggle", (ITelegramClient telegramClient, ToggleChannelRequest request) =>
         {
             if (string.IsNullOrWhiteSpace(request.Identifier))
@@ -86,7 +138,7 @@ public static class TelegramEndpoints
         // Telegram Control Center — Source Management Endpoints
         // ----------------------------------------------------------------------
 
-        // 8. List Sources
+        // 11. List Sources
         group.MapGet("/sources", async (
             ITelegramSourceService sourceService,
             string? search,
@@ -112,7 +164,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = sources });
         });
 
-        // 9. Sync Sources
+        // 12. Sync Sources
         group.MapPost("/sources/sync", async (ITelegramSourceService sourceService, CancellationToken ct) =>
         {
             try
@@ -126,7 +178,7 @@ public static class TelegramEndpoints
             }
         });
 
-        // 10. Bulk Update Sources
+        // 13. Bulk Update Sources
         group.MapPost("/sources/bulk", async (ITelegramSourceService sourceService, BulkUpdateSourcesDto request, CancellationToken ct) =>
         {
             if (request == null || request.SourceIds == null || request.SourceIds.Count == 0)
@@ -138,7 +190,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = new { updatedCount } });
         });
 
-        // 11. Get Single Source
+        // 14. Get Single Source
         group.MapGet("/sources/{id:guid}", async (ITelegramSourceService sourceService, Guid id, CancellationToken ct) =>
         {
             var source = await sourceService.GetSourceByIdAsync(id, ct);
@@ -150,7 +202,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = source });
         });
 
-        // 12. Update Source Capabilities / Pause
+        // 15. Update Source Capabilities / Pause
         group.MapPatch("/sources/{id:guid}", async (ITelegramSourceService sourceService, Guid id, UpdateTelegramSourceDto request, CancellationToken ct) =>
         {
             try
@@ -168,7 +220,7 @@ public static class TelegramEndpoints
             }
         });
 
-        // 13. Delete Source
+        // 16. Delete Source
         group.MapDelete("/sources/{id:guid}", async (ITelegramSourceService sourceService, Guid id, CancellationToken ct) =>
         {
             var deleted = await sourceService.DeleteSourceAsync(id, ct);
@@ -180,7 +232,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = new { message = "Source deleted successfully." } });
         });
 
-        // 14. Get Source Recent Messages
+        // 17. Get Source Recent Messages
         group.MapGet("/sources/{id:guid}/messages", async (
             ITelegramSourceService sourceService,
             Guid id,
@@ -192,7 +244,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = messages });
         });
 
-        // 15. Get Source Detected Signals
+        // 18. Get Source Detected Signals
         group.MapGet("/sources/{id:guid}/signals", async (
             ITelegramSourceService sourceService,
             Guid id,
@@ -204,7 +256,7 @@ public static class TelegramEndpoints
             return Results.Ok(new { status = "success", data = signals });
         });
 
-        // 16. Get Source Health
+        // 19. Get Source Health
         group.MapGet("/sources/{id:guid}/health", async (ITelegramSourceService sourceService, Guid id, CancellationToken ct) =>
         {
             try
@@ -218,7 +270,7 @@ public static class TelegramEndpoints
             }
         });
 
-        // 17. Test Source
+        // 20. Test Source
         group.MapPost("/sources/{id:guid}/test", async (ITelegramSourceService sourceService, Guid id, CancellationToken ct) =>
         {
             var result = await sourceService.TestSourceAsync(id, ct);

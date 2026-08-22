@@ -27,6 +27,26 @@ export interface TelegramQrStatusDto {
   error?: string | null;
 }
 
+export interface OtpStartResultDto {
+  success: boolean;
+  phoneCodeHash?: string | null;
+  message?: string | null;
+  error?: string | null;
+}
+
+export interface OtpVerifyResultDto {
+  success: boolean;
+  status?: string | null;
+  requiresPassword?: boolean;
+  error?: string | null;
+}
+
+export interface PasswordResultDto {
+  success: boolean;
+  status?: string | null;
+  error?: string | null;
+}
+
 export interface TelegramDialogDto {
   id: number;
   title: string;

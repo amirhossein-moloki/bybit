@@ -230,8 +230,9 @@ public class TelegramIntegrationTests
         };
         var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
         var mockClient = new Mock<ITelegramClient>();
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
 
-        var authService = new TelegramAuthService(mockClient.Object, mockOptions);
+        var authService = new TelegramAuthService(mockClient.Object, mockSessionManager.Object, mockOptions);
 
         // Act
         await authService.AuthenticateAsync();
@@ -250,8 +251,9 @@ public class TelegramIntegrationTests
         };
         var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
         var mockClient = new Mock<ITelegramClient>(); // Not TelegramClientService
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
 
-        var authService = new TelegramAuthService(mockClient.Object, mockOptions);
+        var authService = new TelegramAuthService(mockClient.Object, mockSessionManager.Object, mockOptions);
 
         // Act & Assert
         Func<Task> act = async () => await authService.AuthenticateAsync();
