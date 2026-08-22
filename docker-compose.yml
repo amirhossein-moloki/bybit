@@ -16,8 +16,10 @@ services:
       - Telegram__ApiHash=${TELEGRAM_API_HASH:-}
       - Telegram__PhoneNumber=${TELEGRAM_PHONE_NUMBER:-}
       - Telegram__SessionPath=${TELEGRAM_SESSION_PATH:-/app/data/telegram/session}
+      - Telegram__ProxyUrl=${TELEGRAM_PROXY_URL:-}
       - TELEGRAM_API_ID=${TELEGRAM_API_ID:-}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH:-}
+      - TELEGRAM_PROXY_URL=${TELEGRAM_PROXY_URL:-}
     expose:
       - "80"
     volumes:
