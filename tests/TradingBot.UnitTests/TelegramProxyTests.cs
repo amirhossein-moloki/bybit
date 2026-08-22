@@ -13,17 +13,13 @@ namespace TradingBot.UnitTests;
 public class TelegramProxyTests
 {
     [Theory]
-    [InlineData("socks5://127.0.0.1:10808", "socks_ip", "127.0.0.1")]
-    [InlineData("socks5://127.0.0.1:10808", "socks_port", "10808")]
-    [InlineData("socks5://admin:pass123@127.0.0.1:10808", "socks_username", "admin")]
-    [InlineData("socks5://admin:pass123@127.0.0.1:10808", "socks_password", "pass123")]
-    [InlineData("http://127.0.0.1:8080", "proxy_ip", "127.0.0.1")]
-    [InlineData("http://127.0.0.1:8080", "proxy_port", "8080")]
-    [InlineData("http://user:pass@127.0.0.1:8080", "proxy_username", "user")]
-    [InlineData("http://user:pass@127.0.0.1:8080", "proxy_password", "pass")]
-    [InlineData("http://127.0.0.1:8080", "http_proxy", "http://127.0.0.1:8080")]
-    public void ConfigProvider_ShouldExtractProxyFieldsCorrectly(string proxyUrl, string whatKey, string expected)
+    [InlineData("socks5", "127.0.0.1", 10808, "socks_ip", "127.0.0.1")]
+    [InlineData("socks5", "127.0.0.1", 10808, "socks_port", "10808")]
+    [InlineData("http", "127.0.0.1", 8080, "proxy_ip", "127.0.0.1")]
+    [InlineData("http", "127.0.0.1", 8080, "proxy_port", "8080")]
+    public void ConfigProvider_ShouldExtractHostAndPortCorrectly(string scheme, string host, int port, string key, string expected)
     {
+        var proxyUrl = $"{scheme}://{host}:{port}";
         var options = Options.Create(new TelegramOptions
         {
             ApiId = "12345",
@@ -35,8 +31,58 @@ public class TelegramProxyTests
         var service = new TelegramClientService(options, new DummySessionManager(), new DummyMessageReceiver());
         var method = typeof(TelegramClientService).GetMethod("ConfigProvider", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        var result = method?.Invoke(service, new object[] { whatKey }) as string;
+        var result = method?.Invoke(service, new object[] { key }) as string;
         result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ConfigProvider_ShouldExtractSocksCredentialsCorrectly()
+    {
+        var user = "proxy_user";
+        var pass = "proxy_secret_key";
+        var proxyUrl = $"socks5://{user}:{pass}@127.0.0.1:10808";
+
+        var options = Options.Create(new TelegramOptions
+        {
+            ApiId = "12345",
+            ApiHash = "hash123",
+            PhoneNumber = "+1234567890",
+            ProxyUrl = proxyUrl
+        });
+
+        var service = new TelegramClientService(options, new DummySessionManager(), new DummyMessageReceiver());
+        var method = typeof(TelegramClientService).GetMethod("ConfigProvider", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        var parsedUser = method?.Invoke(service, new object[] { "socks_username" }) as string;
+        var parsedPass = method?.Invoke(service, new object[] { "socks_password" }) as string;
+
+        parsedUser.Should().Be(user);
+        parsedPass.Should().Be(pass);
+    }
+
+    [Fact]
+    public void ConfigProvider_ShouldExtractHttpCredentialsCorrectly()
+    {
+        var user = "http_user";
+        var pass = "http_secret_key";
+        var proxyUrl = $"http://{user}:{pass}@127.0.0.1:8080";
+
+        var options = Options.Create(new TelegramOptions
+        {
+            ApiId = "12345",
+            ApiHash = "hash123",
+            PhoneNumber = "+1234567890",
+            ProxyUrl = proxyUrl
+        });
+
+        var service = new TelegramClientService(options, new DummySessionManager(), new DummyMessageReceiver());
+        var method = typeof(TelegramClientService).GetMethod("ConfigProvider", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        var parsedUser = method?.Invoke(service, new object[] { "proxy_username" }) as string;
+        var parsedPass = method?.Invoke(service, new object[] { "proxy_password" }) as string;
+
+        parsedUser.Should().Be(user);
+        parsedPass.Should().Be(pass);
     }
 
     [Theory]
