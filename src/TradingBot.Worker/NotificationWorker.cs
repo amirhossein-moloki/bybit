@@ -119,7 +119,15 @@ public class NotificationWorker : BackgroundService
 
             if (claimedNotifications.Any())
             {
-                await unitOfWork.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception ex) when (ex.GetType().Name.Contains("DbUpdateConcurrencyException"))
+                {
+                    _logger.LogWarning(ex, "NotificationWorker: Concurrency conflict while claiming notification batch. Skipping batch iteration.");
+                    return;
+                }
             }
         }
 
@@ -208,8 +216,15 @@ public class NotificationWorker : BackgroundService
                     errorMessage: result.SafeMessage
                 );
 
-                repository.Update(persistedNotification);
-                await unitOfWork.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    repository.Update(persistedNotification);
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Exception ex) when (ex.GetType().Name.Contains("DbUpdateConcurrencyException"))
+                {
+                    _logger.LogWarning(ex, "NotificationWorker: Concurrency conflict when saving delivery result for notification {NotificationId}. Skipping.", notification.Id);
+                }
             }
         }
     }

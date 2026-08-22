@@ -9,5 +9,6 @@ public class TelegramOptions
     public string PhoneNumber { get; set; } = string.Empty;
     public string SessionPath { get; set; } = "/app/data/telegram/session";
     public bool Enabled { get; set; } = true;
+    public string ProxyUrl { get; set; } = string.Empty;
     public List<string> Channels { get; set; } = new();
 }

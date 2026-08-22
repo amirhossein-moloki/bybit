@@ -8,9 +8,11 @@ public class BybitOptionsTests
 {
     [Theory]
     [InlineData("Demo", "https://api-demo.bybit.com")]
+    [InlineData("Testnet", "https://api-testnet.bybit.com")]
     [InlineData("Mainnet", "https://api.bybit.com")]
     [InlineData("Production", "https://api.bybit.com")]
     [InlineData("demo", "https://api-demo.bybit.com")]
+    [InlineData("testnet", "https://api-testnet.bybit.com")]
     [InlineData("mainnet", "https://api.bybit.com")]
     [InlineData(null, "https://api-demo.bybit.com")]
     [InlineData("Unknown", "https://api-demo.bybit.com")]
@@ -21,17 +23,21 @@ public class BybitOptionsTests
     }
 
     [Theory]
-    [InlineData("Demo", "wss://stream-demo.bybit.com/v5/public/spot")]
-    [InlineData("Mainnet", "wss://stream.bybit.com/v5/public/spot")]
-    [InlineData("Production", "wss://stream.bybit.com/v5/public/spot")]
-    public void GetPublicWebSocketUrl_ShouldReturnCorrectUrl(string? env, string expectedUrl)
+    [InlineData("Demo", "spot", "wss://stream.bybit.com/v5/public/spot")]
+    [InlineData("Demo", "linear", "wss://stream.bybit.com/v5/public/linear")]
+    [InlineData("Testnet", "spot", "wss://stream-testnet.bybit.com/v5/public/spot")]
+    [InlineData("Testnet", "linear", "wss://stream-testnet.bybit.com/v5/public/linear")]
+    [InlineData("Mainnet", "spot", "wss://stream.bybit.com/v5/public/spot")]
+    [InlineData("Production", "spot", "wss://stream.bybit.com/v5/public/spot")]
+    public void GetPublicWebSocketUrl_ShouldReturnCorrectUrl(string? env, string category, string expectedUrl)
     {
-        var url = BybitOptions.GetPublicWebSocketUrl(env, "spot");
+        var url = BybitOptions.GetPublicWebSocketUrl(env, category);
         url.Should().Be(expectedUrl);
     }
 
     [Theory]
     [InlineData("Demo", "wss://stream-demo.bybit.com/v5/private")]
+    [InlineData("Testnet", "wss://stream-testnet.bybit.com/v5/private")]
     [InlineData("Mainnet", "wss://stream.bybit.com/v5/private")]
     [InlineData("Production", "wss://stream.bybit.com/v5/private")]
     public void GetPrivateWebSocketUrl_ShouldReturnCorrectUrl(string? env, string expectedUrl)
