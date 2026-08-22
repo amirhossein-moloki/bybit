@@ -569,6 +569,41 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 }
                 return pwd;
 
+            case "socks_ip":
+            case "http_proxy":
+            case "proxy_ip":
+                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyUri))
+                {
+                    return proxyUri.Host;
+                }
+                return null;
+
+            case "socks_port":
+            case "proxy_port":
+                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyPortUri) && proxyPortUri.Port > 0)
+                {
+                    return proxyPortUri.Port.ToString();
+                }
+                return null;
+
+            case "socks_username":
+            case "proxy_username":
+                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyUserUri) && !string.IsNullOrEmpty(proxyUserUri.UserInfo))
+                {
+                    var parts = proxyUserUri.UserInfo.Split(':');
+                    return parts.Length > 0 ? Uri.UnescapeDataString(parts[0]) : null;
+                }
+                return null;
+
+            case "socks_password":
+            case "proxy_password":
+                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyPassUri) && !string.IsNullOrEmpty(proxyPassUri.UserInfo))
+                {
+                    var parts = proxyPassUri.UserInfo.Split(':');
+                    return parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : null;
+                }
+                return null;
+
             default:
                 return null;
         }
