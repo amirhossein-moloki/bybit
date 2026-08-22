@@ -570,38 +570,65 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 return pwd;
 
             case "socks_ip":
+            case "socks_port":
+            case "socks_username":
+            case "socks_password":
             case "http_proxy":
             case "proxy_ip":
-                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyUri))
-                {
-                    return proxyUri.Host;
-                }
-                return null;
-
-            case "socks_port":
             case "proxy_port":
-                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyPortUri) && proxyPortUri.Port > 0)
-                {
-                    return proxyPortUri.Port.ToString();
-                }
-                return null;
-
-            case "socks_username":
             case "proxy_username":
-                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyUserUri) && !string.IsNullOrEmpty(proxyUserUri.UserInfo))
+            case "proxy_password":
+                if (string.IsNullOrWhiteSpace(_options.ProxyUrl) || !Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var parsedProxyUri))
                 {
-                    var parts = proxyUserUri.UserInfo.Split(':');
+                    return null;
+                }
+
+                var scheme = parsedProxyUri.Scheme.ToLowerInvariant();
+                bool isSocks = scheme is "socks" or "socks5" or "socks5h";
+                bool isHttp = scheme is "http" or "https";
+
+                if (what is "socks_ip" && (isSocks || !isHttp))
+                {
+                    return parsedProxyUri.Host;
+                }
+                if (what is "socks_port" && (isSocks || !isHttp) && parsedProxyUri.Port > 0)
+                {
+                    return parsedProxyUri.Port.ToString();
+                }
+                if (what is "socks_username" && (isSocks || !isHttp) && !string.IsNullOrEmpty(parsedProxyUri.UserInfo))
+                {
+                    var parts = parsedProxyUri.UserInfo.Split(':');
                     return parts.Length > 0 ? Uri.UnescapeDataString(parts[0]) : null;
                 }
-                return null;
-
-            case "socks_password":
-            case "proxy_password":
-                if (!string.IsNullOrWhiteSpace(_options.ProxyUrl) && Uri.TryCreate(_options.ProxyUrl, UriKind.Absolute, out var proxyPassUri) && !string.IsNullOrEmpty(proxyPassUri.UserInfo))
+                if (what is "socks_password" && (isSocks || !isHttp) && !string.IsNullOrEmpty(parsedProxyUri.UserInfo))
                 {
-                    var parts = proxyPassUri.UserInfo.Split(':');
+                    var parts = parsedProxyUri.UserInfo.Split(':');
                     return parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : null;
                 }
+
+                if (what is "http_proxy" && isHttp)
+                {
+                    return _options.ProxyUrl;
+                }
+                if (what is "proxy_ip" && isHttp)
+                {
+                    return parsedProxyUri.Host;
+                }
+                if (what is "proxy_port" && isHttp && parsedProxyUri.Port > 0)
+                {
+                    return parsedProxyUri.Port.ToString();
+                }
+                if (what is "proxy_username" && isHttp && !string.IsNullOrEmpty(parsedProxyUri.UserInfo))
+                {
+                    var parts = parsedProxyUri.UserInfo.Split(':');
+                    return parts.Length > 0 ? Uri.UnescapeDataString(parts[0]) : null;
+                }
+                if (what is "proxy_password" && isHttp && !string.IsNullOrEmpty(parsedProxyUri.UserInfo))
+                {
+                    var parts = parsedProxyUri.UserInfo.Split(':');
+                    return parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : null;
+                }
+
                 return null;
 
             default:

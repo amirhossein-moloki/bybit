@@ -263,9 +263,11 @@ public static class TradingBotDoctor
             {
                 bool hasApiId = !string.IsNullOrWhiteSpace(telegramOptions.ApiId);
                 bool hasApiHash = !string.IsNullOrWhiteSpace(telegramOptions.ApiHash);
+                bool hasProxy = !string.IsNullOrWhiteSpace(telegramOptions.ProxyUrl);
 
                 Console.WriteLine($"  API ID configured: {hasApiId}");
                 Console.WriteLine($"  API Hash configured: {hasApiHash}");
+                Console.WriteLine($"  Proxy configured: {(hasProxy ? "Yes (" + telegramOptions.ProxyUrl + ")" : "No")}");
 
                 if (!hasApiId || !hasApiHash)
                 {
