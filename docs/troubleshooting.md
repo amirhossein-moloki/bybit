@@ -70,7 +70,7 @@ This document describes common operational issues, how to detect them, and their
 * **Problem**: Channel posts do not appear or parse.
 * **Detection Method**: Active channel broadcasts are skipped, and `SignalContext` records are not created.
 * **Possible Cause**: Channel IDs are incorrect, or the authenticated Telegram account does not have read access to the monitored channel.
-* **Solution**: Confirm that monitored Channel IDs (prefixed with `-100` for channels) are listed inside `Telegram__Channels`.
+* **Solution**: Confirm that monitored channels/groups are enabled in the Telegram Control Center (`/integrations/telegram`) and `ListenForSignals` capability is toggled ON.
 
 ---
 

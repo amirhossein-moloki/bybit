@@ -76,6 +76,11 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             {
                 services.Remove(tgClientDescriptor);
             }
+            var tgDiscoveryDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITelegramDiscoveryClient));
+            if (tgDiscoveryDescriptor != null)
+            {
+                services.Remove(tgDiscoveryDescriptor);
+            }
 
             var mockTelegramClient = new Mock<ITelegramClient>();
             mockTelegramClient.Setup(x => x.CurrentState).Returns(TelegramConnectionState.Connected);
@@ -88,6 +93,16 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 .ReturnsAsync(new TL.User { id = 123456, username = "integration_test_user", first_name = "Test", last_name = "User" });
             mockTelegramClient.Setup(x => x.GetConnectedAccount()).Returns(new TelegramAccountDto { Id = 123456, Username = "integration_test_user", FirstName = "Test", LastName = "User" });
             services.AddSingleton(mockTelegramClient.Object);
+
+            var mockDiscoveryClient = new Mock<ITelegramDiscoveryClient>();
+            mockDiscoveryClient.Setup(x => x.IsConnected()).Returns(true);
+            mockDiscoveryClient.Setup(x => x.GetCurrentState()).Returns("Connected");
+            mockDiscoveryClient.Setup(x => x.GetDialogsAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new System.Collections.Generic.List<DiscoveredTelegramChatDto>
+                {
+                    new DiscoveredTelegramChatDto(1001, "Test Discovery Channel", "test_discovery", true, false)
+                });
+            services.AddSingleton<ITelegramDiscoveryClient>(mockDiscoveryClient.Object);
 
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));
             if (descriptor != null)

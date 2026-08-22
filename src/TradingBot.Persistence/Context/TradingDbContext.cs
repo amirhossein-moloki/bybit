@@ -29,6 +29,7 @@ public class TradingDbContext : DbContext
     public DbSet<AlertEvent> AlertEvents { get; set; } = null!;
     public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts { get; set; } = null!;
     public DbSet<ReportSchedule> ReportSchedules { get; set; } = null!;
+    public DbSet<TelegramSource> TelegramSources { get; set; } = null!;
     public DbSet<TelegramMessage> TelegramMessages { get; set; } = null!;
     public DbSet<MessageAnalysis> MessageAnalyses { get; set; } = null!;
     public DbSet<SignalContext> SignalContexts { get; set; } = null!;

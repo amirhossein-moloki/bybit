@@ -1,10 +1,19 @@
-import { apiGet, apiPost } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
 import type { ApiSuccess } from "@/types/api";
 import type {
   TelegramStatusDto,
   TelegramQrStartResultDto,
   TelegramQrStatusDto,
   TelegramDialogDto,
+  TelegramSourceDto,
+  TelegramSourceFilter,
+  UpdateTelegramSourceDto,
+  SyncSourcesResultDto,
+  TestSourceResultDto,
+  BulkUpdateSourcesDto,
+  TelegramMessagePreviewDto,
+  TelegramSignalPreviewDto,
+  TelegramSourceHealthDto,
 } from "@/types/telegram";
 
 const base = "/api/telegram";
@@ -49,4 +58,93 @@ export async function toggleMonitoredChannel(
     token,
     body: { identifier, enable },
   }).then(unwrap);
+}
+
+// Telegram Control Center — Source Management API Service Functions
+
+export async function fetchTelegramSources(
+  token: string,
+  filter?: TelegramSourceFilter
+): Promise<TelegramSourceDto[]> {
+  return apiGet<ApiSuccess<TelegramSourceDto[]>>(`${base}/sources`, {
+    token,
+    query: filter as Record<string, string | number | boolean | null | undefined>,
+  }).then(unwrap);
+}
+
+export async function fetchTelegramSourceById(
+  token: string,
+  id: string
+): Promise<TelegramSourceDto> {
+  return apiGet<ApiSuccess<TelegramSourceDto>>(`${base}/sources/${id}`, { token }).then(unwrap);
+}
+
+export async function updateTelegramSource(
+  token: string,
+  id: string,
+  dto: UpdateTelegramSourceDto
+): Promise<TelegramSourceDto> {
+  return apiPatch<ApiSuccess<TelegramSourceDto>>(`${base}/sources/${id}`, {
+    token,
+    body: dto,
+  }).then(unwrap);
+}
+
+export async function deleteTelegramSource(
+  token: string,
+  id: string
+): Promise<{ message: string }> {
+  return apiDelete<ApiSuccess<{ message: string }>>(`${base}/sources/${id}`, { token }).then(unwrap);
+}
+
+export async function syncTelegramSources(token: string): Promise<SyncSourcesResultDto> {
+  return apiPost<ApiSuccess<SyncSourcesResultDto>>(`${base}/sources/sync`, { token }).then(unwrap);
+}
+
+export async function bulkUpdateSources(
+  token: string,
+  dto: BulkUpdateSourcesDto
+): Promise<{ updatedCount: number }> {
+  return apiPost<ApiSuccess<{ updatedCount: number }>>(`${base}/sources/bulk`, {
+    token,
+    body: dto,
+  }).then(unwrap);
+}
+
+export async function fetchSourceMessages(
+  token: string,
+  id: string,
+  page = 1,
+  pageSize = 20
+): Promise<TelegramMessagePreviewDto[]> {
+  return apiGet<ApiSuccess<TelegramMessagePreviewDto[]>>(`${base}/sources/${id}/messages`, {
+    token,
+    query: { page, pageSize },
+  }).then(unwrap);
+}
+
+export async function fetchSourceSignals(
+  token: string,
+  id: string,
+  page = 1,
+  pageSize = 20
+): Promise<TelegramSignalPreviewDto[]> {
+  return apiGet<ApiSuccess<TelegramSignalPreviewDto[]>>(`${base}/sources/${id}/signals`, {
+    token,
+    query: { page, pageSize },
+  }).then(unwrap);
+}
+
+export async function fetchSourceHealth(
+  token: string,
+  id: string
+): Promise<TelegramSourceHealthDto> {
+  return apiGet<ApiSuccess<TelegramSourceHealthDto>>(`${base}/sources/${id}/health`, { token }).then(unwrap);
+}
+
+export async function testTelegramSource(
+  token: string,
+  id: string
+): Promise<TestSourceResultDto> {
+  return apiPost<ApiSuccess<TestSourceResultDto>>(`${base}/sources/${id}/test`, { token }).then(unwrap);
 }

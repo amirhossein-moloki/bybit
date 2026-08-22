@@ -103,6 +103,53 @@ public static class DatabaseSeeder
             logger?.LogInformation("ParserTemplates table is not empty. Skipping templates seeding.");
         }
 
+        // Seed/Migrate Legacy Telegram Channels from Environment Variables
+        var envChannels = Environment.GetEnvironmentVariable("Telegram__Channels")
+                       ?? Environment.GetEnvironmentVariable("TELEGRAM_CHANNELS");
+
+        if (!string.IsNullOrWhiteSpace(envChannels))
+        {
+            logger?.LogInformation("Found legacy Telegram__Channels in environment. Migrating to TelegramSources table...");
+            var splitChannels = envChannels.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var rawCh in splitChannels)
+            {
+                var trimmed = rawCh.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+                long chatId = 0;
+                string title = trimmed;
+                string? username = null;
+
+                if (long.TryParse(trimmed, out var parsedId))
+                {
+                    chatId = parsedId;
+                    title = $"Legacy Channel ({parsedId})";
+                }
+                else
+                {
+                    // Generate stable hash ID for named channel string
+                    chatId = Math.Abs(trimmed.GetHashCode());
+                    username = trimmed.StartsWith("@") ? trimmed : "@" + trimmed;
+                }
+
+                bool exists = await context.TelegramSources.AnyAsync(s => s.TelegramChatId == chatId);
+                if (!exists)
+                {
+                    var legacySource = new TelegramSource(
+                        chatId,
+                        title,
+                        username,
+                        TradingBot.Domain.Enums.TelegramSourceType.Channel,
+                        isEnabled: true,
+                        listenForSignals: true,
+                        processMessages: true
+                    );
+                    await context.TelegramSources.AddAsync(legacySource);
+                    logger?.LogInformation("Migrated legacy channel '{Channel}' to TelegramSource entity in database.", trimmed);
+                }
+            }
+        }
+
         if (context.ChangeTracker.HasChanges())
         {
             await context.SaveChangesAsync();

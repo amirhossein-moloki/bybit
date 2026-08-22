@@ -3,6 +3,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TradingBot.Application.Interfaces;
+using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.SignalIntelligence.Contracts;
+using TradingBot.Domain.SignalIntelligence.Entities;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
 
@@ -52,35 +55,91 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
             return;
         }
 
-        // 1. Increment Signals Received Metric if available
-        _metrics?.IncrementSignalsReceived();
-
-        // 2. Resolve Scoped IMessageFilter to check for signals if dependencies are present
-        if (_scopeFactory == null || _queue == null)
+        if (_scopeFactory == null)
         {
-            _logger.LogDebug("DefaultTelegramMessageReceiver: Queue or scope factory is not configured. Skipping signal detection.");
+            _logger.LogDebug("DefaultTelegramMessageReceiver: Scope factory is not configured. Skipping processing.");
             return;
         }
 
         try
         {
-            using (var scope = _scopeFactory.CreateScope())
+            using var scope = _scopeFactory.CreateScope();
+
+            // 1. Check Source capabilities in DB if repository registered
+            var sourceRepo = scope.ServiceProvider.GetService<ITelegramSourceRepository>();
+            if (sourceRepo != null)
             {
-                var messageFilter = scope.ServiceProvider.GetRequiredService<IMessageFilter>();
-                var candidate = await messageFilter.AnalyzeAsync(message);
-
-                if (candidate != null)
+                var source = await sourceRepo.GetByChatIdAsync(message.ChannelId);
+                if (source == null)
                 {
-                    _logger.LogInformation("DefaultTelegramMessageReceiver: Detected signal candidate! Symbol: {Symbol}, Side: {Side}, Score: {Score}. Enqueuing for persistence.",
-                        candidate.DetectedSymbol, candidate.DetectedSide, candidate.DetectionScore);
-
-                    // 3. Enqueue to Storage Queue
-                    await _queue.EnqueueAsync(candidate);
+                    var options = scope.ServiceProvider.GetService<Microsoft.Extensions.Options.IOptions<TradingBot.Telegram.Configuration.TelegramOptions>>();
+                    var configured = options?.Value?.Channels;
+                    if (configured == null || configured.Count == 0)
+                    {
+                        _logger.LogInformation("DefaultTelegramMessageReceiver: Channel ID {ChannelId} ({ChannelName}) is not registered in TelegramSources. Ignoring message ID {MessageId}.",
+                            message.ChannelId, message.ChannelName, message.MessageId);
+                        return;
+                    }
                 }
                 else
                 {
-                    _logger.LogDebug("DefaultTelegramMessageReceiver: Message {MessageId} did not qualify as a signal candidate.", message.MessageId);
+                    if (!source.IsEnabled || source.IsPaused)
+                    {
+                        _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' ({ChatId}) is disabled or paused. Ignoring message ID {MessageId}.",
+                            source.Title, source.TelegramChatId, message.MessageId);
+                        return;
+                    }
+
+                    // Save Telegram Message entity if ProcessMessages is enabled
+                    if (source.ProcessMessages)
+                    {
+                        var msgRepo = scope.ServiceProvider.GetService<IMessageRepository>();
+                        if (msgRepo != null)
+                        {
+                            var domainMsg = new TelegramMessage(
+                                source.TelegramChatId,
+                                message.MessageId,
+                                message.SenderId,
+                                message.Text,
+                                message.Date
+                            );
+                            await msgRepo.CreateAsync(domainMsg);
+                            _logger.LogDebug("DefaultTelegramMessageReceiver: Persisted message ID {MessageId} for source '{Title}'.", message.MessageId, source.Title);
+                        }
+                    }
+
+                    if (!source.ListenForSignals)
+                    {
+                        _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' has ListenForSignals disabled. Skipping signal analysis for message ID {MessageId}.",
+                            source.Title, message.MessageId);
+                        return;
+                    }
                 }
+            }
+
+            // 2. Increment Signals Received Metric if available
+            _metrics?.IncrementSignalsReceived();
+
+            // 3. Resolve Scoped IMessageFilter to check for signals if queue is configured
+            if (_queue == null)
+            {
+                _logger.LogDebug("DefaultTelegramMessageReceiver: Signal storage queue is not configured. Skipping signal detection.");
+                return;
+            }
+
+            var messageFilter = scope.ServiceProvider.GetRequiredService<IMessageFilter>();
+            var candidate = await messageFilter.AnalyzeAsync(message);
+
+            if (candidate != null)
+            {
+                _logger.LogInformation("DefaultTelegramMessageReceiver: Detected signal candidate! Symbol: {Symbol}, Side: {Side}, Score: {Score}. Enqueuing for persistence.",
+                    candidate.DetectedSymbol, candidate.DetectedSide, candidate.DetectionScore);
+
+                await _queue.EnqueueAsync(candidate);
+            }
+            else
+            {
+                _logger.LogDebug("DefaultTelegramMessageReceiver: Message {MessageId} did not qualify as a signal candidate.", message.MessageId);
             }
         }
         catch (Exception ex)

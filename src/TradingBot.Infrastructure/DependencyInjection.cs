@@ -122,6 +122,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IAlertRepository, AlertRepository>();
         services.AddScoped<IAlertEventRepository, AlertEventRepository>();
+        services.AddScoped<TradingBot.Application.Interfaces.Persistence.ITelegramSourceRepository, TelegramSourceRepository>();
 
         // Register Dashboard Query Service (Stage 09-01)
         services.AddScoped<TradingBot.Application.Dashboard.Interfaces.IDashboardQueryService, TradingBot.Persistence.Queries.DashboardQueryService>();

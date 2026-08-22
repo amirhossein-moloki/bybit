@@ -1,11 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Serilog;
 using WTelegram;
 using TL;
+using TradingBot.Application.Interfaces;
+using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Exceptions;
 using TradingBot.Telegram.Interfaces;
@@ -13,11 +18,12 @@ using TradingBot.Telegram.Models;
 
 namespace TradingBot.Telegram.Client;
 
-public class TelegramClientService : ITelegramClient, IDisposable
+public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, IDisposable
 {
     private readonly TelegramOptions _options;
     private readonly ITelegramSessionManager _sessionManager;
     private readonly ITelegramMessageReceiver _messageReceiver;
+    private readonly IServiceScopeFactory? _scopeFactory;
     private readonly ILogger _logger;
     private WTelegram.Client? _client;
     private WTelegram.UpdateManager? _updateManager;
@@ -32,11 +38,13 @@ public class TelegramClientService : ITelegramClient, IDisposable
     public TelegramClientService(
         IOptions<TelegramOptions> options,
         ITelegramSessionManager sessionManager,
-        ITelegramMessageReceiver messageReceiver)
+        ITelegramMessageReceiver messageReceiver,
+        IServiceScopeFactory? scopeFactory = null)
     {
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _messageReceiver = messageReceiver ?? throw new ArgumentNullException(nameof(messageReceiver));
+        _scopeFactory = scopeFactory;
         _logger = Log.ForContext<TelegramClientService>();
     }
 
@@ -427,9 +435,55 @@ public class TelegramClientService : ITelegramClient, IDisposable
         return result;
     }
 
+    async Task<List<DiscoveredTelegramChatDto>> ITelegramDiscoveryClient.GetDialogsAsync(CancellationToken ct)
+    {
+        var dialogs = await GetDialogsAsync();
+        return dialogs.Select(d => new DiscoveredTelegramChatDto(
+            d.Id,
+            d.Title,
+            d.Username,
+            d.IsChannel,
+            d.IsGroup
+        )).ToList();
+    }
+
+    string ITelegramDiscoveryClient.GetCurrentState()
+    {
+        return CurrentState.ToString();
+    }
+
     private bool IsChannelMonitored(TL.ChatBase chat)
     {
         if (chat == null) return false;
+
+        if (_scopeFactory != null)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var sourceRepo = scope.ServiceProvider.GetService<ITelegramSourceRepository>();
+                if (sourceRepo != null)
+                {
+                    var source = sourceRepo.GetByChatIdAsync(chat.ID).GetAwaiter().GetResult();
+                    if (source != null)
+                    {
+                        return source.IsEnabled && !source.IsPaused;
+                    }
+                    else
+                    {
+                        var configuredChannels = GetMonitoredChannels();
+                        if (configuredChannels == null || configuredChannels.Count == 0)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Error checking active sources repository for ChatId {ChatId}. Falling back to configured channel list.", chat.ID);
+            }
+        }
 
         var monitoredChannels = GetMonitoredChannels();
         if (monitoredChannels == null || monitoredChannels.Count == 0)

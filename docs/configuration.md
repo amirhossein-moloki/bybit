@@ -84,11 +84,10 @@ This document describes every environment variable utilized by the **Telegram Si
 * **Example**: `true`
 * **Security**: Low importance.
 
-### `Telegram__Channels`
-* **Purpose**: Comma-separated list of monitored Channel IDs, usernames, or titles.
-* **Required**: Yes
-* **Example**: `12345678,-1001234567890`
-* **Security**: Declares which channels are authorized for trading inputs.
+### `Telegram Source Management (Database-Backed)`
+* **Purpose**: Telegram channels, groups, and supergroups are managed dynamically in the database via the **Telegram Control Center** UI (`/integrations/telegram`) and Backend REST APIs (`/api/telegram/sources`).
+* **Required**: Managed dynamically via UI/API discovery sync. No `.env` channel IDs required.
+* **Security**: Channel capabilities (`IsEnabled`, `ListenForSignals`, `ProcessMessages`) are strictly enforced at runtime.
 
 ---
 

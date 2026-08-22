@@ -40,7 +40,7 @@ export class TimeoutError extends Error {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   query?: Record<string, string | number | boolean | null | undefined> | object;
   body?: unknown;
   token?: string | null;
@@ -189,6 +189,20 @@ export async function apiPost<T>(
   options: Omit<RequestOptions, "method"> = {}
 ): Promise<T> {
   return request<T>(path, { ...options, method: "POST" });
+}
+
+export async function apiPatch<T>(
+  path: string,
+  options: Omit<RequestOptions, "method"> = {}
+): Promise<T> {
+  return request<T>(path, { ...options, method: "PATCH" });
+}
+
+export async function apiDelete<T>(
+  path: string,
+  options: Omit<RequestOptions, "method" | "body"> = {}
+): Promise<T> {
+  return request<T>(path, { ...options, method: "DELETE" });
 }
 
 export { API_BASE_URL };
