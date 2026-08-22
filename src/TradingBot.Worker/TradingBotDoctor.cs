@@ -212,8 +212,8 @@ public static class TradingBotDoctor
                 Console.WriteLine($"  Endpoint Environment: {environment}");
 
                 // WebSocket check
-                var isDemo = string.Equals(environment, "Demo", StringComparison.OrdinalIgnoreCase);
-                var wsHost = isDemo ? "stream-demo.bybit.com" : "stream.bybit.com";
+                var isTestnet = string.Equals(environment, "Testnet", StringComparison.OrdinalIgnoreCase);
+                var wsHost = isTestnet ? "stream-testnet.bybit.com" : "stream.bybit.com";
                 try
                 {
                     using var wsClient = new TcpClient();
