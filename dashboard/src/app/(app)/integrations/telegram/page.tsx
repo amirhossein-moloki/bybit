@@ -63,6 +63,9 @@ import {
   fetchTelegramStatus,
   startTelegramQrAuth,
   fetchTelegramQrStatus,
+  startTelegramOtpAuth,
+  verifyTelegramOtpCode,
+  submitTelegramPassword,
   logoutTelegram,
   fetchTelegramSources,
   updateTelegramSource,
@@ -94,6 +97,10 @@ export default function TelegramControlCenterPage() {
   // Auth & Client Status
   const [status, setStatus] = useState<TelegramStatusDto | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
+  const [showAuthDialog, setShowAuthDialog] = useState(false);
+  const [authMethod, setAuthMethod] = useState<"qr" | "otp">("qr");
+
+  // QR Login State
   const [qrSession, setQrSession] = useState<{
     sessionId: string;
     qrData: string;
@@ -101,6 +108,16 @@ export default function TelegramControlCenterPage() {
   } | null>(null);
   const [qrStatus, setQrStatus] = useState<TelegramQrStatusDto | null>(null);
   const [startingQr, setStartingQr] = useState(false);
+
+  // OTP Login State
+  const [otpStep, setOtpStep] = useState<1 | 2 | 3>(1); // 1: Phone, 2: Code, 3: Password
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [phoneCodeHash, setPhoneCodeHash] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [twoFactorPassword, setTwoFactorPassword] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Control Center Sources State
@@ -241,6 +258,113 @@ export default function TelegramControlCenterPage() {
     } finally {
       setStartingQr(false);
     }
+  };
+
+  // OTP Handlers
+  const handleStartOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!token || !phoneNumber.trim()) return;
+
+    setOtpLoading(true);
+    setOtpError(null);
+
+    try {
+      const res = await startTelegramOtpAuth(token, { phoneNumber: phoneNumber.trim() });
+      if (res.success && res.phoneCodeHash) {
+        setPhoneCodeHash(res.phoneCodeHash);
+        setOtpStep(2);
+        toast({
+          title: "Verification Code Sent",
+          description: "Check your Telegram app or SMS for the code.",
+          variant: "info",
+        });
+      } else {
+        setOtpError(res.message || "Failed to send verification code.");
+      }
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Failed to send code.");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!token || !verificationCode.trim()) return;
+
+    setOtpLoading(true);
+    setOtpError(null);
+
+    try {
+      const res = await verifyTelegramOtpCode(token, {
+        phoneNumber: phoneNumber.trim(),
+        phoneCodeHash,
+        code: verificationCode.trim(),
+      });
+
+      if (res.requiresPassword) {
+        setOtpStep(3);
+        toast({
+          title: "Two-Factor Auth Required",
+          description: "Please enter your Telegram account password.",
+          variant: "warning",
+        });
+      } else if (res.success) {
+        setShowAuthDialog(false);
+        resetOtpState();
+        toast({
+          title: "Telegram Connected",
+          description: "Authenticated successfully via OTP!",
+          variant: "success",
+        });
+        loadStatus();
+        loadSources();
+      } else {
+        setOtpError(res.message || "Invalid verification code.");
+      }
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Verification failed.");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleSubmitPassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!token || !twoFactorPassword) return;
+
+    setOtpLoading(true);
+    setOtpError(null);
+
+    try {
+      const res = await submitTelegramPassword(token, { password: twoFactorPassword });
+      if (res.success) {
+        setShowAuthDialog(false);
+        resetOtpState();
+        toast({
+          title: "Telegram Connected",
+          description: "2FA authentication completed successfully!",
+          variant: "success",
+        });
+        loadStatus();
+        loadSources();
+      } else {
+        setOtpError(res.message || "Incorrect password.");
+      }
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Password verification failed.");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const resetOtpState = () => {
+    setOtpStep(1);
+    setPhoneNumber("");
+    setPhoneCodeHash("");
+    setVerificationCode("");
+    setTwoFactorPassword("");
+    setOtpError(null);
   };
 
   const handleLogout = async () => {
@@ -569,55 +693,190 @@ export default function TelegramControlCenterPage() {
         </Card>
       </div>
 
-      {/* Account QR Auth Card if Disconnected */}
+      {/* Account Auth Card if Disconnected */}
       {!metrics.isConnected && (
         <Card className="border-amber-500/30 bg-amber-500/5">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2 text-amber-500">
-                <QrCode className="h-5 w-5" /> Telegram Client Authentication Required
+                <ShieldCheck className="h-5 w-5" /> Telegram Client Authentication Required
               </CardTitle>
               <Badge variant="outline" className="border-amber-500/50 text-amber-500">
                 Action Required
               </Badge>
             </div>
             <CardDescription>
-              Connect your Telegram account using QR Login to enable active channel monitoring and signal listening.
+              Connect your Telegram account using QR Login or Phone OTP to enable active channel monitoring and signal listening.
             </CardDescription>
           </CardHeader>
 
           <CardContent className="pt-0">
-            {qrSession?.qrData ? (
-              <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-card rounded-lg border border-border">
-                <div className="p-3 bg-white rounded-lg shadow-sm">
-                  <QRCodeSVG value={qrSession.qrData} size={160} level="M" />
-                </div>
-                <div className="space-y-2 text-center sm:text-left">
-                  <p className="font-semibold text-foreground text-sm flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" /> Waiting for Telegram Scan...
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Open Telegram on your phone → Settings → Devices → Link Desktop Device
-                  </p>
-                  <Button size="sm" variant="outline" onClick={() => setQrSession(null)} className="mt-2 text-xs">
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Click the button to generate a QR login session.
-                </p>
-                <Button size="sm" onClick={handleStartQr} disabled={startingQr}>
-                  {startingQr ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
-                  Connect Telegram Account
-                </Button>
-              </div>
-            )}
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Authenticate your Telegram account using QR Code scan or Phone Number OTP code.
+              </p>
+              <Button size="sm" onClick={() => setShowAuthDialog(true)}>
+                <ShieldCheck className="mr-2 h-4 w-4" /> Connect Telegram Account
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Authentication Dialog (QR + OTP) */}
+      <Dialog open={showAuthDialog} onOpenChange={setShowAuthDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" /> Telegram Authentication
+            </DialogTitle>
+            <DialogDescription>
+              Select your preferred authentication method to link your Telegram account.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Tabs value={authMethod} onValueChange={(val) => setAuthMethod(val as "qr" | "otp")} className="w-full">
+            <TabsList className="grid grid-cols-2 w-full mb-4">
+              <TabsTrigger value="qr" className="flex items-center gap-2">
+                <QrCode className="h-4 w-4" /> QR Code Login
+              </TabsTrigger>
+              <TabsTrigger value="otp" className="flex items-center gap-2">
+                <User className="h-4 w-4" /> Phone OTP Login
+              </TabsTrigger>
+            </TabsList>
+
+            {/* QR Code Tab */}
+            <TabsContent value="qr" className="space-y-4">
+              {qrSession?.qrData ? (
+                <div className="flex flex-col items-center gap-4 p-4 bg-muted/20 rounded-lg border border-border text-center">
+                  <div className="p-3 bg-white rounded-lg shadow-sm">
+                    <QRCodeSVG value={qrSession.qrData} size={180} level="M" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-foreground text-sm flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" /> Waiting for Telegram Scan...
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Open Telegram on your phone → Settings → Devices → Link Desktop Device
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setQrSession(null)} className="text-xs">
+                    Cancel Session
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    Scanning the QR code allows fast authorization without receiving SMS or app push codes.
+                  </p>
+                  <Button size="sm" onClick={handleStartQr} disabled={startingQr} className="w-full">
+                    {startingQr ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
+                    Generate QR Code
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Phone OTP Tab */}
+            <TabsContent value="otp" className="space-y-4">
+              {otpError && (
+                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md flex items-center gap-2 text-destructive text-xs font-medium">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>{otpError}</span>
+                </div>
+              )}
+
+              {otpStep === 1 && (
+                <form onSubmit={handleStartOtp} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">Phone Number</label>
+                    <Input
+                      type="tel"
+                      placeholder="+1234567890"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      disabled={otpLoading}
+                      required
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Enter full phone number in international format (including country code).
+                    </p>
+                  </div>
+
+                  <Button type="submit" size="sm" disabled={otpLoading || !phoneNumber.trim()} className="w-full">
+                    {otpLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    Send Verification Code
+                  </Button>
+                </form>
+              )}
+
+              {otpStep === 2 && (
+                <form onSubmit={handleVerifyOtp} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">Verification Code</label>
+                    <Input
+                      type="text"
+                      placeholder="12345"
+                      value={verificationCode}
+                      onChange={(e) => setVerificationCode(e.target.value)}
+                      disabled={otpLoading}
+                      required
+                      autoFocus
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Enter the login code sent to your Telegram app or phone.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setOtpStep(1)} disabled={otpLoading}>
+                      Back
+                    </Button>
+                    <Button type="submit" size="sm" disabled={otpLoading || !verificationCode.trim()}>
+                      {otpLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Verify Code"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {otpStep === 3 && (
+                <form onSubmit={handleSubmitPassword} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">Two-Step Verification Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter 2FA Password"
+                      value={twoFactorPassword}
+                      onChange={(e) => setTwoFactorPassword(e.target.value)}
+                      disabled={otpLoading}
+                      required
+                      autoFocus
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Your Telegram account has Two-Step Verification enabled. Enter your password to complete login.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setOtpStep(2)} disabled={otpLoading}>
+                      Back
+                    </Button>
+                    <Button type="submit" size="sm" disabled={otpLoading || !twoFactorPassword}>
+                      {otpLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Submit Password"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setShowAuthDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Action Bar when selection exists */}
       {selectedIds.length > 0 && (
