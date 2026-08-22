@@ -22,6 +22,7 @@ namespace TradingBot.UnitTests.Telegram;
 
 public class TelegramIntegrationTests
 {
+
     [Fact]
     public void TelegramOptions_ShouldBindFromConfigAndSupportEnvironmentOverrides()
     {
@@ -186,6 +187,56 @@ public class TelegramIntegrationTests
           .WithMessage("*Telegram ApiHash is not configured.*");
 
         clientService.CurrentState.Should().Be(TelegramConnectionState.Error);
+    }
+
+    [Fact]
+    public void TelegramOptions_ShouldBindProxyUrlFromEnvironmentVariables()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder().Build();
+
+        Environment.SetEnvironmentVariable("TELEGRAM_PROXY_URL", "socks5://localhost:10808");
+
+        try
+        {
+            // Act
+            services.AddTelegramIntegration(configuration);
+            var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+
+            // Assert
+            options.ProxyUrl.Should().Be("socks5://localhost:10808");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TELEGRAM_PROXY_URL", null);
+        }
+    }
+
+    [Fact]
+    public void TelegramOptions_ShouldFallbackToBybitProxyUrl_WhenTelegramProxyNotSet()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder().Build();
+
+        Environment.SetEnvironmentVariable("BYBIT_PROXY_URL", "socks5://127.0.0.1:1080");
+
+        try
+        {
+            // Act
+            services.AddTelegramIntegration(configuration);
+            var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+
+            // Assert
+            options.ProxyUrl.Should().Be("socks5://127.0.0.1:1080");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BYBIT_PROXY_URL", null);
+        }
     }
 
     [Fact]

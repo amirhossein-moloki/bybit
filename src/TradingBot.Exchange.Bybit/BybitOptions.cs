@@ -5,12 +5,15 @@ namespace TradingBot.Exchange.Bybit;
 public class BybitOptions
 {
     public const string DemoBaseUrl = "https://api-demo.bybit.com";
+    public const string TestnetBaseUrl = "https://api-testnet.bybit.com";
     public const string MainnetBaseUrl = "https://api.bybit.com";
 
-    public const string DemoPublicWsUrl = "https://stream-demo.bybit.com/v5/public";
-    public const string MainnetPublicWsUrl = "https://stream.bybit.com/v5/public";
+    public const string DemoPublicWsUrl = "wss://stream.bybit.com/v5/public";
+    public const string TestnetPublicWsUrl = "wss://stream-testnet.bybit.com/v5/public";
+    public const string MainnetPublicWsUrl = "wss://stream.bybit.com/v5/public";
 
     public const string DemoPrivateWsUrl = "wss://stream-demo.bybit.com/v5/private";
+    public const string TestnetPrivateWsUrl = "wss://stream-testnet.bybit.com/v5/private";
     public const string MainnetPrivateWsUrl = "wss://stream.bybit.com/v5/private";
 
     public string Environment { get; set; } = "Demo";
@@ -25,7 +28,8 @@ public class BybitOptions
     public string ProxyUrl { get; set; } = string.Empty;
 
     public bool IsDemo => string.Equals(Environment, "Demo", StringComparison.OrdinalIgnoreCase);
-    public bool IsMainnet => string.Equals(Environment, "Mainnet", StringComparison.OrdinalIgnoreCase);
+    public bool IsTestnet => string.Equals(Environment, "Testnet", StringComparison.OrdinalIgnoreCase);
+    public bool IsMainnet => string.Equals(Environment, "Mainnet", StringComparison.OrdinalIgnoreCase) || string.Equals(Environment, "Production", StringComparison.OrdinalIgnoreCase);
 
     public string GetBaseUrl()
     {
@@ -38,6 +42,11 @@ public class BybitOptions
             string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
         {
             return MainnetBaseUrl;
+        }
+
+        if (string.Equals(environment, "Testnet", StringComparison.OrdinalIgnoreCase))
+        {
+            return TestnetBaseUrl;
         }
 
         // Default or "Demo"
@@ -83,13 +92,15 @@ public class BybitOptions
 
     public static string GetPublicWebSocketUrl(string? environment, string category = "spot")
     {
-        if (string.Equals(environment, "Mainnet", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
+        var cat = string.IsNullOrWhiteSpace(category) ? "spot" : category.ToLowerInvariant();
+
+        if (string.Equals(environment, "Testnet", StringComparison.OrdinalIgnoreCase))
         {
-            return $"wss://stream.bybit.com/v5/public/{category.ToLowerInvariant()}";
+            return $"wss://stream-testnet.bybit.com/v5/public/{cat}";
         }
 
-        return $"wss://stream-demo.bybit.com/v5/public/{category.ToLowerInvariant()}";
+        // For both Demo and Mainnet/Production, Bybit serves Public Market Data WS from stream.bybit.com
+        return $"wss://stream.bybit.com/v5/public/{cat}";
     }
 
     public string GetPrivateWebSocketUrl()
@@ -103,6 +114,11 @@ public class BybitOptions
             string.Equals(environment, "Production", StringComparison.OrdinalIgnoreCase))
         {
             return MainnetPrivateWsUrl;
+        }
+
+        if (string.Equals(environment, "Testnet", StringComparison.OrdinalIgnoreCase))
+        {
+            return TestnetPrivateWsUrl;
         }
 
         return DemoPrivateWsUrl;

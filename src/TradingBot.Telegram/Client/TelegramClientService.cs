@@ -87,6 +87,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
             {
                 var sessionStream = _sessionManager.LoadSession();
                 _client = new WTelegram.Client(ConfigProvider, sessionStream);
+                ConfigureProxyIfNeeded(_client);
             }
 
             // Connect to Telegram
@@ -114,6 +115,7 @@ public class TelegramClientService : ITelegramClient, IDisposable
         {
             var sessionStream = _sessionManager.LoadSession();
             _client = new WTelegram.Client(ConfigProvider, sessionStream);
+            ConfigureProxyIfNeeded(_client);
         }
 
         if (_client.Disconnected)
@@ -517,6 +519,158 @@ public class TelegramClientService : ITelegramClient, IDisposable
 
             default:
                 return null;
+        }
+    }
+
+    private void ConfigureProxyIfNeeded(WTelegram.Client client)
+    {
+        if (client == null) return;
+
+        if (!string.IsNullOrWhiteSpace(_options.ProxyUrl))
+        {
+            _logger.Information("Telegram client is configured to connect via proxy: {ProxyUrl}", _options.ProxyUrl);
+            client.TcpHandler = (host, port) => CreateProxyTcpClientAsync(_options.ProxyUrl, host, port);
+        }
+    }
+
+    private static async Task<System.Net.Sockets.TcpClient> CreateProxyTcpClientAsync(string proxyUrlStr, string targetHost, int targetPort)
+    {
+        if (!Uri.TryCreate(proxyUrlStr, UriKind.Absolute, out var proxyUri))
+        {
+            throw new InvalidOperationException($"Invalid Telegram proxy URL: '{proxyUrlStr}'");
+        }
+
+        var proxyHost = proxyUri.Host;
+        var proxyPort = proxyUri.Port > 0 ? proxyUri.Port : (proxyUri.Scheme.StartsWith("socks", StringComparison.OrdinalIgnoreCase) ? 1080 : 8080);
+        string? userInfo = proxyUri.UserInfo;
+        string? username = null;
+        string? password = null;
+        if (!string.IsNullOrEmpty(userInfo))
+        {
+            var parts = userInfo.Split(':', 2);
+            username = Uri.UnescapeDataString(parts[0]);
+            if (parts.Length > 1) password = Uri.UnescapeDataString(parts[1]);
+        }
+
+        var tcpClient = new System.Net.Sockets.TcpClient();
+        await tcpClient.ConnectAsync(proxyHost, proxyPort);
+
+        var stream = tcpClient.GetStream();
+
+        if (proxyUri.Scheme.StartsWith("socks", StringComparison.OrdinalIgnoreCase))
+        {
+            // SOCKS5 Protocol Handshake
+            byte[] greeting;
+            if (!string.IsNullOrEmpty(username))
+            {
+                greeting = new byte[] { 0x05, 0x02, 0x00, 0x02 }; // No auth (0x00) or Username/Password (0x02)
+            }
+            else
+            {
+                greeting = new byte[] { 0x05, 0x01, 0x00 }; // No auth (0x00)
+            }
+            await stream.WriteAsync(greeting, 0, greeting.Length);
+
+            var response = new byte[2];
+            int read = await stream.ReadAsync(response, 0, 2);
+            if (read < 2 || response[0] != 0x05)
+            {
+                tcpClient.Dispose();
+                throw new InvalidOperationException($"SOCKS5 proxy server rejected initial handshake from {proxyHost}:{proxyPort}.");
+            }
+
+            if (response[1] == 0x02) // Username/Password authentication
+            {
+                var userBytes = System.Text.Encoding.UTF8.GetBytes(username ?? "");
+                var passBytes = System.Text.Encoding.UTF8.GetBytes(password ?? "");
+                var authReq = new byte[3 + userBytes.Length + passBytes.Length];
+                authReq[0] = 0x01; // Auth version
+                authReq[1] = (byte)userBytes.Length;
+                Buffer.BlockCopy(userBytes, 0, authReq, 2, userBytes.Length);
+                authReq[2 + userBytes.Length] = (byte)passBytes.Length;
+                Buffer.BlockCopy(passBytes, 0, authReq, 3 + userBytes.Length, passBytes.Length);
+
+                await stream.WriteAsync(authReq, 0, authReq.Length);
+                var authResp = new byte[2];
+                int authRead = await stream.ReadAsync(authResp, 0, 2);
+                if (authRead < 2 || authResp[1] != 0x00)
+                {
+                    tcpClient.Dispose();
+                    throw new InvalidOperationException($"SOCKS5 proxy authentication failed for user '{username}'.");
+                }
+            }
+            else if (response[1] != 0x00)
+            {
+                tcpClient.Dispose();
+                throw new InvalidOperationException($"SOCKS5 proxy server selected unsupported auth method: 0x{response[1]:X2}.");
+            }
+
+            // SOCKS5 Connect Request
+            var hostBytes = System.Text.Encoding.UTF8.GetBytes(targetHost);
+            var connectReq = new byte[5 + hostBytes.Length + 2];
+            connectReq[0] = 0x05; // VER
+            connectReq[1] = 0x01; // CMD: Connect
+            connectReq[2] = 0x00; // RSV
+            connectReq[3] = 0x03; // ATYP: Domain name
+            connectReq[4] = (byte)hostBytes.Length;
+            Buffer.BlockCopy(hostBytes, 0, connectReq, 5, hostBytes.Length);
+            connectReq[5 + hostBytes.Length] = (byte)(targetPort >> 8);
+            connectReq[6 + hostBytes.Length] = (byte)(targetPort & 0xFF);
+
+            await stream.WriteAsync(connectReq, 0, connectReq.Length);
+
+            var connectResp = new byte[10];
+            int connRead = await stream.ReadAsync(connectResp, 0, 4);
+            if (connRead < 4 || connectResp[1] != 0x00)
+            {
+                tcpClient.Dispose();
+                throw new InvalidOperationException($"SOCKS5 proxy connection to {targetHost}:{targetPort} failed with status code 0x{connectResp[1]:X2}.");
+            }
+
+            int remainingToRead = connectResp[3] switch
+            {
+                0x01 => 6, // IPv4 (4 bytes) + port (2 bytes)
+                0x04 => 18, // IPv6 (16 bytes) + port (2 bytes)
+                0x03 => connectResp[4] + 2 + 1 - 4, // Domain length + 2 bytes port
+                _ => 6
+            };
+            if (remainingToRead > 0)
+            {
+                var dummy = new byte[remainingToRead];
+                await stream.ReadAsync(dummy, 0, remainingToRead);
+            }
+
+            return tcpClient;
+        }
+        else
+        {
+            // HTTP / HTTPS CONNECT Proxy Tunnel
+            var connectHeader = $"CONNECT {targetHost}:{targetPort} HTTP/1.1\r\nHost: {targetHost}:{targetPort}\r\n";
+            if (!string.IsNullOrEmpty(username))
+            {
+                var auth = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{username}:{password}"));
+                connectHeader += $"Proxy-Authorization: Basic {auth}\r\n";
+            }
+            connectHeader += "\r\n";
+
+            var headerBytes = System.Text.Encoding.UTF8.GetBytes(connectHeader);
+            await stream.WriteAsync(headerBytes, 0, headerBytes.Length);
+
+            using var reader = new StreamReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+            var statusLine = await reader.ReadLineAsync();
+            if (string.IsNullOrEmpty(statusLine) || !statusLine.Contains(" 200 "))
+            {
+                tcpClient.Dispose();
+                throw new InvalidOperationException($"HTTP Proxy CONNECT to {targetHost}:{targetPort} failed: '{statusLine}'");
+            }
+
+            string? line;
+            while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync()))
+            {
+                // Consume headers until empty line
+            }
+
+            return tcpClient;
         }
     }
 

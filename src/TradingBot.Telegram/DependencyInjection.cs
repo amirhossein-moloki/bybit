@@ -54,6 +54,15 @@ public static class DependencyInjection
             {
                 options.SessionPath = envSessionPath.Trim();
             }
+
+            var envProxyUrl = Environment.GetEnvironmentVariable("TELEGRAM_PROXY_URL")
+                              ?? Environment.GetEnvironmentVariable("Telegram__ProxyUrl")
+                              ?? Environment.GetEnvironmentVariable("BYBIT_PROXY_URL")
+                              ?? Environment.GetEnvironmentVariable("Exchange__ProxyUrl");
+            if (!string.IsNullOrWhiteSpace(envProxyUrl))
+            {
+                options.ProxyUrl = envProxyUrl;
+            }
         });
 
         services.AddSingleton<ITelegramSessionManager, TelegramSessionManager>();

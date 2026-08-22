@@ -63,7 +63,6 @@ public class NotificationWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _healthRegistry.RecordHeartbeat(nameof(NotificationWorker), "Failed", ex.Message);
                 _logger.LogError(ex, "NotificationWorker: Error encountered in main loop iteration.");
             }
 
@@ -119,7 +118,15 @@ public class NotificationWorker : BackgroundService
 
             if (claimedNotifications.Any())
             {
-                await unitOfWork.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException cex)
+                {
+                    _logger.LogWarning(cex, "NotificationWorker: Concurrency exception claiming notifications batch. Skipping batch iteration.");
+                    return;
+                }
             }
         }
 
@@ -151,65 +158,84 @@ public class NotificationWorker : BackgroundService
                 }
             }
 
-            // 3. Update status based on delivery result
-            using (var scope = _serviceProvider.CreateScope())
+            // 3. Update status based on delivery result with concurrency retry handling
+            const int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-                var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-                var persistedNotification = await repository.GetByIdAsync(notification.Id, cancellationToken);
-                if (persistedNotification == null)
-                {
-                    _logger.LogError("NotificationWorker: Failed to reload notification {NotificationId} to save delivery result.", notification.Id);
-                    continue;
-                }
-
-                if (result.Success)
-                {
-                    persistedNotification.MarkDelivered();
-                    _logger.LogInformation("NotificationWorker: Notification {NotificationId} successfully delivered via {Channel}.",
-                        persistedNotification.Id, persistedNotification.Channel);
-                }
-                else
-                {
-                    // Exponential backoff with jitter
-                    if (result.IsRetryable && persistedNotification.AttemptCount < persistedNotification.MaxAttempts)
+                    var persistedNotification = await repository.GetByIdAsync(notification.Id, cancellationToken);
+                    if (persistedNotification == null)
                     {
-                        var baseDelay = _options.Telegram?.InitialRetryDelaySeconds ?? 2;
-                        var maxDelay = _options.Telegram?.MaxRetryDelaySeconds ?? 60;
-                        var backoffSeconds = baseDelay * Math.Pow(2, persistedNotification.AttemptCount - 1);
+                        _logger.LogError("NotificationWorker: Failed to reload notification {NotificationId} to save delivery result.", notification.Id);
+                        break;
+                    }
 
-                        // Add Jitter +/- 20% using thread-safe Random.Shared
-                        var jitter = (Random.Shared.NextDouble() * 0.4) - 0.2; // -0.2 to +0.2
-                        backoffSeconds = backoffSeconds * (1 + jitter);
-
-                        var finalDelaySeconds = Math.Min(backoffSeconds, maxDelay);
-                        if (finalDelaySeconds < 1) finalDelaySeconds = 1;
-
-                        var nextAttemptAt = DateTime.UtcNow.AddSeconds(finalDelaySeconds);
-
-                        persistedNotification.ScheduleRetry(nextAttemptAt, result.SafeMessage ?? "Transient error");
-                        _logger.LogWarning("NotificationWorker: Notification {NotificationId} failed transiently. Scheduled retry {Attempt}/{Max} at {NextAttemptAt} UTC.",
-                            persistedNotification.Id, persistedNotification.AttemptCount, persistedNotification.MaxAttempts, nextAttemptAt);
+                    if (result.Success)
+                    {
+                        persistedNotification.MarkDelivered();
+                        _logger.LogInformation("NotificationWorker: Notification {NotificationId} successfully delivered via {Channel}.",
+                            persistedNotification.Id, persistedNotification.Channel);
                     }
                     else
                     {
-                        persistedNotification.MarkFailed(result.SafeMessage ?? "Max attempts exceeded or permanent error.");
-                        _logger.LogError("NotificationWorker: Notification {NotificationId} failed permanently: {FailureReason}",
-                            persistedNotification.Id, persistedNotification.FailureReason);
+                        // Exponential backoff with jitter
+                        if (result.IsRetryable && persistedNotification.AttemptCount < persistedNotification.MaxAttempts)
+                        {
+                            var baseDelay = _options.Telegram?.InitialRetryDelaySeconds ?? 2;
+                            var maxDelay = _options.Telegram?.MaxRetryDelaySeconds ?? 60;
+                            var backoffSeconds = baseDelay * Math.Pow(2, persistedNotification.AttemptCount - 1);
+
+                            // Add Jitter +/- 20% using thread-safe Random.Shared
+                            var jitter = (Random.Shared.NextDouble() * 0.4) - 0.2; // -0.2 to +0.2
+                            backoffSeconds = backoffSeconds * (1 + jitter);
+
+                            var finalDelaySeconds = Math.Min(backoffSeconds, maxDelay);
+                            if (finalDelaySeconds < 1) finalDelaySeconds = 1;
+
+                            var nextAttemptAt = DateTime.UtcNow.AddSeconds(finalDelaySeconds);
+
+                            persistedNotification.ScheduleRetry(nextAttemptAt, result.SafeMessage ?? "Transient error");
+                            _logger.LogWarning("NotificationWorker: Notification {NotificationId} failed transiently. Scheduled retry {Attempt}/{Max} at {NextAttemptAt} UTC.",
+                                persistedNotification.Id, persistedNotification.AttemptCount, persistedNotification.MaxAttempts, nextAttemptAt);
+                        }
+                        else
+                        {
+                            persistedNotification.MarkFailed(result.SafeMessage ?? "Max attempts exceeded or permanent error.");
+                            _logger.LogError("NotificationWorker: Notification {NotificationId} failed permanently: {FailureReason}",
+                                persistedNotification.Id, persistedNotification.FailureReason);
+                        }
+                    }
+
+                    // Add to history
+                    persistedNotification.AddDeliveryAttempt(
+                        attemptNumber: persistedNotification.AttemptCount,
+                        isSuccess: result.Success,
+                        errorCode: result.ErrorCode,
+                        errorMessage: result.SafeMessage
+                    );
+
+                    repository.Update(persistedNotification);
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                    break; // Successfully updated delivery result!
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException cex)
+                {
+                    _logger.LogWarning(cex, "NotificationWorker: Concurrency exception updating delivery result for notification {NotificationId} (Attempt {Attempt}/{Max}). Retrying...",
+                        notification.Id, attempt, maxRetries);
+                    if (attempt == maxRetries)
+                    {
+                        _logger.LogError(cex, "NotificationWorker: Exceeded max retries handling concurrency conflict for notification {NotificationId}.", notification.Id);
+                    }
+                    else
+                    {
+                        await Task.Delay(50 * attempt, cancellationToken);
                     }
                 }
-
-                // Add to history
-                persistedNotification.AddDeliveryAttempt(
-                    attemptNumber: persistedNotification.AttemptCount,
-                    isSuccess: result.Success,
-                    errorCode: result.ErrorCode,
-                    errorMessage: result.SafeMessage
-                );
-
-                repository.Update(persistedNotification);
-                await unitOfWork.SaveChangesAsync(cancellationToken);
             }
         }
     }

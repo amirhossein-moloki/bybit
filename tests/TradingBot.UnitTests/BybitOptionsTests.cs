@@ -8,6 +8,7 @@ public class BybitOptionsTests
 {
     [Theory]
     [InlineData("Demo", "https://api-demo.bybit.com")]
+    [InlineData("Testnet", "https://api-testnet.bybit.com")]
     [InlineData("Mainnet", "https://api.bybit.com")]
     [InlineData("Production", "https://api.bybit.com")]
     [InlineData("demo", "https://api-demo.bybit.com")]
@@ -21,17 +22,21 @@ public class BybitOptionsTests
     }
 
     [Theory]
-    [InlineData("Demo", "wss://stream-demo.bybit.com/v5/public/spot")]
+    [InlineData("Demo", "wss://stream.bybit.com/v5/public/spot")]
+    [InlineData("Testnet", "wss://stream-testnet.bybit.com/v5/public/spot")]
     [InlineData("Mainnet", "wss://stream.bybit.com/v5/public/spot")]
     [InlineData("Production", "wss://stream.bybit.com/v5/public/spot")]
-    public void GetPublicWebSocketUrl_ShouldReturnCorrectUrl(string? env, string expectedUrl)
+    [InlineData("Demo", "wss://stream.bybit.com/v5/public/linear", "linear")]
+    [InlineData("Testnet", "wss://stream-testnet.bybit.com/v5/public/linear", "linear")]
+    public void GetPublicWebSocketUrl_ShouldReturnCorrectUrl(string? env, string expectedUrl, string category = "spot")
     {
-        var url = BybitOptions.GetPublicWebSocketUrl(env, "spot");
+        var url = BybitOptions.GetPublicWebSocketUrl(env, category);
         url.Should().Be(expectedUrl);
     }
 
     [Theory]
     [InlineData("Demo", "wss://stream-demo.bybit.com/v5/private")]
+    [InlineData("Testnet", "wss://stream-testnet.bybit.com/v5/private")]
     [InlineData("Mainnet", "wss://stream.bybit.com/v5/private")]
     [InlineData("Production", "wss://stream.bybit.com/v5/private")]
     public void GetPrivateWebSocketUrl_ShouldReturnCorrectUrl(string? env, string expectedUrl)
