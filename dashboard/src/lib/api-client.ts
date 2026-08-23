@@ -119,13 +119,27 @@ async function request<T>(
     if (!response.ok) {
       const errorBody = payload as {
         status?: string;
-        error?: { code?: string; message?: string; correlationId?: string };
+        error?: { code?: string; message?: string; correlationId?: string } | string;
+        message?: string;
       };
+
+      let errMsg: string | undefined;
+      let errCode: string | undefined;
+
+      if (typeof errorBody?.error === "string") {
+        errMsg = errorBody.error;
+      } else if (typeof errorBody?.error === "object" && errorBody.error?.message) {
+        errMsg = errorBody.error.message;
+        errCode = errorBody.error.code;
+      } else if (typeof errorBody?.message === "string") {
+        errMsg = errorBody.message;
+      }
+
       throw new ApiError(
         response.status,
-        errorBody?.error?.code ?? "UNKNOWN_ERROR",
-        errorBody?.error?.message ?? friendlyError(response.status),
-        errorBody?.error?.correlationId ?? correlationId
+        errCode ?? errorBody?.status ?? "UNKNOWN_ERROR",
+        errMsg ?? friendlyError(response.status),
+        typeof errorBody?.error === "object" ? errorBody.error?.correlationId : correlationId
       );
     }
 

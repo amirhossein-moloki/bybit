@@ -4,6 +4,9 @@ import type {
   TelegramStatusDto,
   TelegramQrStartResultDto,
   TelegramQrStatusDto,
+  OtpStartResultDto,
+  OtpVerifyResultDto,
+  PasswordResultDto,
   TelegramDialogDto,
   TelegramSourceDto,
   TelegramSourceFilter,
@@ -35,6 +38,32 @@ export async function fetchTelegramQrStatus(token: string, sessionId: string): P
     token,
     query: { sessionId },
   }).then(unwrap);
+}
+
+export async function startTelegramOtpAuth(token: string, phoneNumber: string): Promise<OtpStartResultDto> {
+  return apiPost<OtpStartResultDto>(`${base}/auth/otp/start`, {
+    token,
+    body: { phoneNumber },
+  });
+}
+
+export async function verifyTelegramOtp(
+  token: string,
+  phoneNumber: string,
+  phoneCodeHash: string,
+  code: string
+): Promise<OtpVerifyResultDto> {
+  return apiPost<OtpVerifyResultDto>(`${base}/auth/otp/verify`, {
+    token,
+    body: { phoneNumber, phoneCodeHash, code },
+  });
+}
+
+export async function verifyTelegramPassword(token: string, password: string): Promise<PasswordResultDto> {
+  return apiPost<PasswordResultDto>(`${base}/auth/password`, {
+    token,
+    body: { password },
+  });
 }
 
 export async function logoutTelegram(token: string): Promise<{ message: string }> {

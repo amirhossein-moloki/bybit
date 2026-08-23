@@ -72,6 +72,51 @@ public class TelegramAuthEndpointsTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
+    public async Task StartOtpLogin_ShouldReturnSuccessFalse_WhenPhoneNumberIsEmpty()
+    {
+        // Arrange
+        var request = new OtpStartRequest { PhoneNumber = "" };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/telegram/auth/otp/start", request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task VerifyOtp_ShouldReturnSuccessFalse_WhenCodeIsEmpty()
+    {
+        // Arrange
+        var request = new OtpVerifyRequest { PhoneNumber = "+1234567890", PhoneCodeHash = "hash", Code = "" };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/telegram/auth/otp/verify", request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task VerifyPassword_ShouldReturnSuccessFalse_WhenPasswordIsEmpty()
+    {
+        // Arrange
+        var request = new PasswordVerifyRequest { Password = "" };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/telegram/auth/password", request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Logout_ShouldReturn200SuccessMessage()
     {
         // Act
