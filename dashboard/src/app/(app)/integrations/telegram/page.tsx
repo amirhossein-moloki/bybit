@@ -248,6 +248,15 @@ export default function TelegramControlCenterPage() {
     }
   };
 
+  // Reset OTP state when changing methods or steps
+  const resetOtpFlow = () => {
+    setOtpStep(1);
+    setPhoneCodeHash("");
+    setOtpCode("");
+    setPassword("");
+    setOtpError(null);
+  };
+
   // OTP Login Handlers
   const handleStartOtp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,7 +272,7 @@ export default function TelegramControlCenterPage() {
         setOtpStep(2);
         toast({
           title: "Code Sent",
-          description: "Verification code sent to your Telegram app / SMS.",
+          description: "Verification code sent to your Telegram app / SMS. Please enter it below.",
           variant: "info",
         });
       } else {
@@ -291,9 +300,8 @@ export default function TelegramControlCenterPage() {
           description: "Authenticated successfully using Phone OTP!",
           variant: "success",
         });
-        setOtpStep(1);
+        resetOtpFlow();
         setPhoneNumber("");
-        setOtpCode("");
         loadStatus();
         loadSources();
       } else if (res.requiresPassword) {
@@ -683,14 +691,20 @@ export default function TelegramControlCenterPage() {
               <Button
                 variant={authMethod === "qr" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setAuthMethod("qr")}
+                onClick={() => {
+                  setAuthMethod("qr");
+                  setOtpError(null);
+                }}
               >
                 <QrCode className="mr-2 h-4 w-4" /> QR Code Login
               </Button>
               <Button
                 variant={authMethod === "otp" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setAuthMethod("otp")}
+                onClick={() => {
+                  setAuthMethod("otp");
+                  setOtpError(null);
+                }}
               >
                 <Phone className="mr-2 h-4 w-4" /> Phone OTP Login
               </Button>
@@ -763,17 +777,21 @@ export default function TelegramControlCenterPage() {
 
                 {otpStep === 2 && (
                   <form onSubmit={handleVerifyOtp} className="space-y-3">
-                    <div className="p-2.5 bg-primary/10 rounded-md text-xs text-primary font-medium flex items-center gap-2">
-                      <Info className="h-4 w-4" /> Code sent to {phoneNumber}
+                    <div className="p-2.5 bg-primary/10 rounded-md text-xs text-primary font-medium flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Info className="h-4 w-4 shrink-0" />
+                        <span>Verification code sent to <strong>{phoneNumber}</strong> (check your Telegram app)</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-xs font-medium text-foreground block mb-1">
                         Telegram Verification Code
                       </label>
                       <Input
-                        placeholder="12345"
+                        placeholder="Enter 5-digit code"
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value)}
+                        autoFocus
                         required
                       />
                     </div>
@@ -782,8 +800,8 @@ export default function TelegramControlCenterPage() {
                         {submittingOtp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                         Verify Code
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setOtpStep(1)}>
-                        Back
+                      <Button type="button" variant="outline" size="sm" onClick={() => { setOtpStep(1); setOtpError(null); }}>
+                        Change Phone / Resend Code
                       </Button>
                     </div>
                   </form>
