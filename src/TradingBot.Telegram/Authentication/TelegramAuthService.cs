@@ -50,7 +50,6 @@ public class TelegramAuthService : ITelegramAuthenticationService
 
         try
         {
-            // Ensure connection is established
             if (!clientService.IsConnected())
             {
                 clientService.SetState(TelegramConnectionState.Connecting);
@@ -67,13 +66,12 @@ public class TelegramAuthService : ITelegramAuthenticationService
             clientService.SetState(TelegramConnectionState.Authenticating);
             _logger.Information("Beginning Telegram login flow...");
 
-            // Call LoginUserIfNeeded to perform authentication flow
             var user = await underlyingClient.LoginUserIfNeeded();
 
             if (user != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);
-                _logger.Information("Authentication Completed");
+                _logger.Information("Authentication Completed for user {UserId}", user.id);
             }
             else
             {
@@ -115,7 +113,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             return new OtpStartResult { Success = false, Error = "Phone number is required." };
         }
 
-        phoneNumber = phoneNumber.Trim();
+        phoneNumber = NormalizePhoneNumber(phoneNumber);
         string maskedPhone = MaskPhoneNumber(phoneNumber);
         _logger.Information("Initiating Telegram OTP login for phone number {MaskedPhone}", maskedPhone);
 
@@ -128,7 +126,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
         {
             clientService.SetState(TelegramConnectionState.Authenticating);
 
-            if (!clientService.IsConnected() || clientService.UnderlyingClient == null)
+            if (clientService.UnderlyingClient == null)
             {
                 await clientService.ConnectAsync();
             }
@@ -139,13 +137,26 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 return new OtpStartResult { Success = false, Error = "Failed to initialize Telegram client." };
             }
 
+            if (underlyingClient.User != null)
+            {
+                clientService.SetState(TelegramConnectionState.Connected);
+                _logger.Information("Telegram client is already authenticated for user {UserId}", underlyingClient.User.id);
+                return new OtpStartResult
+                {
+                    Success = true,
+                    PhoneCodeHash = "authenticated",
+                    Message = "Already authenticated"
+                };
+            }
+
             _pendingPhoneNumber = phoneNumber;
 
+            _logger.Information("Calling WTelegram Login({MaskedPhone}) to request OTP code...", maskedPhone);
             var loginState = await underlyingClient.Login(phoneNumber);
 
             if (loginState is "verification_code")
             {
-                _logger.Information("OTP verification code successfully sent for {MaskedPhone}", maskedPhone);
+                _logger.Information("OTP verification code successfully sent via Telegram for {MaskedPhone}", maskedPhone);
 
                 return new OtpStartResult
                 {
@@ -158,6 +169,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             if (loginState == null && underlyingClient.User != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);
+                _logger.Information("Telegram OTP authentication completed immediately for user {UserId}", underlyingClient.User.id);
                 return new OtpStartResult
                 {
                     Success = true,
@@ -166,7 +178,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 };
             }
 
-            _logger.Warning("Login returned state {LoginState} for {MaskedPhone}", loginState, maskedPhone);
+            _logger.Warning("WTelegram Login({MaskedPhone}) returned unexpected state: {LoginState}", maskedPhone, loginState);
             return new OtpStartResult { Success = false, Error = $"Unexpected login state: {loginState}" };
         }
         catch (RpcException rpcEx)
@@ -191,7 +203,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             return new OtpVerifyResult { Success = false, Error = "Phone number and code are required." };
         }
 
-        phoneNumber = phoneNumber.Trim();
+        phoneNumber = NormalizePhoneNumber(phoneNumber);
         code = code.Trim();
         string maskedPhone = MaskPhoneNumber(phoneNumber);
 
@@ -221,6 +233,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             _pendingPhoneCodeHash = string.IsNullOrWhiteSpace(phoneCodeHash) ? _pendingPhoneCodeHash : phoneCodeHash;
             _pendingVerificationCode = code;
 
+            _logger.Information("Calling WTelegram Login(code) for {MaskedPhone}...", maskedPhone);
             var loginState = await underlyingClient.Login(code);
 
             if (loginState is "password")
@@ -247,6 +260,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             }
 
             clientService.SetState(TelegramConnectionState.AuthenticationFailed);
+            _logger.Warning("WTelegram Login(code) for {MaskedPhone} returned state: {LoginState}", maskedPhone, loginState);
             return new OtpVerifyResult { Success = false, Error = $"Login returned state: {loginState}" };
         }
         catch (RpcException rpcEx)
@@ -255,6 +269,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
 
             if (rpcEx.Message.Contains("SESSION_PASSWORD_NEEDED"))
             {
+                _logger.Information("Telegram RPC SESSION_PASSWORD_NEEDED intercepted for {MaskedPhone}", maskedPhone);
                 return new OtpVerifyResult
                 {
                     Success = false,
@@ -305,6 +320,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 return new PasswordResult { Success = false, Error = "Failed to initialize Telegram client." };
             }
 
+            _logger.Information("Calling WTelegram Login(password) for {MaskedPhone}...", maskedPhone);
             var loginState = await underlyingClient.Login(password);
 
             if (loginState == null && underlyingClient.User != null)
@@ -320,6 +336,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             }
 
             clientService.SetState(TelegramConnectionState.AuthenticationFailed);
+            _logger.Warning("WTelegram Login(password) for {MaskedPhone} returned state: {LoginState}", maskedPhone, loginState);
             return new PasswordResult { Success = false, Error = $"Password verification returned state: {loginState}" };
         }
         catch (RpcException rpcEx)
@@ -337,6 +354,25 @@ public class TelegramAuthService : ITelegramAuthenticationService
         }
     }
 
+    private static string NormalizePhoneNumber(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+        var cleaned = input.Trim().Replace(" ", "").Replace("-", "").Replace("(", "").Replace(")", "");
+        if (!cleaned.StartsWith("+"))
+        {
+            if (cleaned.StartsWith("00"))
+            {
+                cleaned = "+" + cleaned.Substring(2);
+            }
+            else
+            {
+                cleaned = "+" + cleaned;
+            }
+        }
+        return cleaned;
+    }
+
     private static string MaskPhoneNumber(string phoneNumber)
     {
         if (string.IsNullOrWhiteSpace(phoneNumber)) return "***";
@@ -348,13 +384,43 @@ public class TelegramAuthService : ITelegramAuthenticationService
     {
         string msg = ex.Message.ToUpperInvariant();
 
-        if (msg.Contains("PHONE_CODE_INVALID")) return "Invalid verification code.";
-        if (msg.Contains("PHONE_CODE_EXPIRED")) return "Verification code expired.";
-        if (msg.Contains("SESSION_PASSWORD_NEEDED")) return "Two-factor authentication required.";
-        if (msg.Contains("FLOOD_WAIT")) return "Too many login attempts. Please wait before trying again.";
-        if (msg.Contains("PHONE_NUMBER_BANNED") || msg.Contains("PHONE_BANNED")) return "Phone number is banned by Telegram.";
-        if (msg.Contains("PASSWORD_HASH_INVALID")) return "Incorrect password.";
+        if (msg.Contains("PHONE_CODE_INVALID"))
+        {
+            Log.ForContext<TelegramAuthService>().Warning("Telegram RPC Error: PHONE_CODE_INVALID - Provided code is incorrect.");
+            return "Invalid verification code.";
+        }
+        if (msg.Contains("PHONE_CODE_EXPIRED"))
+        {
+            Log.ForContext<TelegramAuthService>().Warning("Telegram RPC Error: PHONE_CODE_EXPIRED - Verification code expired.");
+            return "Verification code expired. Please request a new code.";
+        }
+        if (msg.Contains("SESSION_PASSWORD_NEEDED"))
+        {
+            Log.ForContext<TelegramAuthService>().Information("Telegram RPC Info: SESSION_PASSWORD_NEEDED - 2FA password required.");
+            return "Two-factor authentication required.";
+        }
+        if (msg.Contains("FLOOD_WAIT"))
+        {
+            Log.ForContext<TelegramAuthService>().Warning("Telegram RPC Error: FLOOD_WAIT - Too many login attempts: {Message}", ex.Message);
+            return "Too many login attempts. Please wait before trying again.";
+        }
+        if (msg.Contains("PHONE_NUMBER_BANNED") || msg.Contains("PHONE_BANNED"))
+        {
+            Log.ForContext<TelegramAuthService>().Error("Telegram RPC Error: PHONE_NUMBER_BANNED - Phone number is banned by Telegram.");
+            return "Phone number is banned by Telegram.";
+        }
+        if (msg.Contains("PHONE_NUMBER_INVALID") || msg.Contains("PHONE_INVALID"))
+        {
+            Log.ForContext<TelegramAuthService>().Warning("Telegram RPC Error: PHONE_NUMBER_INVALID - Invalid phone number format.");
+            return "Invalid phone number format.";
+        }
+        if (msg.Contains("PASSWORD_HASH_INVALID"))
+        {
+            Log.ForContext<TelegramAuthService>().Warning("Telegram RPC Error: PASSWORD_HASH_INVALID - Incorrect 2FA password.");
+            return "Incorrect password.";
+        }
 
+        Log.ForContext<TelegramAuthService>().Warning(ex, "Telegram RPC Exception occurred: Code {Code}, Message {Message}", ex.Code, ex.Message);
         return ex.Message;
     }
 }
