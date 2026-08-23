@@ -100,7 +100,10 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             // Connect to Telegram
             await _client.ConnectAsync();
 
-            SetState(TelegramConnectionState.Connected);
+            if (CurrentState != TelegramConnectionState.Authenticating)
+            {
+                SetState(TelegramConnectionState.Connected);
+            }
             _logger.Information("Telegram Connected");
         }
         catch (Exception ex)

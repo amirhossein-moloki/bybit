@@ -115,9 +115,21 @@ public class TelegramListenerWorker : BackgroundService
                 {
                     await _resiliencePipeline.ExecuteAsync(async ct =>
                     {
+                        if (_client.CurrentState == TelegramConnectionState.Authenticating)
+                        {
+                            _logger.LogInformation("Authentication currently in progress. Skipping background worker authentication...");
+                            return;
+                        }
+
                         _logger.LogInformation("Connecting to Telegram...");
                         await _client.ConnectAsync();
                         _logger.LogInformation("Telegram Connected");
+
+                        if (_client.CurrentState == TelegramConnectionState.Authenticating)
+                        {
+                            _logger.LogInformation("Authentication currently in progress. Skipping background worker authentication...");
+                            return;
+                        }
 
                         _logger.LogInformation("Authenticating with Telegram...");
                         await _authService.AuthenticateAsync();
