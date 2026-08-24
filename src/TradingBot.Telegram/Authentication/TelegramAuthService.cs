@@ -131,6 +131,9 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 await clientService.ConnectAsync();
             }
 
+            // Maintain Authenticating state explicitly after ConnectAsync
+            clientService.SetState(TelegramConnectionState.Authenticating);
+
             var underlyingClient = clientService.UnderlyingClient;
             if (underlyingClient == null)
             {
@@ -153,6 +156,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
 
             _logger.Information("Calling WTelegram Login({MaskedPhone}) to request OTP code...", maskedPhone);
             var loginState = await underlyingClient.Login(phoneNumber);
+            _logger.Information("Login state for {MaskedPhone} returned: {LoginState}", maskedPhone, loginState);
 
             if (loginState is "verification_code")
             {
