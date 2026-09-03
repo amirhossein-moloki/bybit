@@ -87,6 +87,7 @@ public class TelegramCliAuthTests
     public async Task RunAsync_OtpFlow_Requires2FAPassword()
     {
         // Arrange
+        const string mockInputPassword = "sample_code";
         _mockQrAuthService
             .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramStatusDto { Connected = false });
@@ -100,10 +101,10 @@ public class TelegramCliAuthTests
             .ReturnsAsync(new OtpVerifyResult { Success = false, RequiresPassword = true });
 
         _mockAuthService
-            .Setup(x => x.VerifyPasswordAsync("mySecret2FA", It.IsAny<CancellationToken>()))
+            .Setup(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PasswordResult { Success = true });
 
-        using var inputReader = new StringReader("1\n+1234567890\n12345\nmySecret2FA\n");
+        using var inputReader = new StringReader($"1\n+1234567890\n12345\n{mockInputPassword}\n");
         using var outputWriter = new StringWriter();
 
         // Act
@@ -113,6 +114,6 @@ public class TelegramCliAuthTests
         var output = outputWriter.ToString();
         Assert.Contains("Two-Factor Authentication (2FA) Password Required!", output);
         Assert.Contains("Telegram 2FA authentication successful!", output);
-        _mockAuthService.Verify(x => x.VerifyPasswordAsync("mySecret2FA", It.IsAny<CancellationToken>()), Times.Once);
+        _mockAuthService.Verify(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()), Times.Once);
     }
 }
