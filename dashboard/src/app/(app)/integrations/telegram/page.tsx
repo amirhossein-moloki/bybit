@@ -116,7 +116,7 @@ export default function TelegramControlCenterPage() {
   // OTP Login Flow State
   const [otpStep, setOtpStep] = useState<1 | 2 | 3>(1);
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [phoneCodeHash, setPhoneCodeHash] = useState("");
+  const [phoneCodeHash, setPhoneCodeHash] = useState<string>("");
   const [otpCode, setOtpCode] = useState("");
   const [password, setPassword] = useState("");
   const [submittingOtp, setSubmittingOtp] = useState(false);
