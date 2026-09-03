@@ -37,7 +37,7 @@ public class TelegramCliAuthTests
             .ReturnsAsync(new TelegramStatusDto
             {
                 Connected = true,
-                Account = new TelegramAccountDto { FirstName = "John", LastName = "Doe", Username = "johndoe", Phone = "+123456789" }
+                Account = new TelegramAccountDto { FirstName = "John", LastName = "Doe", Username = "johndoe", Phone = "+15550100000" }
             });
 
         using var inputReader = new StringReader("n\n");
@@ -57,19 +57,23 @@ public class TelegramCliAuthTests
     public async Task RunAsync_OtpFlow_SuccessfulAuthentication()
     {
         // Arrange
+        const string mockPhone = "+15550100000";
+        const string mockHash = "token_hash";
+        const string mockCode = "99999";
+
         _mockQrAuthService
             .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramStatusDto { Connected = false });
 
         _mockAuthService
-            .Setup(x => x.StartOtpLoginAsync("+1234567890", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = "hash123" });
+            .Setup(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = mockHash });
 
         _mockAuthService
-            .Setup(x => x.VerifyOtpAsync("+1234567890", "hash123", "12345", It.IsAny<CancellationToken>()))
+            .Setup(x => x.VerifyOtpAsync(mockPhone, mockHash, mockCode, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new OtpVerifyResult { Success = true });
 
-        using var inputReader = new StringReader("1\n+1234567890\n12345\n");
+        using var inputReader = new StringReader($"1\n{mockPhone}\n{mockCode}\n");
         using var outputWriter = new StringWriter();
 
         // Act
@@ -79,32 +83,36 @@ public class TelegramCliAuthTests
         var output = outputWriter.ToString();
         Assert.Contains("Select Telegram Login Method:", output);
         Assert.Contains("Telegram authenticated successfully!", output);
-        _mockAuthService.Verify(x => x.StartOtpLoginAsync("+1234567890", It.IsAny<CancellationToken>()), Times.Once);
-        _mockAuthService.Verify(x => x.VerifyOtpAsync("+1234567890", "hash123", "12345", It.IsAny<CancellationToken>()), Times.Once);
+        _mockAuthService.Verify(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()), Times.Once);
+        _mockAuthService.Verify(x => x.VerifyOtpAsync(mockPhone, mockHash, mockCode, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task RunAsync_OtpFlow_Requires2FAPassword()
     {
         // Arrange
+        const string mockPhone = "+15550100000";
+        const string mockHash = "token_hash";
+        const string mockCode = "99999";
         const string mockInputPassword = "sample_code";
+
         _mockQrAuthService
             .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TelegramStatusDto { Connected = false });
 
         _mockAuthService
-            .Setup(x => x.StartOtpLoginAsync("+1234567890", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = "hash123" });
+            .Setup(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = mockHash });
 
         _mockAuthService
-            .Setup(x => x.VerifyOtpAsync("+1234567890", "hash123", "12345", It.IsAny<CancellationToken>()))
+            .Setup(x => x.VerifyOtpAsync(mockPhone, mockHash, mockCode, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new OtpVerifyResult { Success = false, RequiresPassword = true });
 
         _mockAuthService
             .Setup(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PasswordResult { Success = true });
 
-        using var inputReader = new StringReader($"1\n+1234567890\n12345\n{mockInputPassword}\n");
+        using var inputReader = new StringReader($"1\n{mockPhone}\n{mockCode}\n{mockInputPassword}\n");
         using var outputWriter = new StringWriter();
 
         // Act

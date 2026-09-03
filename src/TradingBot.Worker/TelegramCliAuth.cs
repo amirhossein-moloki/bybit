@@ -74,7 +74,7 @@ public static class TelegramCliAuth
     private static async Task RunOtpFlowAsync(ITelegramAuthenticationService authService, TextReader input, TextWriter output)
     {
         await output.WriteLineAsync("\n--- OTP Login Flow ---");
-        await output.WriteAsync("Enter phone number with country code (e.g. +989123456789): ");
+        await output.WriteAsync("Enter phone number with country code (e.g. +15550100000): ");
         var phoneNumber = (await input.ReadLineAsync())?.Trim();
 
         if (string.IsNullOrWhiteSpace(phoneNumber))
