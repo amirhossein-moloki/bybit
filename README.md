@@ -31,6 +31,7 @@ The system is designed with a strict **Clean Architecture & Domain-Driven Design
 * **Deduplication & Self-Healing Loops**: Protects against concurrent duplicate signals using database unique indexes and resolves "Unknown" order states automatically via background reconciliation workers.
 * **Secured API & Analytics endpoints**: Minimal APIs protected under custom claim-based token validation exposing metrics, aggregation, CSV exports, and report schedulers.
 * **Self-Diagnostics (`doctor` mode)**: Probes internal databases, Redis networking, Bybit connectivity, Telegram authentication, and configuration safety from the command line.
+* **CLI Telegram Authentication (`telegram-auth` mode)**: Interactive terminal command line interface for connecting to Telegram using Phone/OTP verification code or QR code scan without requiring the web frontend dashboard.
 
 ## Technology Stack
 * **Runtime**: .NET 8.0 & .NET 10.0 SDK
@@ -184,6 +185,26 @@ dotnet run --project src/TradingBot.Worker/TradingBot.Worker.csproj
 ```
 
 The Web Host starts by default on `http://localhost:5000` (or `https://localhost:5001`), exposing OpenAPI documentation and health endpoints.
+
+### Connecting to Telegram via Command Line (CLI)
+
+You can connect/authenticate your Telegram account directly from the command line without opening or using the web frontend dashboard:
+
+```bash
+dotnet run --project src/TradingBot.Worker/TradingBot.Worker.csproj -- telegram-auth
+```
+
+Or when running via Docker container:
+
+```bash
+docker exec -it tradingbot-worker dotnet TradingBot.Worker.dll telegram-auth
+```
+
+The interactive CLI tool will allow you to choose:
+1. **OTP Verification Code (Phone Number)**: Enter your phone number with country code, enter the verification code received via Telegram/SMS, and enter your 2FA password if enabled.
+2. **QR Code Scan**: Displays the Telegram login QR URL/Link in terminal and polls status until authenticated from your Telegram mobile app (**Settings -> Devices -> Link Desktop Device**).
+
+Once authenticated, the session is saved to `telegram.session` and reused automatically by `TradingBot.Worker` on standard startup.
 
 ## Testing
 
