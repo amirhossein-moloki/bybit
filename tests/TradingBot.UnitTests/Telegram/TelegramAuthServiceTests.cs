@@ -59,6 +59,17 @@ public class TelegramAuthServiceTests
     }
 
     [Fact]
+    public async Task VerifyOtpAsync_ShouldReturnError_WhenNoOtpRequestIsPending()
+    {
+        // Act
+        var result = await _authService.VerifyOtpAsync("+1234567890", "sent", "12345");
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.Error.Should().Be("Request a new verification code before submitting a code.");
+    }
+
+    [Fact]
     public async Task VerifyPasswordAsync_ShouldReturnError_WhenPasswordIsEmpty()
     {
         // Act

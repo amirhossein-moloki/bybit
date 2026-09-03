@@ -149,7 +149,11 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 };
             }
 
+            // A new request invalidates any code from a prior OTP attempt. The
+            // verification endpoint must only advance this freshly-started flow.
             _pendingPhoneNumber = phoneNumber;
+            _pendingPhoneCodeHash = null;
+            _pendingVerificationCode = null;
 
             _logger.Information("Calling WTelegram Login({MaskedPhone}) to request OTP code...", maskedPhone);
             var loginState = await underlyingClient.Login(phoneNumber);
@@ -157,6 +161,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
             if (loginState is "verification_code")
             {
                 _logger.Information("OTP verification code successfully sent via Telegram for {MaskedPhone}", maskedPhone);
+                _pendingPhoneCodeHash = "sent";
 
                 return new OtpStartResult
                 {
@@ -208,6 +213,17 @@ public class TelegramAuthService : ITelegramAuthenticationService
         string maskedPhone = MaskPhoneNumber(phoneNumber);
 
         _logger.Information("Verifying Telegram OTP code for {MaskedPhone}", maskedPhone);
+
+        if (!string.Equals(_pendingPhoneNumber, phoneNumber, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(_pendingPhoneCodeHash) ||
+            !string.Equals(_pendingPhoneCodeHash, phoneCodeHash, StringComparison.Ordinal))
+        {
+            return new OtpVerifyResult
+            {
+                Success = false,
+                Error = "Request a new verification code before submitting a code."
+            };
+        }
 
         if (_client is not TelegramClientService clientService)
         {
