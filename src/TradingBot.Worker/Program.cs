@@ -122,10 +122,16 @@ try
 
     var app = builder.Build();
 
-    // Check for 'doctor' CLI command before starting the runtime
+    // Check for CLI commands before starting the runtime
     if (args.Length > 0 && (args[0].Equals("doctor", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--doctor", StringComparison.OrdinalIgnoreCase)))
     {
         await TradingBotDoctor.RunDiagnosticsAsync(app.Services);
+        return;
+    }
+
+    if (args.Length > 0 && (args[0].Equals("telegram-auth", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--telegram-auth", StringComparison.OrdinalIgnoreCase) || args[0].Equals("telegram:auth", StringComparison.OrdinalIgnoreCase)))
+    {
+        await TelegramCliAuth.RunAsync(app.Services);
         return;
     }
 
