@@ -15,16 +15,19 @@ public class TelegramCliAuthTests
 {
     private readonly Mock<ITelegramQrAuthService> _mockQrAuthService;
     private readonly Mock<ITelegramAuthenticationService> _mockAuthService;
+    private readonly Mock<ITelegramClient> _mockClient;
     private readonly ServiceProvider _serviceProvider;
 
     public TelegramCliAuthTests()
     {
         _mockQrAuthService = new Mock<ITelegramQrAuthService>();
         _mockAuthService = new Mock<ITelegramAuthenticationService>();
+        _mockClient = new Mock<ITelegramClient>();
 
         var services = new ServiceCollection();
         services.AddSingleton(_mockQrAuthService.Object);
         services.AddSingleton(_mockAuthService.Object);
+        services.AddSingleton(_mockClient.Object);
         _serviceProvider = services.BuildServiceProvider();
     }
 
@@ -82,7 +85,7 @@ public class TelegramCliAuthTests
         // Assert
         var output = outputWriter.ToString();
         Assert.Contains("Select Telegram Login Method:", output);
-        Assert.Contains("Telegram authenticated successfully!", output);
+        Assert.Contains("Telegram authentication completed successfully.", output);
         _mockAuthService.Verify(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()), Times.Once);
         _mockAuthService.Verify(x => x.VerifyOtpAsync(mockPhone, mockHash, mockCode, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -95,6 +98,18 @@ public class TelegramCliAuthTests
         const string mockHash = "token_hash";
         const string mockCode = "99999";
         const string mockInputPassword = "sample_code";
+
+        var clientService = new TradingBot.Telegram.Client.TelegramClientService(
+            Microsoft.Extensions.Options.Options.Create(new TradingBot.Telegram.Configuration.TelegramOptions { Enabled = true, ApiId = "12345", ApiHash = "hash", PhoneNumber = mockPhone }),
+            Mock.Of<ITelegramSessionManager>(),
+            Mock.Of<ITelegramMessageReceiver>()
+        );
+
+        var services = new ServiceCollection();
+        services.AddSingleton(_mockQrAuthService.Object);
+        services.AddSingleton(_mockAuthService.Object);
+        services.AddSingleton<ITelegramClient>(clientService);
+        var customServiceProvider = services.BuildServiceProvider();
 
         _mockQrAuthService
             .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
@@ -116,12 +131,11 @@ public class TelegramCliAuthTests
         using var outputWriter = new StringWriter();
 
         // Act
-        await TelegramCliAuth.RunAsync(_serviceProvider, inputReader, outputWriter);
+        await TelegramCliAuth.RunAsync(customServiceProvider, inputReader, outputWriter);
 
         // Assert
         var output = outputWriter.ToString();
-        Assert.Contains("Two-Factor Authentication (2FA) Password Required!", output);
-        Assert.Contains("Telegram 2FA authentication successful!", output);
+        Assert.Contains("Telegram authentication completed successfully.", output);
         _mockAuthService.Verify(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

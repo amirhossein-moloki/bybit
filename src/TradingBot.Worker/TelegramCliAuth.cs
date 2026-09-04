@@ -19,8 +19,9 @@ public static class TelegramCliAuth
         using var scope = serviceProvider.CreateScope();
         var qrAuthService = scope.ServiceProvider.GetService<ITelegramQrAuthService>();
         var authService = scope.ServiceProvider.GetService<ITelegramAuthenticationService>();
+        var client = scope.ServiceProvider.GetService<ITelegramClient>();
 
-        if (qrAuthService == null || authService == null)
+        if (qrAuthService == null || authService == null || client == null)
         {
             await output.WriteLineAsync("Error: Telegram authentication services are not registered.");
             return;
@@ -65,16 +66,17 @@ public static class TelegramCliAuth
         }
         else
         {
-            await RunOtpFlowAsync(authService, input, output);
+            await RunOtpFlowAsync(authService, client, input, output);
         }
 
         await output.WriteLineAsync("==========================================================");
     }
 
-    private static async Task RunOtpFlowAsync(ITelegramAuthenticationService authService, TextReader input, TextWriter output)
+    private static async Task RunOtpFlowAsync(ITelegramAuthenticationService authService, ITelegramClient client, TextReader input, TextWriter output)
     {
         await output.WriteLineAsync("\n--- OTP Login Flow ---");
         await output.WriteAsync("Enter phone number with country code (e.g. +15550100000): ");
+        await output.FlushAsync();
         var phoneNumber = (await input.ReadLineAsync())?.Trim();
 
         if (string.IsNullOrWhiteSpace(phoneNumber))
@@ -83,57 +85,87 @@ public static class TelegramCliAuth
             return;
         }
 
-        await output.WriteLineAsync($"Sending verification code to {phoneNumber}...");
+        TradingBot.Telegram.Client.TelegramClientService? clientService = client as TradingBot.Telegram.Client.TelegramClientService;
+
+        if (clientService != null)
+        {
+            clientService.PhoneNumberProvider = () => phoneNumber;
+            clientService.VerificationCodeProvider = () =>
+            {
+                output.WriteLine("\nA verification code has been sent via Telegram.");
+                output.Write("Enter verification code: ");
+                output.Flush();
+                var code = input.ReadLine()?.Trim();
+                return code ?? string.Empty;
+            };
+            clientService.PasswordProvider = () =>
+            {
+                output.WriteLine("\nTwo-step verification is enabled.");
+                output.Write("Enter your Telegram 2FA password: ");
+                output.Flush();
+                var pwd = input.ReadLine()?.Trim();
+                return pwd ?? string.Empty;
+            };
+        }
+
+        await output.WriteLineAsync("Sending verification code...");
+        await output.FlushAsync();
+
         var startResult = await authService.StartOtpLoginAsync(phoneNumber);
 
         if (!startResult.Success)
         {
-            await output.WriteLineAsync($"Failed to send code: {startResult.Error}");
+            await output.WriteLineAsync($"Failed to start login: {startResult.Error}");
             return;
         }
 
         if (startResult.PhoneCodeHash == "authenticated")
         {
-            await output.WriteLineAsync("Successfully authenticated!");
+            await output.WriteLineAsync("\nVerification successful.");
+            await output.WriteLineAsync("Telegram authentication completed successfully.");
             return;
         }
 
-        await output.WriteAsync("Enter the verification code received via Telegram/SMS: ");
-        var code = (await input.ReadLineAsync())?.Trim();
-
-        if (string.IsNullOrWhiteSpace(code))
+        // If StartOtpLoginAsync returned "sent", prompt user for verification code if callback exists or read input
+        var promptCode = clientService?.VerificationCodeProvider != null
+            ? clientService.VerificationCodeProvider()
+            : (await input.ReadLineAsync())?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(promptCode))
         {
             await output.WriteLineAsync("Error: Verification code cannot be empty.");
             return;
         }
 
         await output.WriteLineAsync("Verifying code...");
-        var verifyResult = await authService.VerifyOtpAsync(phoneNumber, startResult.PhoneCodeHash ?? "sent", code);
+        await output.FlushAsync();
+
+        var verifyResult = await authService.VerifyOtpAsync(phoneNumber, startResult.PhoneCodeHash ?? "sent", promptCode);
 
         if (verifyResult.Success)
         {
-            await output.WriteLineAsync("Telegram authenticated successfully!");
+            await output.WriteLineAsync("\nVerification successful.");
+            await output.WriteLineAsync("Telegram authentication completed successfully.");
             return;
         }
 
         if (verifyResult.RequiresPassword)
         {
-            await output.WriteLineAsync("Two-Factor Authentication (2FA) Password Required!");
-            await output.WriteAsync("Enter your Telegram 2FA password: ");
-            var password = (await input.ReadLineAsync())?.Trim();
-
-            if (string.IsNullOrWhiteSpace(password))
+            var promptPwd = clientService?.PasswordProvider?.Invoke() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(promptPwd))
             {
                 await output.WriteLineAsync("Error: Password cannot be empty.");
                 return;
             }
 
             await output.WriteLineAsync("Verifying 2FA password...");
-            var passResult = await authService.VerifyPasswordAsync(password);
+            await output.FlushAsync();
+
+            var passResult = await authService.VerifyPasswordAsync(promptPwd);
 
             if (passResult.Success)
             {
-                await output.WriteLineAsync("Telegram 2FA authentication successful! Session connected.");
+                await output.WriteLineAsync("\nVerification successful.");
+                await output.WriteLineAsync("Telegram authentication completed successfully.");
             }
             else
             {

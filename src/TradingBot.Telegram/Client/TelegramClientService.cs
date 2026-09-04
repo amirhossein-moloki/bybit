@@ -32,6 +32,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
     private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
+    public Func<string>? PhoneNumberProvider { get; set; }
     public Func<string>? VerificationCodeProvider { get; set; }
     public Func<string>? PasswordProvider { get; set; }
 
@@ -539,35 +540,42 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 return _options.ApiHash;
 
             case "phone_number":
-                if (string.IsNullOrWhiteSpace(_options.PhoneNumber))
+                var phone = PhoneNumberProvider?.Invoke();
+                if (!string.IsNullOrWhiteSpace(phone))
                 {
-                    throw new InvalidTelegramConfigurationException("Telegram PhoneNumber is not configured.");
+                    return phone;
                 }
-                return _options.PhoneNumber;
+                if (!string.IsNullOrWhiteSpace(_options.PhoneNumber))
+                {
+                    return _options.PhoneNumber;
+                }
+                return null;
 
             case "verification_code":
                 var code = VerificationCodeProvider?.Invoke();
-                if (string.IsNullOrWhiteSpace(code))
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    code = Environment.GetEnvironmentVariable("TELEGRAM_VERIFICATION_CODE");
+                    return code;
                 }
-                if (string.IsNullOrWhiteSpace(code))
+                code = Environment.GetEnvironmentVariable("TELEGRAM_VERIFICATION_CODE");
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    throw new TelegramAuthenticationException("Verification code is required but was not provided.");
+                    return code;
                 }
-                return code;
+                return null;
 
             case "password":
                 var pwd = PasswordProvider?.Invoke();
-                if (string.IsNullOrWhiteSpace(pwd))
+                if (!string.IsNullOrWhiteSpace(pwd))
                 {
-                    pwd = Environment.GetEnvironmentVariable("TELEGRAM_PASSWORD");
+                    return pwd;
                 }
-                if (string.IsNullOrWhiteSpace(pwd))
+                pwd = Environment.GetEnvironmentVariable("TELEGRAM_PASSWORD");
+                if (!string.IsNullOrWhiteSpace(pwd))
                 {
-                    throw new TelegramAuthenticationException("2FA Password is required but was not provided.");
+                    return pwd;
                 }
-                return pwd;
+                return null;
 
             case "socks_ip":
             case "socks_port":
