@@ -28,6 +28,8 @@ public class TelegramHealthCheck : IHealthCheck
                     : "Telegram connection is healthy and connected.")),
             TelegramConnectionState.Connecting or TelegramConnectionState.Authenticating or TelegramConnectionState.Reconnecting =>
                 Task.FromResult(HealthCheckResult.Degraded($"Telegram connection is in state: {state}.")),
+            TelegramConnectionState.RequiresAuthentication or TelegramConnectionState.AuthenticationFailed =>
+                Task.FromResult(HealthCheckResult.Unhealthy($"Telegram authentication required or failed: {state}.")),
             _ =>
                 Task.FromResult(HealthCheckResult.Unhealthy($"Telegram connection is in unhealthy state: {state}."))
         };

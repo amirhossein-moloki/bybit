@@ -92,4 +92,20 @@ public class TelegramAuthServiceTests
         // Assert
         result.Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData(420, "FLOOD_WAIT_300", 300)]
+    [InlineData(420, "A flood wait of 60 seconds occurred: FLOOD_WAIT_60", 60)]
+    [InlineData(400, "OTHER_ERROR", 0)]
+    public void ExtractFloodWaitSeconds_ShouldExtractDurationCorrectly(int code, string message, int expectedSeconds)
+    {
+        // Arrange
+        var rpcEx = new RpcException(code, message);
+
+        // Act
+        int seconds = TelegramAuthService.ExtractFloodWaitSeconds(rpcEx);
+
+        // Assert
+        seconds.Should().Be(expectedSeconds);
+    }
 }

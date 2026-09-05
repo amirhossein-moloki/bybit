@@ -28,6 +28,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
     private WTelegram.Client? _client;
     private WTelegram.UpdateManager? _updateManager;
     private TelegramConnectionState _currentState = TelegramConnectionState.Disconnected;
+    private DateTime? _floodWaitUntil;
     private readonly object _stateLock = new();
     private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
@@ -73,6 +74,56 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         }
     }
 
+    public DateTime? FloodWaitUntil
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _floodWaitUntil;
+            }
+        }
+    }
+
+    public void SetFloodWait(int seconds)
+    {
+        lock (_stateLock)
+        {
+            if (seconds <= 0)
+            {
+                _floodWaitUntil = null;
+                return;
+            }
+
+            var until = DateTime.UtcNow.AddSeconds(seconds);
+            if (!_floodWaitUntil.HasValue || until > _floodWaitUntil.Value)
+            {
+                _floodWaitUntil = until;
+                _logger.Warning("Telegram client entering FLOOD_WAIT cooldown for {Seconds}s until {UntilUtc} UTC.", seconds, until.ToString("o"));
+            }
+        }
+    }
+
+    public bool IsInFloodWait(out TimeSpan remaining)
+    {
+        lock (_stateLock)
+        {
+            if (_floodWaitUntil.HasValue)
+            {
+                var diff = _floodWaitUntil.Value - DateTime.UtcNow;
+                if (diff > TimeSpan.Zero)
+                {
+                    remaining = diff;
+                    return true;
+                }
+                _floodWaitUntil = null;
+            }
+
+            remaining = TimeSpan.Zero;
+            return false;
+        }
+    }
+
     public async Task ConnectAsync()
     {
         if (!_options.Enabled)
@@ -85,6 +136,12 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         {
             _logger.Information("Telegram client is already connected.");
             return;
+        }
+
+        if (IsInFloodWait(out var remaining))
+        {
+            _logger.Warning("Telegram ConnectAsync aborted due to active FLOOD_WAIT cooldown ({RemainingSeconds}s remaining).", Math.Ceiling(remaining.TotalSeconds));
+            throw new TelegramConnectionException($"Telegram client is in FLOOD_WAIT cooldown for another {Math.Ceiling(remaining.TotalSeconds)} seconds.");
         }
 
         try

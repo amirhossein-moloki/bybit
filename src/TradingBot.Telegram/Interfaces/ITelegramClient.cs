@@ -19,4 +19,7 @@ public interface ITelegramClient
     Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync();
     System.Collections.Generic.List<string> GetMonitoredChannels();
     bool ToggleMonitoredChannel(string identifier, bool enable);
+    DateTime? FloodWaitUntil { get; }
+    void SetFloodWait(int seconds);
+    bool IsInFloodWait(out TimeSpan remaining);
 }
