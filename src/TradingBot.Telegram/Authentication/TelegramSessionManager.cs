@@ -34,6 +34,13 @@ public class TelegramSessionManager : ITelegramSessionManager
                 throw new TelegramSessionException("SessionPath is not configured.");
             }
 
+            var directory = Path.GetDirectoryName(sessionPath);
+            if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+                _logger.Information("Created directory for Telegram session persistence at {Directory}", directory);
+            }
+
             return new EncryptedSessionStream(sessionPath, _encryptionService);
         }
         catch (Exception ex) when (ex is not TelegramSessionException)

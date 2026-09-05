@@ -10,6 +10,7 @@ public class ControllableTelegramClient : ITelegramClient
 {
     private readonly FailureSimulator _simulator;
     private TelegramConnectionState _state = TelegramConnectionState.Disconnected;
+    private DateTime? _floodWaitUntil;
     private int _messageCount = 0;
 
     public ControllableTelegramClient(FailureSimulator simulator)
@@ -121,5 +122,39 @@ public class ControllableTelegramClient : ITelegramClient
     public bool ToggleMonitoredChannel(string identifier, bool enable)
     {
         return true;
+    }
+
+    public DateTime? FloodWaitUntil => _floodWaitUntil;
+
+    public void SetFloodWait(int seconds)
+    {
+        if (seconds <= 0)
+        {
+            _floodWaitUntil = null;
+            return;
+        }
+
+        var until = DateTime.UtcNow.AddSeconds(seconds);
+        if (!_floodWaitUntil.HasValue || until > _floodWaitUntil.Value)
+        {
+            _floodWaitUntil = until;
+        }
+    }
+
+    public bool IsInFloodWait(out TimeSpan remaining)
+    {
+        if (_floodWaitUntil.HasValue)
+        {
+            var diff = _floodWaitUntil.Value - DateTime.UtcNow;
+            if (diff > TimeSpan.Zero)
+            {
+                remaining = diff;
+                return true;
+            }
+            _floodWaitUntil = null;
+        }
+
+        remaining = TimeSpan.Zero;
+        return false;
     }
 }

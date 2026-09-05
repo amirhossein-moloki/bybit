@@ -8,6 +8,8 @@ using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
 using Polly.Timeout;
+using TL;
+using TradingBot.Telegram.Authentication;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
@@ -49,7 +51,16 @@ public class TelegramListenerWorker : BackgroundService
             })
             .AddRetry(new RetryStrategyOptions
             {
-                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(ex =>
+                {
+                    if (ex is RpcException rpcEx && (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT")))
+                        return false;
+                    if (ex.InnerException is RpcException innerRpc && (innerRpc.Code == 420 || innerRpc.Message.Contains("FLOOD_WAIT")))
+                        return false;
+                    if (ex is TelegramAuthenticationException)
+                        return false;
+                    return true;
+                }),
                 MaxRetryAttempts = 10,
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
@@ -65,7 +76,16 @@ public class TelegramListenerWorker : BackgroundService
             })
             .AddCircuitBreaker(new CircuitBreakerStrategyOptions
             {
-                ShouldHandle = new PredicateBuilder().Handle<Exception>(),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(ex =>
+                {
+                    if (ex is RpcException rpcEx && (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT")))
+                        return false;
+                    if (ex.InnerException is RpcException innerRpc && (innerRpc.Code == 420 || innerRpc.Message.Contains("FLOOD_WAIT")))
+                        return false;
+                    if (ex is TelegramAuthenticationException)
+                        return false;
+                    return true;
+                }),
                 FailureRatio = 0.5,
                 SamplingDuration = TimeSpan.FromMinutes(2),
                 MinimumThroughput = 3,
@@ -99,12 +119,26 @@ public class TelegramListenerWorker : BackgroundService
         {
             try
             {
-                if (!_sessionManager.SessionExists() || _client.CurrentState == TelegramConnectionState.Authenticating)
+                if (_client.IsInFloodWait(out var remaining))
                 {
-                    if (_client.CurrentState != TelegramConnectionState.NotConnected && _client.CurrentState != TelegramConnectionState.Authenticating)
+                    _logger.LogWarning("Telegram client is in FLOOD_WAIT cooldown. Halting background reconnect attempts for {RemainingSeconds}s...", Math.Ceiling(remaining.TotalSeconds));
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(remaining.TotalSeconds, 15)), stoppingToken);
+                    continue;
+                }
+
+                if (!_sessionManager.SessionExists() ||
+                    _client.CurrentState == TelegramConnectionState.RequiresAuthentication ||
+                    _client.CurrentState == TelegramConnectionState.AuthenticationFailed ||
+                    _client.CurrentState == TelegramConnectionState.NotConnected ||
+                    _client.CurrentState == TelegramConnectionState.Authenticating)
+                {
+                    if (_client.CurrentState != TelegramConnectionState.NotConnected &&
+                        _client.CurrentState != TelegramConnectionState.RequiresAuthentication &&
+                        _client.CurrentState != TelegramConnectionState.AuthenticationFailed &&
+                        _client.CurrentState != TelegramConnectionState.Authenticating)
                     {
-                        _client.SetState(TelegramConnectionState.NotConnected);
-                        _logger.LogInformation("No Telegram session found. Waiting for Dashboard authentication...");
+                        _client.SetState(TelegramConnectionState.RequiresAuthentication);
+                        _logger.LogWarning("No valid Telegram session found or authentication is required. Pausing background listener loop. Waiting for Dashboard authentication...");
                     }
 
                     await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
@@ -117,17 +151,21 @@ public class TelegramListenerWorker : BackgroundService
                     {
                         _logger.LogInformation("Connecting to Telegram...");
                         await _client.ConnectAsync();
-                        _logger.LogInformation("Telegram Connected");
 
-                        _logger.LogInformation("Authenticating with Telegram...");
+                        _logger.LogInformation("Performing passive Telegram session verification...");
                         await _authService.AuthenticateAsync();
-                        _logger.LogInformation("Authentication Completed");
+
+                        if (_client.CurrentState == TelegramConnectionState.RequiresAuthentication)
+                        {
+                            _logger.LogWarning("Passive session check indicated authentication is required. Aborting listener initialization until user logs in via Dashboard.");
+                            return;
+                        }
 
                         _logger.LogInformation("Initializing Update Listener...");
                         await _client.InitializeListeningAsync();
 
                         _client.SetState(TelegramConnectionState.Listening);
-                        _logger.LogInformation("Listening Started");
+                        _logger.LogInformation("Telegram Listener Started Successfully.");
                     }, stoppingToken);
                 }
 
@@ -138,6 +176,13 @@ public class TelegramListenerWorker : BackgroundService
             {
                 _logger.LogInformation("Telegram listener background worker is stopping due to cancellation.");
                 break;
+            }
+            catch (RpcException rpcEx) when (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
+            {
+                int seconds = TelegramAuthService.ExtractFloodWaitSeconds(rpcEx);
+                _client.SetFloodWait(seconds);
+                _logger.LogError(rpcEx, "Telegram FLOOD_WAIT_420 encountered in listener worker loop. Cooldown initiated for {Seconds} seconds.", seconds);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(seconds, 30)), stoppingToken);
             }
             catch (Exception ex)
             {
@@ -151,7 +196,12 @@ public class TelegramListenerWorker : BackgroundService
                     continue;
                 }
 
-                _client.SetState(TelegramConnectionState.Error);
+                if (_client.CurrentState != TelegramConnectionState.RequiresAuthentication &&
+                    _client.CurrentState != TelegramConnectionState.AuthenticationFailed)
+                {
+                    _client.SetState(TelegramConnectionState.Error);
+                }
+
                 _logger.LogWarning("Telegram listener worker encountered an error. Retrying in 10 seconds...");
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }

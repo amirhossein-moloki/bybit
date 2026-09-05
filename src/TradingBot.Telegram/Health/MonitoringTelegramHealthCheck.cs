@@ -30,8 +30,8 @@ public class MonitoringTelegramHealthCheck : IHealthCheck
                 (HealthStatus.Healthy, "Telegram is connected and listener is active.", ConnectionStatus.Connected),
             TelegramConnectionState.Connecting or TelegramConnectionState.Authenticating or TelegramConnectionState.Reconnecting =>
                 (HealthStatus.Degraded, $"Telegram connection transition state: {state}.", ConnectionStatus.Connecting),
-            TelegramConnectionState.AuthenticationFailed =>
-                (HealthStatus.Unhealthy, "Telegram authentication failed. Check credentials/session.", ConnectionStatus.Failed),
+            TelegramConnectionState.AuthenticationFailed or TelegramConnectionState.RequiresAuthentication =>
+                (HealthStatus.Unhealthy, "Telegram authentication required or failed. Check credentials/session.", ConnectionStatus.Failed),
             _ =>
                 (HealthStatus.Unhealthy, $"Telegram is in unhealthy state: {state}.", ConnectionStatus.Disconnected)
         };

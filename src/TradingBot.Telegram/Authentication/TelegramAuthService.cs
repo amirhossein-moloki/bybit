@@ -39,13 +39,19 @@ public class TelegramAuthService : ITelegramAuthenticationService
     {
         if (!_options.Enabled)
         {
-            _logger.Warning("Telegram integration is disabled. Skipping authentication.");
+            _logger.Warning("Telegram integration is disabled. Skipping passive session authentication.");
             return;
         }
 
         if (_client is not TelegramClientService clientService)
         {
             throw new TelegramAuthenticationException("ITelegramClient implementation is not of type TelegramClientService.");
+        }
+
+        if (clientService.IsInFloodWait(out var remaining))
+        {
+            _logger.Warning("Telegram client is in FLOOD_WAIT cooldown for {Seconds}s. Passive authentication check deferred.", Math.Ceiling(remaining.TotalSeconds));
+            return;
         }
 
         try
@@ -63,27 +69,32 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 throw new TelegramAuthenticationException("Underlying WTelegram client is not initialized.");
             }
 
-            clientService.SetState(TelegramConnectionState.Authenticating);
-            _logger.Information("Beginning Telegram login flow...");
-
-            var user = await underlyingClient.LoginUserIfNeeded();
-
-            if (user != null)
+            // Passive check ONLY on existing user/session.
+            // Under NO circumstances call LoginUserIfNeeded() or trigger Auth_SendCode!
+            if (underlyingClient.User != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);
-                _logger.Information("Authentication Completed for user {UserId}", user.id);
+                _logger.Information("Telegram passive session verification succeeded for user {UserId} (@{Username}).", underlyingClient.User.id, underlyingClient.User.username);
             }
             else
             {
-                clientService.SetState(TelegramConnectionState.AuthenticationFailed);
-                throw new TelegramAuthenticationException("Telegram login failed: returned user was null.");
+                clientService.SetState(TelegramConnectionState.RequiresAuthentication);
+                _logger.Warning("Telegram passive session verification failed: No active user session found in session file. Manual authentication (OTP/QR) via Dashboard is required.");
             }
+        }
+        catch (RpcException rpcEx) when (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
+        {
+            int waitSeconds = ExtractFloodWaitSeconds(rpcEx);
+            clientService.SetFloodWait(waitSeconds);
+            clientService.SetState(TelegramConnectionState.Error);
+            _logger.Error(rpcEx, "Telegram FLOOD_WAIT_420 encountered during passive session authentication. Cooldown active for {WaitSeconds}s.", waitSeconds);
+            throw;
         }
         catch (Exception ex) when (ex is not TelegramAuthenticationException)
         {
             clientService.SetState(TelegramConnectionState.AuthenticationFailed);
-            _logger.Error(ex, "Telegram authentication failed.");
-            throw new TelegramAuthenticationException("Failed to complete Telegram authentication.", ex);
+            _logger.Error(ex, "Telegram passive session authentication failed.");
+            throw new TelegramAuthenticationException("Failed to complete Telegram session authentication.", ex);
         }
     }
 
@@ -188,7 +199,17 @@ public class TelegramAuthService : ITelegramAuthenticationService
         }
         catch (RpcException rpcEx)
         {
-            _logger.Warning(rpcEx, "Telegram RPC Error during StartOtpLogin for {MaskedPhone}: {Message}", maskedPhone, rpcEx.Message);
+            _logger.Warning(rpcEx, "Telegram RPC Error during StartOtpLogin for {MaskedPhone}: Code {Code}, Message {Message}", maskedPhone, rpcEx.Code, rpcEx.Message);
+
+            if (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
+            {
+                int waitSeconds = ExtractFloodWaitSeconds(rpcEx);
+                clientService.SetFloodWait(waitSeconds);
+                clientService.SetState(TelegramConnectionState.Error);
+                string waitMsg = $"Too many login attempts (FLOOD_WAIT). Please wait {waitSeconds} seconds before trying again.";
+                return new OtpStartResult { Success = false, Error = waitMsg };
+            }
+
             string userMsg = MapRpcErrorToMessage(rpcEx);
             clientService.SetState(TelegramConnectionState.AuthenticationFailed);
             return new OtpStartResult { Success = false, Error = userMsg };
@@ -281,7 +302,7 @@ public class TelegramAuthService : ITelegramAuthenticationService
         }
         catch (RpcException rpcEx)
         {
-            _logger.Warning(rpcEx, "Telegram RPC Error during VerifyOtp for {MaskedPhone}: {Message}", maskedPhone, rpcEx.Message);
+            _logger.Warning(rpcEx, "Telegram RPC Error during VerifyOtp for {MaskedPhone}: Code {Code}, Message {Message}", maskedPhone, rpcEx.Code, rpcEx.Message);
 
             if (rpcEx.Message.Contains("SESSION_PASSWORD_NEEDED"))
             {
@@ -292,6 +313,15 @@ public class TelegramAuthService : ITelegramAuthenticationService
                     RequiresPassword = true,
                     Error = "Two-factor authentication required"
                 };
+            }
+
+            if (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
+            {
+                int waitSeconds = ExtractFloodWaitSeconds(rpcEx);
+                clientService.SetFloodWait(waitSeconds);
+                clientService.SetState(TelegramConnectionState.Error);
+                string waitMsg = $"Too many login attempts (FLOOD_WAIT). Please wait {waitSeconds} seconds before trying again.";
+                return new OtpVerifyResult { Success = false, Error = waitMsg };
             }
 
             string userMsg = MapRpcErrorToMessage(rpcEx);
@@ -357,7 +387,17 @@ public class TelegramAuthService : ITelegramAuthenticationService
         }
         catch (RpcException rpcEx)
         {
-            _logger.Warning(rpcEx, "Telegram RPC Error during Password Verification for {MaskedPhone}: {Message}", maskedPhone, rpcEx.Message);
+            _logger.Warning(rpcEx, "Telegram RPC Error during Password Verification for {MaskedPhone}: Code {Code}, Message {Message}", maskedPhone, rpcEx.Code, rpcEx.Message);
+
+            if (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
+            {
+                int waitSeconds = ExtractFloodWaitSeconds(rpcEx);
+                clientService.SetFloodWait(waitSeconds);
+                clientService.SetState(TelegramConnectionState.Error);
+                string waitMsg = $"Too many login attempts (FLOOD_WAIT). Please wait {waitSeconds} seconds before trying again.";
+                return new PasswordResult { Success = false, Error = waitMsg };
+            }
+
             string userMsg = MapRpcErrorToMessage(rpcEx);
             clientService.SetState(TelegramConnectionState.AuthenticationFailed);
             return new PasswordResult { Success = false, Error = userMsg };
@@ -394,6 +434,28 @@ public class TelegramAuthService : ITelegramAuthenticationService
         if (string.IsNullOrWhiteSpace(phoneNumber)) return "***";
         if (phoneNumber.Length <= 4) return "****";
         return string.Concat(new string('*', phoneNumber.Length - 4), phoneNumber.Substring(phoneNumber.Length - 4));
+    }
+
+    public static int ExtractFloodWaitSeconds(RpcException rpcEx)
+    {
+        if (rpcEx == null) return 0;
+
+        if (rpcEx.Code == 420 && rpcEx.X > 0)
+        {
+            return rpcEx.X;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            rpcEx.Message,
+            @"FLOOD_WAIT_(\d+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        if (match.Success && int.TryParse(match.Groups[1].Value, out int seconds))
+        {
+            return seconds;
+        }
+
+        return rpcEx.Code == 420 ? 60 : 0;
     }
 
     private static string MapRpcErrorToMessage(RpcException ex)

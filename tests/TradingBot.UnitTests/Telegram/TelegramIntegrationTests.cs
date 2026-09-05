@@ -442,7 +442,58 @@ public class TelegramIntegrationTests
     }
 
     [Fact]
-    public async Task TelegramListenerWorker_ShouldSetNotConnected_WhenSessionDoesNotExist()
+    public void TelegramClientService_ShouldTrackFloodWaitCorrectly()
+    {
+        // Arrange
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        var mockReceiver = new Mock<ITelegramMessageReceiver>();
+        var clientService = new TelegramClientService(mockOptions, mockSessionManager.Object, mockReceiver.Object);
+
+        // Act & Assert 1: Initially no flood wait
+        clientService.IsInFloodWait(out var rem1).Should().BeFalse();
+
+        // Act & Assert 2: Set flood wait for 30 seconds
+        clientService.SetFloodWait(30);
+        clientService.IsInFloodWait(out var rem2).Should().BeTrue();
+        rem2.TotalSeconds.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(30);
+
+        // Act & Assert 3: Reset flood wait
+        clientService.SetFloodWait(0);
+        clientService.IsInFloodWait(out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TelegramListenerWorker_ShouldPause_WhenInFloodWait()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        var mockAuthService = new Mock<ITelegramAuthenticationService>();
+        var mockSessionManager = new Mock<ITelegramSessionManager>();
+        mockSessionManager.Setup(s => s.SessionExists()).Returns(true);
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TelegramListenerWorker>>();
+
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+
+        TimeSpan rem = TimeSpan.FromSeconds(10);
+        mockClient.Setup(c => c.IsInFloodWait(out rem)).Returns(true);
+
+        var worker = new TelegramListenerWorker(mockClient.Object, mockAuthService.Object, mockSessionManager.Object, mockOptions, mockLogger.Object);
+        using var cts = new CancellationTokenSource();
+
+        // Act
+        var runTask = worker.StartAsync(cts.Token);
+        await Task.Delay(50);
+        await worker.StopAsync(cts.Token);
+
+        // Assert
+        mockClient.Verify(c => c.ConnectAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task TelegramListenerWorker_ShouldSetNotConnectedOrRequiresAuth_WhenSessionDoesNotExist()
     {
         // Arrange
         var mockClient = new Mock<ITelegramClient>();
@@ -466,7 +517,7 @@ public class TelegramIntegrationTests
         await worker.StopAsync(cts.Token);
 
         // Assert
-        mockClient.Verify(c => c.SetState(TelegramConnectionState.NotConnected), Times.AtLeastOnce);
+        mockClient.Verify(c => c.SetState(It.Is<TelegramConnectionState>(s => s == TelegramConnectionState.NotConnected || s == TelegramConnectionState.RequiresAuthentication)), Times.AtLeastOnce);
         mockClient.Verify(c => c.ConnectAsync(), Times.Never);
     }
 
