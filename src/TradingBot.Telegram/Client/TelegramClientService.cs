@@ -181,8 +181,17 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             // Connect to Telegram
             await _client.ConnectAsync();
 
-            SetState(TelegramConnectionState.Connected);
-            _logger.Information("Telegram Connected");
+            var loginState = await _client.LoginUserIfNeeded();
+            if (_client.User != null)
+            {
+                SetState(TelegramConnectionState.Connected);
+                _logger.Information("Telegram Connected and user session loaded (@{Username})", _client.User.username);
+            }
+            else
+            {
+                SetState(TelegramConnectionState.RequiresAuthentication);
+                _logger.Warning("Telegram Connected, but user session requires authentication.");
+            }
         }
         catch (Exception ex)
         {
@@ -469,6 +478,22 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
 
     public async Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync()
     {
+        if (_client == null || !IsConnected())
+        {
+            if (_sessionManager.SessionExists())
+            {
+                _logger.Information("GetDialogsAsync called while disconnected. Attempting auto-connection using existing session...");
+                try
+                {
+                    await ConnectAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "Failed to auto-connect Telegram client during GetDialogsAsync.");
+                }
+            }
+        }
+
         if (_client == null || !IsConnected())
         {
             throw new TelegramConnectionException("Telegram client is not connected.");

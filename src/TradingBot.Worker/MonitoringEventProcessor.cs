@@ -92,8 +92,20 @@ public class MonitoringEventProcessor : BackgroundService
 
             try
             {
-                // Dequeue next monitoring event (non-blocking yield/waiting)
-                @event = await _queue.DequeueAsync(stoppingToken);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(3));
+
+                // Dequeue next monitoring event with 3s heartbeat timeout
+                @event = await _queue.DequeueAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+            {
+                // Timeout waiting for event; loop around to update heartbeat
+                continue;
+            }
+
+            try
+            {
 
                 if (!_options.Observability.PersistenceEnabled)
                 {

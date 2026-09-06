@@ -9,8 +9,11 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:80
       - Database__ConnectionString=Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}
-      - Exchange__ApiKey=${BYBIT_API_KEY}
-      - Exchange__ApiSecret=${BYBIT_API_SECRET}
+      - Exchange__ApiKey=${BYBIT_API_KEY:-}
+      - Exchange__ApiSecret=${BYBIT_API_SECRET:-${BYBIT_SECRET_KEY:-}}
+      - BYBIT_API_KEY=${BYBIT_API_KEY:-}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET:-${BYBIT_SECRET_KEY:-}}
+      - BYBIT_ENVIRONMENT=${BYBIT_ENVIRONMENT:-Demo}
       - Security__EncryptionKey=${ENCRYPTION_KEY}
       - Telegram__ApiId=${TELEGRAM_API_ID:-}
       - Telegram__ApiHash=${TELEGRAM_API_HASH:-}
@@ -43,7 +46,7 @@ services:
       - tradingbot-worker
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/login || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/login', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 3

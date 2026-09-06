@@ -409,6 +409,12 @@ public class BybitExchangeClient : IExchangeClient
             var apiKey = account.ApiKey;
             var apiSecret = account.ApiSecret;
 
+            if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(apiSecret))
+            {
+                _logger.LogWarning("Bybit Private Request aborted for account {AccountName}: ApiKey or ApiSecret is missing/empty.", account.Name);
+                throw new ExchangeException($"Bybit API credentials (ApiKey and ApiSecret) are not configured for account '{account.Name}'. Private authenticated operations cannot be executed.");
+            }
+
             string requestPayload = string.Empty;
             string requestPathAndQuery = path;
 

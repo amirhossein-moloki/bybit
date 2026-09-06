@@ -69,8 +69,13 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 throw new TelegramAuthenticationException("Underlying WTelegram client is not initialized.");
             }
 
-            // Passive check ONLY on existing user/session.
-            // Under NO circumstances call LoginUserIfNeeded() or trigger Auth_SendCode!
+            // Passive check on existing session: call LoginUserIfNeeded() to restore User if session is authenticated
+            if (underlyingClient.User == null)
+            {
+                var user = await underlyingClient.LoginUserIfNeeded();
+                _logger.Information("Passive session check LoginUserIfNeeded completed for user: {Username}", user?.username ?? "unauthenticated");
+            }
+
             if (underlyingClient.User != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);

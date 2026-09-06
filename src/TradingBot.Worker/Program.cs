@@ -49,7 +49,11 @@ try
     {
         settings.Exchange.ApiKey = envApiKey;
     }
-    var envApiSecret = Environment.GetEnvironmentVariable("BYBIT_SECRET_KEY");
+    var envApiSecret = Environment.GetEnvironmentVariable("BYBIT_API_SECRET");
+    if (string.IsNullOrEmpty(envApiSecret))
+    {
+        envApiSecret = Environment.GetEnvironmentVariable("BYBIT_SECRET_KEY");
+    }
     if (!string.IsNullOrEmpty(envApiSecret))
     {
         settings.Exchange.ApiSecret = envApiSecret;

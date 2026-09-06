@@ -109,8 +109,8 @@ public class BybitAccountProvider : IBybitAccountProvider
             Console.WriteLine($"[BybitAccountProvider] Failed to load accounts from database: {dbEx.Message}");
         }
 
-        // 4. Ensure we always have at least one account to work with
-        if (!accounts.Any())
+        // 4. Fall back to default settings account if available
+        if (!accounts.Any() && !string.IsNullOrEmpty(defaultApiKey) && !string.IsNullOrEmpty(defaultApiSecret))
         {
             accounts.Add(new BybitAccountInfo
             {
