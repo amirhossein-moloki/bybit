@@ -148,29 +148,31 @@ public class MonitoringObservabilityIntegrationTests : IClassFixture<CustomWebAp
         var orderId = Guid.NewGuid();
         var positionId = Guid.NewGuid();
 
+        var baseTime = DateTime.UtcNow;
+
         // 1. Signal Received
-        await publisher.PublishAsync(new MonitoringEvent("SignalReceived", "INFORMATION", "Telegram", "Receiver", "Detected", "Signal received.", correlationId: correlationId, signalId: signalId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("SignalReceived", "INFORMATION", "Telegram", "Receiver", "Detected", "Signal received.", correlationId: correlationId, signalId: signalId, timestamp: baseTime.AddSeconds(1)), forceSynchronous: true);
 
         // 2. Signal Accepted
-        await publisher.PublishAsync(new MonitoringEvent("SignalAccepted", "INFORMATION", "SignalParser", "Pipeline", "Succeeded", "Signal accepted.", correlationId: correlationId, signalId: signalId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("SignalAccepted", "INFORMATION", "SignalParser", "Pipeline", "Succeeded", "Signal accepted.", correlationId: correlationId, signalId: signalId, timestamp: baseTime.AddSeconds(2)), forceSynchronous: true);
 
         // 3. Order Created
-        await publisher.PublishAsync(new MonitoringEvent("OrderCreated", "INFORMATION", "ExecutionEngine", "OrderBuilder", "Succeeded", "Order created from signal.", correlationId: correlationId, signalId: signalId, orderId: orderId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("OrderCreated", "INFORMATION", "ExecutionEngine", "OrderBuilder", "Succeeded", "Order created from signal.", correlationId: correlationId, signalId: signalId, orderId: orderId, timestamp: baseTime.AddSeconds(3)), forceSynchronous: true);
 
         // 4. Order Submitted
-        await publisher.PublishAsync(new MonitoringEvent("OrderSubmitted", "INFORMATION", "Bybit", "OrderExecution", "Succeeded", "Order submitted to Bybit.", correlationId: correlationId, signalId: signalId, orderId: orderId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("OrderSubmitted", "INFORMATION", "Bybit", "OrderExecution", "Succeeded", "Order submitted to Bybit.", correlationId: correlationId, signalId: signalId, orderId: orderId, timestamp: baseTime.AddSeconds(4)), forceSynchronous: true);
 
         // 5. Order Filled
-        await publisher.PublishAsync(new MonitoringEvent("OrderFilled", "INFORMATION", "Bybit", "OrderSyncBackgroundService", "Succeeded", "Order filled at Bybit.", correlationId: correlationId, signalId: signalId, orderId: orderId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("OrderFilled", "INFORMATION", "Bybit", "OrderSyncBackgroundService", "Succeeded", "Order filled at Bybit.", correlationId: correlationId, signalId: signalId, orderId: orderId, timestamp: baseTime.AddSeconds(5)), forceSynchronous: true);
 
         // 6. Position Opened
-        await publisher.PublishAsync(new MonitoringEvent("PositionOpened", "INFORMATION", "PositionManager", "PositionService", "Succeeded", "Position opened.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("PositionOpened", "INFORMATION", "PositionManager", "PositionService", "Succeeded", "Position opened.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId, timestamp: baseTime.AddSeconds(6)), forceSynchronous: true);
 
         // 7. Position Updated
-        await publisher.PublishAsync(new MonitoringEvent("PositionUpdated", "INFORMATION", "PositionManager", "StopLossManager", "Succeeded", "Position Stop Loss updated.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("PositionUpdated", "INFORMATION", "PositionManager", "StopLossManager", "Succeeded", "Position Stop Loss updated.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId, timestamp: baseTime.AddSeconds(7)), forceSynchronous: true);
 
         // 8. Position Closed
-        await publisher.PublishAsync(new MonitoringEvent("PositionClosed", "INFORMATION", "PositionManager", "PositionCloseManager", "Succeeded", "Position closed.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId), forceSynchronous: true);
+        await publisher.PublishAsync(new MonitoringEvent("PositionClosed", "INFORMATION", "PositionManager", "PositionCloseManager", "Succeeded", "Position closed.", correlationId: correlationId, signalId: signalId, orderId: orderId, positionId: positionId, timestamp: baseTime.AddSeconds(8)), forceSynchronous: true);
 
         // Act
         var traceEvents = await reader.GetEventsAsync(correlationId: correlationId, pageSize: 20);

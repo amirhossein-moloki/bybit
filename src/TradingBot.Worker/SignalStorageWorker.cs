@@ -39,10 +39,23 @@ public class SignalStorageWorker : BackgroundService
         {
             _healthRegistry.RecordHeartbeat(nameof(SignalStorageWorker), "Running");
             SignalCandidate? candidate = null;
+
             try
             {
-                // 1. Dequeue next candidate (blocks until available)
-                candidate = await _queue.DequeueAsync(stoppingToken);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(3));
+
+                // 1. Dequeue next candidate (with timeout for heartbeat persistence)
+                candidate = await _queue.DequeueAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+            {
+                // Timeout waiting for candidate; loop around to update heartbeat
+                continue;
+            }
+
+            try
+            {
 
                 _logger.LogDebug("SignalStorageWorker: Dequeued signal candidate. Channel: {ChannelId}, MessageId: {MessageId}",
                     candidate.ChannelId, candidate.MessageId);

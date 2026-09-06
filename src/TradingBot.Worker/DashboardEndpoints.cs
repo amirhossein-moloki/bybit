@@ -21,12 +21,16 @@ namespace TradingBot.Worker;
 
 public class DashboardAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+
     public DashboardAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder)
+        UrlEncoder encoder,
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
         : base(options, logger, encoder)
     {
+        _configuration = configuration;
     }
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -43,9 +47,10 @@ public class DashboardAuthHandler : AuthenticationHandler<AuthenticationSchemeOp
         }
 
         var token = authHeader.Substring("Bearer ".Length).Trim();
+        var configuredToken = _configuration["Security:DashboardToken"] ?? _configuration["DASHBOARD_TOKEN"];
 
-        // Check against known test tokens or fallback security settings
-        if (token == "ValidDashboardReadToken")
+        // Check against configured token or known test tokens
+        if ((!string.IsNullOrEmpty(configuredToken) && token == configuredToken) || token == "ValidDashboardReadToken")
         {
             var claims = new[] {
                 new Claim(ClaimTypes.Name, "DashboardUser"),
