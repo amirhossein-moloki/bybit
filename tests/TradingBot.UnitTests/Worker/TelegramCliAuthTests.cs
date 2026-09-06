@@ -138,4 +138,110 @@ public class TelegramCliAuthTests
         Assert.Contains("Telegram authentication completed successfully.", output);
         _mockAuthService.Verify(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task RunAsync_OtpFlow_EmptyPhoneNumber_DisplaysError()
+    {
+        // Arrange
+        _mockQrAuthService
+            .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TelegramStatusDto { Connected = false });
+
+        using var inputReader = new StringReader("1\n \n");
+        using var outputWriter = new StringWriter();
+
+        // Act
+        await TelegramCliAuth.RunAsync(_serviceProvider, inputReader, outputWriter);
+
+        // Assert
+        var output = outputWriter.ToString();
+        Assert.Contains("Error: Phone number cannot be empty.", output);
+    }
+
+    [Fact]
+    public async Task RunAsync_OtpFlow_StartLoginFails_DisplaysError()
+    {
+        // Arrange
+        const string mockPhone = "+15550100000";
+
+        _mockQrAuthService
+            .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TelegramStatusDto { Connected = false });
+
+        _mockAuthService
+            .Setup(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpStartResult { Success = false, Error = "Invalid phone number format." });
+
+        using var inputReader = new StringReader($"1\n{mockPhone}\n");
+        using var outputWriter = new StringWriter();
+
+        // Act
+        await TelegramCliAuth.RunAsync(_serviceProvider, inputReader, outputWriter);
+
+        // Assert
+        var output = outputWriter.ToString();
+        Assert.Contains("Failed to start login: Invalid phone number format.", output);
+    }
+
+    [Fact]
+    public async Task RunAsync_OtpFlow_EmptyVerificationCode_DisplaysError()
+    {
+        // Arrange
+        const string mockPhone = "+15550100000";
+        const string mockHash = "token_hash";
+
+        _mockQrAuthService
+            .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TelegramStatusDto { Connected = false });
+
+        _mockAuthService
+            .Setup(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = mockHash });
+
+        using var inputReader = new StringReader($"1\n{mockPhone}\n\n");
+        using var outputWriter = new StringWriter();
+
+        // Act
+        await TelegramCliAuth.RunAsync(_serviceProvider, inputReader, outputWriter);
+
+        // Assert
+        var output = outputWriter.ToString();
+        Assert.Contains("Error: Verification code cannot be empty.", output);
+    }
+
+    [Fact]
+    public async Task RunAsync_OtpFlow_2FAPasswordIncorrect_DisplaysError()
+    {
+        // Arrange
+        const string mockPhone = "+15550100000";
+        const string mockHash = "token_hash";
+        const string mockCode = "99999";
+        const string mockInputPassword = "wrong_password";
+
+        _mockQrAuthService
+            .Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TelegramStatusDto { Connected = false });
+
+        _mockAuthService
+            .Setup(x => x.StartOtpLoginAsync(mockPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpStartResult { Success = true, PhoneCodeHash = mockHash });
+
+        _mockAuthService
+            .Setup(x => x.VerifyOtpAsync(mockPhone, mockHash, mockCode, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OtpVerifyResult { Success = false, RequiresPassword = true });
+
+        _mockAuthService
+            .Setup(x => x.VerifyPasswordAsync(mockInputPassword, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PasswordResult { Success = false, Error = "Incorrect password." });
+
+        using var inputReader = new StringReader($"1\n{mockPhone}\n{mockCode}\n{mockInputPassword}\n");
+        using var outputWriter = new StringWriter();
+
+        // Act
+        await TelegramCliAuth.RunAsync(_serviceProvider, inputReader, outputWriter);
+
+        // Assert
+        var output = outputWriter.ToString();
+        Assert.Contains("2FA Authentication Failed: Incorrect password.", output);
+    }
 }

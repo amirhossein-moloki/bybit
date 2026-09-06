@@ -48,6 +48,29 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         _messageReceiver = messageReceiver ?? throw new ArgumentNullException(nameof(messageReceiver));
         _scopeFactory = scopeFactory;
         _logger = Log.ForContext<TelegramClientService>();
+
+        WTelegram.Helpers.Log = (level, message) =>
+        {
+            switch (level)
+            {
+                case 1:
+                case 2:
+                    _logger.Debug("WTelegram [{Level}]: {Message}", level, message);
+                    break;
+                case 3:
+                    _logger.Information("WTelegram [{Level}]: {Message}", level, message);
+                    break;
+                case 4:
+                    _logger.Warning("WTelegram [{Level}]: {Message}", level, message);
+                    break;
+                case 5:
+                    _logger.Error("WTelegram [{Level}]: {Message}", level, message);
+                    break;
+                default:
+                    _logger.Debug("WTelegram [{Level}]: {Message}", level, message);
+                    break;
+            }
+        };
     }
 
     public TelegramConnectionState CurrentState
