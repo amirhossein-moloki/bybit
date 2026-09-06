@@ -47,26 +47,30 @@ public static class TelegramCliAuth
                 await qrAuthService.LogoutAsync();
                 await output.WriteLineAsync("Logged out successfully.");
             }
+
+            await output.WriteLineAsync();
+            await output.WriteLineAsync("Select Telegram Login Method:");
+            await output.WriteLineAsync("  1) OTP Verification Code (Phone Number)");
+            await output.WriteLineAsync("  2) QR Code Scan");
+            await output.WriteAsync("Enter selection [1 or 2] (Default: 1): ");
+
+            var selection = (await input.ReadLineAsync())?.Trim();
+            if (selection == "2")
+            {
+                await RunQrFlowAsync(qrAuthService, output);
+            }
+            else
+            {
+                await RunOtpFlowAsync(authService, client, input, output);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            await output.WriteLineAsync("\nAuthentication canceled.");
         }
         catch (Exception ex)
         {
-            await output.WriteLineAsync($"Warning checking status: {ex.Message}");
-        }
-
-        await output.WriteLineAsync();
-        await output.WriteLineAsync("Select Telegram Login Method:");
-        await output.WriteLineAsync("  1) OTP Verification Code (Phone Number)");
-        await output.WriteLineAsync("  2) QR Code Scan");
-        await output.WriteAsync("Enter selection [1 or 2] (Default: 1): ");
-
-        var selection = (await input.ReadLineAsync())?.Trim();
-        if (selection == "2")
-        {
-            await RunQrFlowAsync(qrAuthService, output);
-        }
-        else
-        {
-            await RunOtpFlowAsync(authService, client, input, output);
+            await output.WriteLineAsync($"\nAuthentication Error: {ex.Message}");
         }
 
         await output.WriteLineAsync("==========================================================");
@@ -85,27 +89,11 @@ public static class TelegramCliAuth
             return;
         }
 
-        TradingBot.Telegram.Client.TelegramClientService? clientService = client as TradingBot.Telegram.Client.TelegramClientService;
-
-        if (clientService != null)
+        if (client is TradingBot.Telegram.Client.TelegramClientService clientService)
         {
             clientService.PhoneNumberProvider = () => phoneNumber;
-            clientService.VerificationCodeProvider = () =>
-            {
-                output.WriteLine("\nA verification code has been sent via Telegram.");
-                output.Write("Enter verification code: ");
-                output.Flush();
-                var code = input.ReadLine()?.Trim();
-                return code ?? string.Empty;
-            };
-            clientService.PasswordProvider = () =>
-            {
-                output.WriteLine("\nTwo-step verification is enabled.");
-                output.Write("Enter your Telegram 2FA password: ");
-                output.Flush();
-                var pwd = input.ReadLine()?.Trim();
-                return pwd ?? string.Empty;
-            };
+            clientService.VerificationCodeProvider = null;
+            clientService.PasswordProvider = null;
         }
 
         await output.WriteLineAsync("Sending verification code...");
@@ -126,10 +114,11 @@ public static class TelegramCliAuth
             return;
         }
 
-        // If StartOtpLoginAsync returned "sent", prompt user for verification code if callback exists or read input
-        var promptCode = clientService?.VerificationCodeProvider != null
-            ? clientService.VerificationCodeProvider()
-            : (await input.ReadLineAsync())?.Trim() ?? string.Empty;
+        await output.WriteLineAsync("\nA verification code has been sent via Telegram.");
+        await output.WriteAsync("Enter verification code: ");
+        await output.FlushAsync();
+
+        var promptCode = (await input.ReadLineAsync())?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(promptCode))
         {
             await output.WriteLineAsync("Error: Verification code cannot be empty.");
@@ -150,7 +139,11 @@ public static class TelegramCliAuth
 
         if (verifyResult.RequiresPassword)
         {
-            var promptPwd = clientService?.PasswordProvider?.Invoke() ?? string.Empty;
+            await output.WriteLineAsync("\nTwo-step verification is enabled.");
+            await output.WriteAsync("Enter your Telegram 2FA password: ");
+            await output.FlushAsync();
+
+            var promptPwd = await ReadPasswordAsync(input, output);
             if (string.IsNullOrWhiteSpace(promptPwd))
             {
                 await output.WriteLineAsync("Error: Password cannot be empty.");
@@ -175,6 +168,38 @@ public static class TelegramCliAuth
         }
 
         await output.WriteLineAsync($"Verification Failed: {verifyResult.Error}");
+    }
+
+    private static async Task<string> ReadPasswordAsync(TextReader input, TextWriter output)
+    {
+        if (ReferenceEquals(input, Console.In) && !Console.IsInputRedirected)
+        {
+            var pwd = new System.Text.StringBuilder();
+            while (true)
+            {
+                var key = Console.ReadKey(intercept: true);
+                if (key.Key == ConsoleKey.Enter)
+                {
+                    await output.WriteLineAsync();
+                    break;
+                }
+                if (key.Key == ConsoleKey.Backspace)
+                {
+                    if (pwd.Length > 0)
+                    {
+                        pwd.Remove(pwd.Length - 1, 1);
+                    }
+                }
+                else if (key.KeyChar != '\u0000')
+                {
+                    pwd.Append(key.KeyChar);
+                }
+            }
+            return pwd.ToString().Trim();
+        }
+
+        var line = await input.ReadLineAsync();
+        return line?.Trim() ?? string.Empty;
     }
 
     private static async Task RunQrFlowAsync(ITelegramQrAuthService qrAuthService, TextWriter output)
