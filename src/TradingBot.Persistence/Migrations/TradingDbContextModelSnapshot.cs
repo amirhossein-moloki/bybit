@@ -1798,6 +1798,59 @@ namespace TradingBot.Persistence.Migrations
                     b.ToTable("TelegramMessages", (string)null);
                 });
 
+            modelBuilder.Entity("TradingBot.Domain.Entities.TelegramSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ListenForSignals")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("PausedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ProcessMessages")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("TelegramChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Username")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TelegramChatId")
+                        .IsUnique();
+
+                    b.HasIndex("IsEnabled", "ListenForSignals");
+
+                    b.ToTable("TelegramSources", (string)null);
+                });
+
             modelBuilder.Entity("TradingBot.Domain.Entities.AlertEvent", b =>
                 {
                     b.HasOne("TradingBot.Domain.Entities.Alert", null)

@@ -255,7 +255,7 @@ public class BybitExchangeClient : IExchangeClient
         var accounts = await _accountProvider.GetActiveAccountsAsync(cancellationToken);
         if (!accounts.Any())
         {
-            return 0m;
+            throw new ExchangeException("No active Bybit accounts configured or credentials (ApiKey and ApiSecret) are missing.");
         }
 
         var queryParams = new Dictionary<string, string>

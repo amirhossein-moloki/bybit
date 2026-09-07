@@ -22,6 +22,20 @@ public class MonitoringTelegramHealthCheck : IHealthCheck
 
     public Task<HealthCheckResult> CheckAsync(CancellationToken cancellationToken)
     {
+        if (_telegramClient.IsInFloodWait(out var remaining))
+        {
+            var sec = Math.Ceiling(remaining.TotalSeconds);
+            return Task.FromResult(new HealthCheckResult(
+                Name,
+                HealthStatus.Degraded,
+                DateTime.UtcNow,
+                0,
+                errorCode: "FLOOD_WAIT",
+                errorMessage: $"Telegram connection is in FLOOD_WAIT cooldown for {sec} seconds.",
+                metadata: $"{{\"ConnectionStatus\":\"Connecting\",\"RawState\":\"{_telegramClient.CurrentState}\",\"FloodWaitSeconds\":{sec}}}"
+            ));
+        }
+
         var state = _telegramClient.CurrentState;
 
         var (status, message, connStatus) = state switch

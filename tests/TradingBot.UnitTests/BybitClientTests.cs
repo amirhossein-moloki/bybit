@@ -163,6 +163,29 @@ public class BybitClientTests
     }
 
     [Fact]
+    public async Task GetAccountBalanceAsync_ShouldThrowExchangeException_WhenNoCredentialsConfigured()
+    {
+        // Arrange
+        var settingsWithoutCreds = new BybitSettings
+        {
+            ApiKey = "",
+            ApiSecret = "",
+            DemoApiKey = "",
+            DemoApiSecret = "",
+            MainnetApiKey = "",
+            MainnetApiSecret = ""
+        };
+        var client = new BybitExchangeClient(_httpClient, settingsWithoutCreds, _resilienceService, _loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await client.GetAccountBalanceAsync("USDT", CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ExchangeException>()
+            .WithMessage("*credentials*missing*");
+    }
+
+    [Fact]
     public async Task GetAccountBalanceAsync_ShouldReturnZero_WhenCoinDoesNotExistInResponse()
     {
         // Arrange
