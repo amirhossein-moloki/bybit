@@ -41,15 +41,17 @@ public class SingleBybitAccountProvider : IBybitAccountProvider
 
     public Task<List<BybitAccountInfo>> GetActiveAccountsAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(new List<BybitAccountInfo>
+        var list = new List<BybitAccountInfo>();
+        if (!string.IsNullOrEmpty(_apiKey) && !string.IsNullOrEmpty(_apiSecret))
         {
-            new BybitAccountInfo
+            list.Add(new BybitAccountInfo
             {
                 Name = "Default",
                 ApiKey = _apiKey,
                 ApiSecret = _apiSecret,
                 Environment = _environment
-            }
-        });
+            });
+        }
+        return Task.FromResult(list);
     }
 }

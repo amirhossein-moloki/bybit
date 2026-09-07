@@ -44,33 +44,33 @@ public class MonitoringEventProcessor : BackgroundService
 
     private void OnApplicationStarted()
     {
-        PublishLifetimeEvent("ApplicationStarted", "INFORMATION", "Application started successfully.", "Started");
+        _ = PublishLifetimeEventAsync("ApplicationStarted", "INFORMATION", "Application started successfully.", "Started");
     }
 
     private void OnApplicationStopping()
     {
-        PublishLifetimeEvent("ApplicationStopping", "INFORMATION", "Application is stopping...", "Stopping");
+        _ = PublishLifetimeEventAsync("ApplicationStopping", "INFORMATION", "Application is stopping...", "Stopping");
     }
 
     private void OnApplicationStopped()
     {
-        PublishLifetimeEvent("ApplicationStopped", "INFORMATION", "Application stopped.", "Stopped");
+        _ = PublishLifetimeEventAsync("ApplicationStopped", "INFORMATION", "Application stopped.", "Stopped");
     }
 
-    private void PublishLifetimeEvent(string eventType, string severity, string message, string status)
+    private async Task PublishLifetimeEventAsync(string eventType, string severity, string message, string status)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var publisher = scope.ServiceProvider.GetRequiredService<IMonitoringEventPublisher>();
-            publisher.PublishAsync(new MonitoringEvent(
+            await publisher.PublishAsync(new MonitoringEvent(
                 eventType,
                 severity,
                 "System",
                 "Host",
                 status,
                 message
-            ), forceSynchronous: false).GetAwaiter().GetResult();
+            ), forceSynchronous: false);
         }
         catch (Exception ex)
         {
@@ -106,6 +106,10 @@ public class MonitoringEventProcessor : BackgroundService
 
             try
             {
+                if (@event == null)
+                {
+                    continue;
+                }
 
                 if (!_options.Observability.PersistenceEnabled)
                 {
@@ -174,10 +178,9 @@ public class MonitoringEventProcessor : BackgroundService
             }
             catch (Exception ex)
             {
-                _healthRegistry.RecordHeartbeat(nameof(MonitoringEventProcessor), "Failed", ex.Message);
+                // Isolate event processing error so it does not stop the worker or falsely mark the background process as Failed
+                _healthRegistry.RecordHeartbeat(nameof(MonitoringEventProcessor), "Running", ex.Message);
 
-                // Section 34 & 35: Isolate error and prevent recursive failure loops.
-                // We MUST NOT publish another event on monitoring failure, just log it.
                 _logger.LogError(ex, "MonitoringEventProcessor: Failed to process or persist monitoring event. EventType: {EventType}, Source: {Source}",
                     @event?.EventType ?? "Unknown", @event?.Source ?? "Unknown");
             }

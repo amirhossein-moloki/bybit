@@ -30,6 +30,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
     private TelegramConnectionState _currentState = TelegramConnectionState.Disconnected;
     private DateTime? _floodWaitUntil;
     private readonly object _stateLock = new();
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
@@ -155,20 +156,21 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             return;
         }
 
-        if (IsConnected())
-        {
-            _logger.Information("Telegram client is already connected.");
-            return;
-        }
-
         if (IsInFloodWait(out var remaining))
         {
             _logger.Warning("Telegram ConnectAsync aborted due to active FLOOD_WAIT cooldown ({RemainingSeconds}s remaining).", Math.Ceiling(remaining.TotalSeconds));
             throw new TelegramConnectionException($"Telegram client is in FLOOD_WAIT cooldown for another {Math.Ceiling(remaining.TotalSeconds)} seconds.");
         }
 
+        await _connectLock.WaitAsync();
         try
         {
+            if (IsConnected() && _client?.User != null)
+            {
+                _logger.Information("Telegram client is already connected and active user session is loaded.");
+                return;
+            }
+
             SetState(TelegramConnectionState.Connecting);
             _logger.Information("Telegram connection started");
 
@@ -178,10 +180,16 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 _client = new WTelegram.Client(ConfigProvider, sessionStream);
             }
 
-            // Connect to Telegram
-            await _client.ConnectAsync();
+            if (_client.Disconnected)
+            {
+                await _client.ConnectAsync();
+            }
 
-            var loginState = await _client.LoginUserIfNeeded();
+            if (_client.User == null)
+            {
+                await _client.LoginUserIfNeeded();
+            }
+
             if (_client.User != null)
             {
                 SetState(TelegramConnectionState.Connected);
@@ -198,6 +206,10 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             SetState(TelegramConnectionState.Error);
             _logger.Error(ex, "Failed to connect to Telegram.");
             throw new TelegramConnectionException("Failed to establish connection to Telegram.", ex);
+        }
+        finally
+        {
+            _connectLock.Release();
         }
     }
 
@@ -385,7 +397,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         }
 
         // Check if the chat is monitored (Subscription Filter)
-        if (!IsChannelMonitored(chat))
+        if (!await IsChannelMonitoredAsync(chat))
         {
             // Ignore unknown/unmonitored chats
             return;
@@ -525,7 +537,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             }
 
             // Check if monitored
-            bool monitored = IsChannelMonitored(chat);
+            bool monitored = await IsChannelMonitoredAsync(chat);
 
             result.Add(new TelegramDialogDto
             {
@@ -558,7 +570,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         return CurrentState.ToString();
     }
 
-    private bool IsChannelMonitored(TL.ChatBase chat)
+    private async Task<bool> IsChannelMonitoredAsync(TL.ChatBase chat)
     {
         if (chat == null) return false;
 
@@ -570,7 +582,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 var sourceRepo = scope.ServiceProvider.GetService<ITelegramSourceRepository>();
                 if (sourceRepo != null)
                 {
-                    var source = sourceRepo.GetByChatIdAsync(chat.ID).GetAwaiter().GetResult();
+                    var source = await sourceRepo.GetByChatIdAsync(chat.ID);
                     if (source != null)
                     {
                         return source.IsEnabled && !source.IsPaused;

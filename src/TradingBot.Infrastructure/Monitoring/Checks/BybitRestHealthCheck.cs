@@ -48,7 +48,7 @@ public class BybitRestHealthCheck : IHealthCheck
                     HealthStatus.Healthy,
                     DateTime.UtcNow,
                     stopwatch.ElapsedMilliseconds,
-                    metadata: $"{{\"ResponseTimeMs\":{stopwatch.ElapsedMilliseconds},\"Authenticated\":true}}"
+                    metadata: $"{{\"ResponseTimeMs\":{stopwatch.ElapsedMilliseconds},\"PublicPing\":true,\"Authenticated\":true}}"
                 );
             }
             catch (Exception authEx)
@@ -58,10 +58,11 @@ public class BybitRestHealthCheck : IHealthCheck
 
                 if (errMessage.Contains("10003") || errMessage.Contains("10004") || errMessage.Contains("10005") ||
                     errMessage.Contains("API key", StringComparison.OrdinalIgnoreCase) ||
+                    errMessage.Contains("credentials", StringComparison.OrdinalIgnoreCase) ||
                     errMessage.Contains("signature", StringComparison.OrdinalIgnoreCase) ||
                     errMessage.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
                 {
-                    errorCode = "AuthenticationFailure";
+                    errorCode = "CREDENTIALS_MISSING";
                 }
                 else if (errMessage.Contains("Rate limit", StringComparison.OrdinalIgnoreCase) || errMessage.Contains("10018"))
                 {
@@ -78,11 +79,12 @@ public class BybitRestHealthCheck : IHealthCheck
 
                 return new HealthCheckResult(
                     Name,
-                    HealthStatus.Unhealthy,
+                    HealthStatus.Degraded,
                     DateTime.UtcNow,
                     stopwatch.ElapsedMilliseconds,
                     errorCode: errorCode,
-                    errorMessage: $"Bybit REST private check failed: {errMessage}"
+                    errorMessage: $"Bybit REST public ping succeeded, but private API check failed: {errMessage}",
+                    metadata: $"{{\"ResponseTimeMs\":{stopwatch.ElapsedMilliseconds},\"PublicPing\":true,\"Authenticated\":false}}"
                 );
             }
         }
