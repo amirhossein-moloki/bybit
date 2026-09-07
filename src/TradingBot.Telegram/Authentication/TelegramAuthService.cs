@@ -76,7 +76,14 @@ public class TelegramAuthService : ITelegramAuthenticationService
                 _logger.Information("Passive session check LoginUserIfNeeded completed for user: {Username}", user?.username ?? "unauthenticated");
             }
 
-            if (underlyingClient.User != null)
+            if (underlyingClient.User == null && _sessionManager.SessionExists())
+            {
+                _logger.Information("User object still null after LoginUserIfNeeded. Re-opening session stream and re-checking user session...");
+                await clientService.ConnectAsync();
+                underlyingClient = clientService.UnderlyingClient;
+            }
+
+            if (underlyingClient?.User != null)
             {
                 clientService.SetState(TelegramConnectionState.Connected);
                 _logger.Information("Telegram passive session verification succeeded for user {UserId} (@{Username}).", underlyingClient.User.id, underlyingClient.User.username);

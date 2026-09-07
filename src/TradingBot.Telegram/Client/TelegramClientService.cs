@@ -174,8 +174,13 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             SetState(TelegramConnectionState.Connecting);
             _logger.Information("Telegram connection started");
 
-            if (_client == null)
+            if (_client == null || (_client.User == null && _sessionManager.SessionExists()))
             {
+                if (_client != null)
+                {
+                    try { _client.Dispose(); } catch { }
+                    _client = null;
+                }
                 var sessionStream = _sessionManager.LoadSession();
                 _client = new WTelegram.Client(ConfigProvider, sessionStream);
             }
