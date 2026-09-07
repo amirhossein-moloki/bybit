@@ -126,19 +126,13 @@ public class TelegramListenerWorker : BackgroundService
                     continue;
                 }
 
-                if (!_sessionManager.SessionExists() ||
-                    _client.CurrentState == TelegramConnectionState.RequiresAuthentication ||
-                    _client.CurrentState == TelegramConnectionState.AuthenticationFailed ||
-                    _client.CurrentState == TelegramConnectionState.NotConnected ||
-                    _client.CurrentState == TelegramConnectionState.Authenticating)
+                if (!_sessionManager.SessionExists())
                 {
                     if (_client.CurrentState != TelegramConnectionState.NotConnected &&
-                        _client.CurrentState != TelegramConnectionState.RequiresAuthentication &&
-                        _client.CurrentState != TelegramConnectionState.AuthenticationFailed &&
-                        _client.CurrentState != TelegramConnectionState.Authenticating)
+                        _client.CurrentState != TelegramConnectionState.RequiresAuthentication)
                     {
                         _client.SetState(TelegramConnectionState.RequiresAuthentication);
-                        _logger.LogWarning("No valid Telegram session found or authentication is required. Pausing background listener loop. Waiting for Dashboard authentication...");
+                        _logger.LogWarning("No valid Telegram session found. Pausing background listener loop. Waiting for Dashboard/CLI authentication...");
                     }
 
                     await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
