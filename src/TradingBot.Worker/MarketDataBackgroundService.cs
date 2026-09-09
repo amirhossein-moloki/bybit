@@ -30,6 +30,9 @@ public class MarketDataBackgroundService : BackgroundService
         _healthRegistry.RegisterWorker(nameof(MarketDataBackgroundService), isCritical: false);
         _logger.LogInformation("MarketDataBackgroundService: Starting...");
 
+        // Start dedicated periodic heartbeat loop
+        _ = RunHeartbeatLoopAsync(stoppingToken);
+
         try
         {
             // Subscribe to ticker stream (e.g. BTCUSDT)
@@ -62,5 +65,25 @@ public class MarketDataBackgroundService : BackgroundService
         }
 
         _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Stopped");
+    }
+
+    private async Task RunHeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Running");
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "MarketDataBackgroundService: Error in heartbeat loop.");
+            }
+        }
     }
 }

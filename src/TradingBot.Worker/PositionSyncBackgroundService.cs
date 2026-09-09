@@ -35,6 +35,9 @@ public class PositionSyncBackgroundService : BackgroundService
         _healthRegistry.RegisterWorker(nameof(PositionSyncBackgroundService), isCritical: true);
         _logger.LogInformation("PositionSyncBackgroundService: Starting...");
 
+        // Start dedicated periodic heartbeat loop
+        _ = RunHeartbeatLoopAsync(stoppingToken);
+
         // 1. Subscribe to the position stream
         try
         {
@@ -84,6 +87,26 @@ public class PositionSyncBackgroundService : BackgroundService
         }
 
         _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Stopped");
+    }
+
+    private async Task RunHeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                _healthRegistry.RecordHeartbeat(nameof(PositionSyncBackgroundService), "Running");
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "PositionSyncBackgroundService: Error in heartbeat loop.");
+            }
+        }
     }
 
     private async Task RunPeriodicReconciliationAsync(CancellationToken cancellationToken)

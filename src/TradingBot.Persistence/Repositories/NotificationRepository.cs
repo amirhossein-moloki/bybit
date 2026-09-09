@@ -27,10 +27,12 @@ public class NotificationRepository : RepositoryBase<Notification>, INotificatio
     public async Task<IEnumerable<Notification>> GetPendingAndRetryScheduledAsync(CancellationToken cancellationToken = default)
     {
         var utcNow = DateTime.UtcNow;
+        var staleProcessingThreshold = utcNow.AddMinutes(-2);
         return await DbContext.Notifications
             .Include(x => x.DeliveryAttempts)
             .Where(x => x.Status == NotificationStatus.Pending ||
-                        (x.Status == NotificationStatus.RetryScheduled && x.NextAttemptAt <= utcNow))
+                        (x.Status == NotificationStatus.RetryScheduled && x.NextAttemptAt <= utcNow) ||
+                        (x.Status == NotificationStatus.Processing && x.LastAttemptAt != null && x.LastAttemptAt <= staleProcessingThreshold))
             .ToListAsync(cancellationToken);
     }
 
