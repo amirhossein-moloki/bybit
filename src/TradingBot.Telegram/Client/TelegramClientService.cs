@@ -31,8 +31,13 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
     private DateTime? _floodWaitUntil;
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly SemaphoreSlim _dialogsLock = new(1, 1);
     private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
+
+    private Messages_Dialogs? _cachedDialogs;
+    private DateTime _dialogsCacheExpiration = DateTime.MinValue;
+    private static readonly TimeSpan DialogsCacheTtl = TimeSpan.FromMinutes(5);
 
     public Func<string>? PhoneNumberProvider { get; set; }
     public Func<string>? VerificationCodeProvider { get; set; }
@@ -296,9 +301,9 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         // Use WithUpdateManager to subscribe to update events
         _updateManager = _client.WithUpdateManager(OnUpdateCallback);
 
-        // Fetch dialogs to populate UpdateManager.Users and UpdateManager.Chats cache
-        _logger.Information("Fetching Telegram dialogs to populate update manager cache...");
-        var dialogs = await _client.Messages_GetAllDialogs();
+        // Fetch or get cached dialogs to populate UpdateManager.Users and UpdateManager.Chats cache
+        _logger.Information("Populating update manager cache from Telegram dialogs...");
+        var dialogs = await GetOrFetchDialogsAsync();
         dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
         _logger.Information("Loaded and cached {ChatCount} chats from Telegram dialogs.", _updateManager.Chats.Count);
     }
@@ -318,7 +323,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
 
         if (chat == null)
         {
-            var dialogs = await _client.Messages_GetAllDialogs();
+            var dialogs = await GetOrFetchDialogsAsync();
             if (_updateManager != null)
             {
                 dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
@@ -517,7 +522,7 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         }
 
         var result = new System.Collections.Generic.List<TelegramDialogDto>();
-        var dialogs = await _client.Messages_GetAllDialogs();
+        var dialogs = await GetOrFetchDialogsAsync();
 
         var monitoredList = GetMonitoredChannels();
 
@@ -575,6 +580,48 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         return CurrentState.ToString();
     }
 
+    private async Task<Messages_Dialogs> GetOrFetchDialogsAsync(bool forceRefresh = false)
+    {
+        if (_client == null)
+        {
+            throw new TelegramConnectionException("Telegram client is not initialized.");
+        }
+
+        if (!forceRefresh && _cachedDialogs != null && DateTime.UtcNow < _dialogsCacheExpiration)
+        {
+            _logger.Debug("Returning cached Telegram dialogs ({Count} chats).", _cachedDialogs.chats.Count);
+            return _cachedDialogs;
+        }
+
+        await _dialogsLock.WaitAsync();
+        try
+        {
+            if (!forceRefresh && _cachedDialogs != null && DateTime.UtcNow < _dialogsCacheExpiration)
+            {
+                return _cachedDialogs;
+            }
+
+            _logger.Information("Fetching fresh Telegram dialogs from API server...");
+            var dialogs = await _client.Messages_GetAllDialogs();
+            _cachedDialogs = dialogs;
+            _dialogsCacheExpiration = DateTime.UtcNow.Add(DialogsCacheTtl);
+            return dialogs;
+        }
+        finally
+        {
+            _dialogsLock.Release();
+        }
+    }
+
+    public void ClearDialogsCache()
+    {
+        lock (_stateLock)
+        {
+            _cachedDialogs = null;
+            _dialogsCacheExpiration = DateTime.MinValue;
+        }
+    }
+
     private async Task<bool> IsChannelMonitoredAsync(TL.ChatBase chat)
     {
         if (chat == null) return false;
@@ -618,10 +665,10 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         {
             if (string.IsNullOrWhiteSpace(configuredChannel)) continue;
 
-            // 1. Check ID match
+            // 1. Check ID match (with Chat ID normalization)
             if (long.TryParse(configuredChannel, out var parsedId))
             {
-                if (chat.ID == parsedId) return true;
+                if (AreChatIdsEqual(chat.ID, parsedId)) return true;
             }
 
             // 2. Check title match
@@ -641,6 +688,26 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         }
 
         return false;
+    }
+
+    public static bool AreChatIdsEqual(long id1, long id2)
+    {
+        if (id1 == id2) return true;
+        return NormalizeChatId(id1) == NormalizeChatId(id2);
+    }
+
+    public static long NormalizeChatId(long chatId)
+    {
+        long absId = Math.Abs(chatId);
+        string idStr = absId.ToString();
+        if (idStr.StartsWith("100") && idStr.Length > 3)
+        {
+            if (long.TryParse(idStr.Substring(3), out var parsed))
+            {
+                return parsed;
+            }
+        }
+        return absId;
     }
 
     private string? ConfigProvider(string what)

@@ -27,8 +27,25 @@ public class TelegramSourceRepository : RepositoryBase<TelegramSource>, ITelegra
 
     public async Task<TelegramSource?> GetByChatIdAsync(long chatId, CancellationToken cancellationToken = default)
     {
+        long rawId = NormalizeChatId(chatId);
         return await _context.TelegramSources
-            .FirstOrDefaultAsync(x => x.TelegramChatId == chatId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.TelegramChatId == chatId ||
+                                      (x.TelegramChatId > 0 && x.TelegramChatId == rawId) ||
+                                      (x.TelegramChatId < 0 && (x.TelegramChatId == -x.TelegramChatId || -x.TelegramChatId == 1000000000000L + rawId || -x.TelegramChatId == rawId)), cancellationToken);
+    }
+
+    private static long NormalizeChatId(long chatId)
+    {
+        long absId = Math.Abs(chatId);
+        string idStr = absId.ToString();
+        if (idStr.StartsWith("100") && idStr.Length > 3)
+        {
+            if (long.TryParse(idStr.Substring(3), out var parsed))
+            {
+                return parsed;
+            }
+        }
+        return absId;
     }
 
     public new async Task<List<TelegramSource>> GetAllAsync(CancellationToken cancellationToken = default)

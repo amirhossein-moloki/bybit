@@ -44,10 +44,27 @@ public class MessageRepository : RepositoryBase<TelegramMessage>, IMessageReposi
 
     public async Task<System.Collections.Generic.List<TelegramMessage>> GetRecentMessagesForChannelAsync(long channelId, int limit, CancellationToken cancellationToken = default)
     {
+        long rawId = NormalizeChatId(channelId);
         return await DbContext.Set<TelegramMessage>()
-            .Where(m => m.ChannelId == channelId)
+            .Where(m => m.ChannelId == channelId ||
+                        (m.ChannelId > 0 && m.ChannelId == rawId) ||
+                        (m.ChannelId < 0 && (m.ChannelId == -m.ChannelId || -m.ChannelId == 1000000000000L + rawId || -m.ChannelId == rawId)))
             .OrderByDescending(m => m.ReceivedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
+    }
+
+    private static long NormalizeChatId(long chatId)
+    {
+        long absId = Math.Abs(chatId);
+        string idStr = absId.ToString();
+        if (idStr.StartsWith("100") && idStr.Length > 3)
+        {
+            if (long.TryParse(idStr.Substring(3), out var parsed))
+            {
+                return parsed;
+            }
+        }
+        return absId;
     }
 }
