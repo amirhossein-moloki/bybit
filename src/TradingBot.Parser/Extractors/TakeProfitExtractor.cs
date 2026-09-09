@@ -26,21 +26,20 @@ public class TakeProfitExtractor : ISignalExtractor
             rule = activeTemplate.GetRules().FirstOrDefault(r => r.Extractor == "TakeProfitExtractor" || r.Field == "TakeProfits" || r.Field == "TakeProfit");
         }
 
-        string patternToUse = @"\b(TP\d*|TARGET\d*)\b";
+        string patternToUse = @"(?:\bTP\d*\b|\bTARGET\d*\b|تارگت(?:\s*(?:اول|دوم|سوم|چهارم|پنجم|\d+))?|حد\s*سود)";
         if (rule != null && !string.IsNullOrWhiteSpace(rule.Pattern))
         {
             var preparedPattern = SignalTextNormalizer.PreparePattern(rule.Pattern);
-            patternToUse = $@"\b({preparedPattern})\d*\b";
+            patternToUse = $"(?:{preparedPattern})\\d*";
         }
 
-        var matches = Regex.Matches(normalized, patternToUse + @"\s*[:\s-]*(\S+)", RegexOptions.IgnoreCase);
-        foreach (Match match in matches)
+        var matches = Regex.Matches(normalized, patternToUse + @"[\s:]*([0-9.,]+)", RegexOptions.IgnoreCase);
+        if (matches.Count > 0)
         {
-            var val = match.Groups[2].Value;
-            var numMatch = Regex.Match(val, @"^([\d,]+(?:\.\d+)?)");
-            if (numMatch.Success)
+            foreach (Match match in matches)
             {
-                var cleanNum = numMatch.Groups[1].Value.Replace(",", "");
+                var val = match.Groups[1].Value;
+                var cleanNum = val.Replace(",", "");
                 if (decimal.TryParse(cleanNum, out var tp))
                 {
                     if (!signal.TakeProfits.Contains(tp))
@@ -53,10 +52,10 @@ public class TakeProfitExtractor : ISignalExtractor
                     signal.Errors.Add("Invalid take profit format");
                 }
             }
-            else
-            {
-                signal.Errors.Add("Invalid take profit format");
-            }
+        }
+        else if (Regex.IsMatch(normalized, patternToUse + @"[\s:]*\S+", RegexOptions.IgnoreCase))
+        {
+            signal.Errors.Add("Invalid take profit format");
         }
 
         return Task.CompletedTask;

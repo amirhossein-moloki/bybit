@@ -14,22 +14,30 @@ public static class DatabaseSeeder
         logger?.LogInformation("Checking database seed requirements...");
 
         // Seed Symbols
-        if (!await context.Symbols.AnyAsync())
+        var defaultSymbols = new[]
         {
-            logger?.LogInformation("Seeding default Symbols...");
+            new Symbol("BYBIT", "BTCUSDT", "BTC", "USDT", 0.1m, 0.001m, 0.0001m),
+            new Symbol("BYBIT", "ETHUSDT", "ETH", "USDT", 0.01m, 0.01m, 0.001m),
+            new Symbol("BYBIT", "GBPUSDT", "GBP", "USDT", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "EURUSDT", "EUR", "USDT", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "NZDUSDT", "NZD", "USDT", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "AUDUSDT", "AUD", "USDT", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "XAUUSDT", "XAU", "USDT", 0.01m, 0.01m, 0.01m),
+            new Symbol("BYBIT", "SOLUSDT", "SOL", "USDT", 0.01m, 0.1m, 0.01m),
+            new Symbol("BYBIT", "XRPUSDT", "XRP", "USDT", 0.0001m, 1m, 0.0001m),
+            new Symbol("BYBIT", "GBPUSD", "GBP", "USD", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "EURUSD", "EUR", "USD", 0.00001m, 1m, 0.00001m),
+            new Symbol("BYBIT", "NZDUSD", "NZD", "USD", 0.00001m, 1m, 0.00001m)
+        };
 
-            var symbols = new[]
-            {
-                new Symbol("BYBIT", "BTCUSDT", "BTC", "USDT", 0.1m, 0.001m, 0.0001m),
-                new Symbol("BYBIT", "ETHUSDT", "ETH", "USDT", 0.01m, 0.01m, 0.001m)
-            };
+        var existingSymbols = await context.Symbols.Select(s => s.SymbolCode).ToListAsync();
+        var missingSymbols = defaultSymbols.Where(s => !existingSymbols.Contains(s.SymbolCode, StringComparer.OrdinalIgnoreCase)).ToList();
 
-            await context.Symbols.AddRangeAsync(symbols);
-            logger?.LogInformation("Successfully seeded 2 default symbols (BTCUSDT, ETHUSDT).");
-        }
-        else
+        if (missingSymbols.Any())
         {
-            logger?.LogInformation("Symbols table is not empty. Skipping symbol seeding.");
+            logger?.LogInformation("Seeding {Count} default/missing Symbols...", missingSymbols.Count);
+            await context.Symbols.AddRangeAsync(missingSymbols);
+            logger?.LogInformation("Successfully seeded missing symbols.");
         }
 
         // Seed Risk Rules

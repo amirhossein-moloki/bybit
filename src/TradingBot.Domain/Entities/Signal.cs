@@ -178,7 +178,7 @@ public class Signal
 
     public void MarkExecuted()
     {
-        if (Status != SignalStatus.ReadyForRiskEngine && Status != SignalStatus.Validated && Status != SignalStatus.Parsed && Status != SignalStatus.Received)
+        if (Status != SignalStatus.TradeApproved && Status != SignalStatus.ReadyForRiskEngine && Status != SignalStatus.Validated && Status != SignalStatus.Parsed && Status != SignalStatus.Received)
         {
             throw new DomainException($"Invalid transition: Cannot execute signal in {Status} status.");
         }

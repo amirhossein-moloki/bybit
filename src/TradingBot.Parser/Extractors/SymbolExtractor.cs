@@ -25,14 +25,30 @@ public class SymbolExtractor : ISignalExtractor
 
         var normalized = SignalTextNormalizer.Normalize(context.RawMessage);
 
-        // 1. Check for explicit USDT/USDC/BUSD pairs with optional separators
-        var explicitPairMatch = Regex.Match(normalized, @"\b([A-Z0-9]{2,10})[-/_]?(USDT|USDC|BUSD)\b");
-        if (explicitPairMatch.Success)
+        // 1. Check for explicit currency pairs with separator or standard quote currency (USDT, USDC, BUSD, USD)
+        var pairMatch = Regex.Match(normalized, @"(?:جفت\s*ارز|PAIR|SYMBOL)?[\s:]*\b([A-Z]{2,6})[-/_]([A-Z]{3,4})\b", RegexOptions.IgnoreCase);
+        if (!pairMatch.Success)
         {
-            var baseSymbol = explicitPairMatch.Groups[1].Value;
-            // Normalize to USDT standard for Bybit
-            signal.Symbol = $"{baseSymbol}USDT";
-            return Task.CompletedTask;
+            pairMatch = Regex.Match(normalized, @"(?:جفت\s*ارز|PAIR|SYMBOL)?[\s:]*\b([A-Z]{2,6})(USDT|USDC|BUSD|USD)\b", RegexOptions.IgnoreCase);
+        }
+
+        if (pairMatch.Success)
+        {
+            var baseSymbol = pairMatch.Groups[1].Value.ToUpperInvariant();
+            var quoteSymbol = pairMatch.Groups[2].Value.ToUpperInvariant();
+
+            if (!ExcludedWords.Contains(baseSymbol) && !ExcludedWords.Contains(quoteSymbol))
+            {
+                if (quoteSymbol is "USD" or "USDC" or "BUSD")
+                {
+                    signal.Symbol = $"{baseSymbol}USDT";
+                }
+                else
+                {
+                    signal.Symbol = $"{baseSymbol}{quoteSymbol}";
+                }
+                return Task.CompletedTask;
+            }
         }
 
         // 2. Look for any words in the text that are non-numeric, not excluded, and 2-10 chars long
