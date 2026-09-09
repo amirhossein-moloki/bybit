@@ -32,6 +32,10 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly System.Collections.Generic.HashSet<string> _dynamicMonitoredChannels = new(StringComparer.OrdinalIgnoreCase);
+    private System.Collections.Generic.List<TelegramDialogDto>? _cachedDialogs;
+    private DateTime _dialogsCacheExpiration = DateTime.MinValue;
+    private readonly object _dialogsCacheLock = new();
+    private static readonly TimeSpan DialogsCacheTtl = TimeSpan.FromMinutes(5);
     private bool _disposed;
 
     public Func<string>? PhoneNumberProvider { get; set; }
@@ -296,11 +300,18 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
         // Use WithUpdateManager to subscribe to update events
         _updateManager = _client.WithUpdateManager(OnUpdateCallback);
 
-        // Fetch dialogs to populate UpdateManager.Users and UpdateManager.Chats cache
-        _logger.Information("Fetching Telegram dialogs to populate update manager cache...");
-        var dialogs = await _client.Messages_GetAllDialogs();
-        dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
-        _logger.Information("Loaded and cached {ChatCount} chats from Telegram dialogs.", _updateManager.Chats.Count);
+        // Fetch dialogs to populate UpdateManager.Users and UpdateManager.Chats cache only if empty
+        if (_updateManager.Chats.Count == 0)
+        {
+            _logger.Information("Fetching Telegram dialogs to populate update manager cache...");
+            var dialogs = await _client.Messages_GetAllDialogs();
+            dialogs.CollectUsersChats(_updateManager.Users, _updateManager.Chats);
+            _logger.Information("Loaded and cached {ChatCount} chats from Telegram dialogs.", _updateManager.Chats.Count);
+        }
+        else
+        {
+            _logger.Information("UpdateManager already has {ChatCount} chats cached. Skipping Messages_GetAllDialogs call.", _updateManager.Chats.Count);
+        }
     }
 
     public async Task SendMessageAsync(long chatId, string message)
@@ -495,6 +506,14 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
 
     public async Task<System.Collections.Generic.List<TelegramDialogDto>> GetDialogsAsync()
     {
+        lock (_dialogsCacheLock)
+        {
+            if (_cachedDialogs != null && DateTime.UtcNow < _dialogsCacheExpiration)
+            {
+                return new System.Collections.Generic.List<TelegramDialogDto>(_cachedDialogs);
+            }
+        }
+
         if (_client == null || !IsConnected())
         {
             if (_sessionManager.SessionExists())
@@ -513,13 +532,19 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
 
         if (_client == null || !IsConnected())
         {
+            lock (_dialogsCacheLock)
+            {
+                if (_cachedDialogs != null)
+                {
+                    _logger.Warning("Telegram client is not connected. Returning stale cached dialogs.");
+                    return new System.Collections.Generic.List<TelegramDialogDto>(_cachedDialogs);
+                }
+            }
             throw new TelegramConnectionException("Telegram client is not connected.");
         }
 
         var result = new System.Collections.Generic.List<TelegramDialogDto>();
         var dialogs = await _client.Messages_GetAllDialogs();
-
-        var monitoredList = GetMonitoredChannels();
 
         foreach (var chatKv in dialogs.chats)
         {
@@ -553,6 +578,12 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
                 IsGroup = isGroup,
                 IsMonitored = monitored
             });
+        }
+
+        lock (_dialogsCacheLock)
+        {
+            _cachedDialogs = result;
+            _dialogsCacheExpiration = DateTime.UtcNow.Add(DialogsCacheTtl);
         }
 
         return result;
@@ -621,7 +652,11 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             // 1. Check ID match
             if (long.TryParse(configuredChannel, out var parsedId))
             {
-                if (chat.ID == parsedId) return true;
+                long altParsedId = parsedId > 0
+                    ? -1000000000000L - parsedId
+                    : (parsedId < -1000000000000L ? -parsedId - 1000000000000L : Math.Abs(parsedId));
+
+                if (chat.ID == parsedId || chat.ID == altParsedId) return true;
             }
 
             // 2. Check title match

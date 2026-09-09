@@ -104,6 +104,13 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                                 message.Date
                             );
                             await msgRepo.CreateAsync(domainMsg);
+
+                            var unitOfWork = scope.ServiceProvider.GetService<IUnitOfWork>();
+                            if (unitOfWork != null)
+                            {
+                                await unitOfWork.SaveChangesAsync();
+                            }
+
                             _logger.LogDebug("DefaultTelegramMessageReceiver: Persisted message ID {MessageId} for source '{Title}'.", message.MessageId, source.Title);
                         }
                     }

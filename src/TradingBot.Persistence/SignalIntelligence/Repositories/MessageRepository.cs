@@ -44,8 +44,12 @@ public class MessageRepository : RepositoryBase<TelegramMessage>, IMessageReposi
 
     public async Task<System.Collections.Generic.List<TelegramMessage>> GetRecentMessagesForChannelAsync(long channelId, int limit, CancellationToken cancellationToken = default)
     {
+        long altChannelId = channelId > 0
+            ? -1000000000000L - channelId
+            : (channelId < -1000000000000L ? -channelId - 1000000000000L : Math.Abs(channelId));
+
         return await DbContext.Set<TelegramMessage>()
-            .Where(m => m.ChannelId == channelId)
+            .Where(m => m.ChannelId == channelId || m.ChannelId == altChannelId)
             .OrderByDescending(m => m.ReceivedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);

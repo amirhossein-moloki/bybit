@@ -121,8 +121,9 @@ public class TelegramListenerWorker : BackgroundService
             {
                 if (_client.IsInFloodWait(out var remaining))
                 {
-                    _logger.LogWarning("Telegram client is in FLOOD_WAIT cooldown. Halting background reconnect attempts for {RemainingSeconds}s...", Math.Ceiling(remaining.TotalSeconds));
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(remaining.TotalSeconds, 15)), stoppingToken);
+                    int waitSeconds = (int)Math.Ceiling(remaining.TotalSeconds) + 1;
+                    _logger.LogWarning("Telegram client is in FLOOD_WAIT cooldown. Halting background reconnect attempts for {RemainingSeconds}s...", waitSeconds);
+                    await Task.Delay(TimeSpan.FromSeconds(waitSeconds), stoppingToken);
                     continue;
                 }
 
@@ -174,9 +175,10 @@ public class TelegramListenerWorker : BackgroundService
             catch (RpcException rpcEx) when (rpcEx.Code == 420 || rpcEx.Message.Contains("FLOOD_WAIT"))
             {
                 int seconds = TelegramAuthService.ExtractFloodWaitSeconds(rpcEx);
+                if (seconds <= 0) seconds = 20;
                 _client.SetFloodWait(seconds);
                 _logger.LogError(rpcEx, "Telegram FLOOD_WAIT_420 encountered in listener worker loop. Cooldown initiated for {Seconds} seconds.", seconds);
-                await Task.Delay(TimeSpan.FromSeconds(Math.Min(seconds, 30)), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(seconds + 1), stoppingToken);
             }
             catch (Exception ex)
             {
