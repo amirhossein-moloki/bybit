@@ -45,11 +45,11 @@ public class DirectionExtractor : ISignalExtractor
         }
 
         // Standalone or matched phrases (Fallback/Default patterns)
-        if (Regex.IsMatch(normalized, @"\b(LONG\s+POSITION|LONG|BUY|BULLISH)\b", RegexOptions.IgnoreCase))
+        if (Regex.IsMatch(normalized, @"(?:\bLONG\s+POSITION\b|\bLONG\b|\bBUY\b|\bBULLISH\b|خرید)", RegexOptions.IgnoreCase))
         {
             signal.Side = OrderSide.Buy;
         }
-        else if (Regex.IsMatch(normalized, @"\b(SHORT\s+POSITION|SHORT|SELL|BEARISH)\b", RegexOptions.IgnoreCase))
+        else if (Regex.IsMatch(normalized, @"(?:\bSHORT\s+POSITION\b|\bSHORT\b|\bSELL\b|\bBEARISH\b|فروش)", RegexOptions.IgnoreCase))
         {
             signal.Side = OrderSide.Sell;
         }

@@ -108,6 +108,28 @@ public class MessageFilterService : IMessageFilter
                 }
             }
 
+            // General Fallback for Forex and Crypto currency pairs (e.g. GBP/USD, EUR/USD, NZD/USD, XAU/USD)
+            if (string.IsNullOrEmpty(detectedSymbol))
+            {
+                var pairMatch = Regex.Match(text, @"(?:جفت\s*ارز|PAIR|SYMBOL)?[\s:]*\b([A-Z]{3,6})[-/]?([A-Z]{3,4})\b", RegexOptions.IgnoreCase);
+                if (pairMatch.Success)
+                {
+                    var baseCurr = pairMatch.Groups[1].Value.ToUpperInvariant();
+                    var quoteCurr = pairMatch.Groups[2].Value.ToUpperInvariant();
+                    var rawPair = $"{baseCurr}{quoteCurr}";
+
+                    if (rawPair.EndsWith("USD") && !rawPair.EndsWith("USDT"))
+                    {
+                        detectedSymbol = $"{baseCurr}USDT";
+                    }
+                    else
+                    {
+                        detectedSymbol = rawPair;
+                    }
+                    _logger.LogInformation("Symbol detected via regex fallback: {Symbol}", detectedSymbol);
+                }
+            }
+
             // 4. Direction Detection
             string? detectedSide = null;
             int earliestLongIndex = int.MaxValue;
@@ -231,6 +253,15 @@ public class MessageFilterService : IMessageFilter
         }
         else
         {
+            if (keyword.Contains('/'))
+            {
+                var stripped = keyword.Replace("/", "");
+                if (text.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                    Regex.IsMatch(text, $@"\b{Regex.Escape(stripped)}\b", RegexOptions.IgnoreCase))
+                {
+                    return true;
+                }
+            }
             return text.Contains(keyword, StringComparison.OrdinalIgnoreCase);
         }
     }

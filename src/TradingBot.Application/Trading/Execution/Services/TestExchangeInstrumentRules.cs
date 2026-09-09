@@ -72,12 +72,12 @@ public class TestExchangeInstrumentRules : IExchangeInstrumentRules
         return new InstrumentRules
         {
             Symbol = normalized,
-            TickSize = 0.01m,
+            TickSize = 0.00001m,
             QuantityStep = 0.001m,
             MinQuantity = 0.001m,
-            MaxQuantity = 10000m,
-            MinNotional = 1.0m,
-            PricePrecision = 2,
+            MaxQuantity = 100000m,
+            MinNotional = 0.1m,
+            PricePrecision = 5,
             QuantityPrecision = 3
         };
     }

@@ -25,11 +25,11 @@ public class EntryExtractor : ISignalExtractor
             rule = activeTemplate.GetRules().FirstOrDefault(r => r.Extractor == "EntryExtractor" || r.Field == "EntryPrice");
         }
 
-        string patternToUse = @"\b(ENTRY|BUY\s+ZONE|BUY)\b";
+        string patternToUse = @"(?:ENTRY|ENTRY\s+PRICE|BUY\s+ZONE|BUY|نقطه\s*ورود|ورود)";
         if (rule != null && !string.IsNullOrWhiteSpace(rule.Pattern))
         {
             var preparedPattern = SignalTextNormalizer.PreparePattern(rule.Pattern);
-            patternToUse = $@"\b({preparedPattern})\b";
+            patternToUse = $"(?:{preparedPattern})";
         }
 
         // Check for "NOW" suffix
@@ -42,27 +42,23 @@ public class EntryExtractor : ISignalExtractor
             return Task.CompletedTask;
         }
 
-        var match = Regex.Match(normalized, patternToUse + @"\s*[:\s-]*(\S+)", RegexOptions.IgnoreCase);
+        var match = Regex.Match(normalized, patternToUse + @"[\s:]*([0-9.,]+)", RegexOptions.IgnoreCase);
         if (match.Success)
         {
-            var val = match.Groups[2].Value;
-            var numMatch = Regex.Match(val, @"^([\d,]+(?:\.\d+)?)");
-            if (numMatch.Success)
+            var val = match.Groups[1].Value;
+            var cleanNum = val.Replace(",", "");
+            if (decimal.TryParse(cleanNum, out var price))
             {
-                var cleanNum = numMatch.Groups[1].Value.Replace(",", "");
-                if (decimal.TryParse(cleanNum, out var price))
-                {
-                    signal.EntryPrice = price;
-                }
-                else
-                {
-                    signal.Errors.Add("Invalid entry price format");
-                }
+                signal.EntryPrice = price;
             }
             else
             {
                 signal.Errors.Add("Invalid entry price format");
             }
+        }
+        else if (Regex.IsMatch(normalized, patternToUse + @"[\s:]*\S+", RegexOptions.IgnoreCase))
+        {
+            signal.Errors.Add("Invalid entry price format");
         }
 
         return Task.CompletedTask;

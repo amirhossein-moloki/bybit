@@ -32,7 +32,7 @@ public class SymbolValidationRule : IValidationRule
             return;
         }
 
-        var symbolClean = symbol.Trim().ToUpperInvariant();
+        var symbolClean = symbol.Trim().Replace("/", "").Replace("-", "").Replace("_", "").ToUpperInvariant();
         if (!Regex.IsMatch(symbolClean, "^[A-Z0-9]{3,20}$"))
         {
             result.IsValid = false;
@@ -45,7 +45,12 @@ public class SymbolValidationRule : IValidationRule
         if (_options.Value.RejectUnknownSymbols)
         {
             var allSymbols = await _symbolRepository.GetAllAsync();
-            var exists = allSymbols.Any(s => s.SymbolCode.Equals(symbolClean, StringComparison.OrdinalIgnoreCase));
+            var exists = allSymbols.Any(s =>
+                s.SymbolCode.Equals(symbolClean, StringComparison.OrdinalIgnoreCase) ||
+                (symbolClean.EndsWith("USD") && s.SymbolCode.Equals(symbolClean + "T", StringComparison.OrdinalIgnoreCase)) ||
+                (s.SymbolCode.EndsWith("USD") && symbolClean.Equals(s.SymbolCode + "T", StringComparison.OrdinalIgnoreCase))
+            );
+
             if (!exists)
             {
                 result.IsValid = false;
