@@ -17,6 +17,7 @@ import type {
   TelegramMessagePreviewDto,
   TelegramSignalPreviewDto,
   TelegramSourceHealthDto,
+  TelegramMessagePipelineItemDto,
 } from "@/types/telegram";
 
 const base = "/api/telegram";
@@ -176,4 +177,16 @@ export async function testTelegramSource(
   id: string
 ): Promise<TestSourceResultDto> {
   return apiPost<ApiSuccess<TestSourceResultDto>>(`${base}/sources/${id}/test`, { token }).then(unwrap);
+}
+
+export async function fetchLivePipeline(
+  token: string,
+  sourceId?: string,
+  page = 1,
+  pageSize = 20
+): Promise<TelegramMessagePipelineItemDto[]> {
+  return apiGet<ApiSuccess<TelegramMessagePipelineItemDto[]>>(`${base}/live-pipeline`, {
+    token,
+    query: { sourceId, page, pageSize },
+  }).then(unwrap);
 }

@@ -276,6 +276,18 @@ public static class TelegramEndpoints
             var result = await sourceService.TestSourceAsync(id, ct);
             return Results.Ok(new { status = "success", data = result });
         });
+
+        // 21. Live Message Processing Pipeline
+        group.MapGet("/live-pipeline", async (
+            ITelegramSourceService sourceService,
+            Guid? sourceId,
+            int? page,
+            int? pageSize,
+            CancellationToken ct) =>
+        {
+            var pipeline = await sourceService.GetLiveMessagePipelineAsync(sourceId, page ?? 1, pageSize ?? 20, ct);
+            return Results.Ok(new { status = "success", data = pipeline });
+        });
     }
 }
 

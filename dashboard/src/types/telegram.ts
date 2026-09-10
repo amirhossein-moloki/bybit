@@ -143,3 +143,48 @@ export interface TelegramSourceHealthDto {
   processingErrors: number;
   reconnectCount: number;
 }
+
+export interface TelegramSignalDetailDto {
+  id: string;
+  symbol: string;
+  side: string;
+  status: string;
+  entryPrice: number;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  leverage?: number | null;
+  createdAt: string;
+}
+
+export interface TelegramRiskDecisionDto {
+  id: string;
+  decision: string;
+  riskScore: number;
+  failureReasons?: string | null;
+  positionSize?: number | null;
+  maxLeverage?: number | null;
+  evaluatedAt: string;
+}
+
+export interface TelegramOrderExecutionDto {
+  id: string;
+  orderStatus: string;
+  quantity: number;
+  price?: number | null;
+  exchangeOrderId?: string | null;
+  createdAt: string;
+}
+
+export interface TelegramMessagePipelineItemDto {
+  messageEntityId: string;
+  channelId: number;
+  channelTitle: string;
+  messageId: number;
+  senderId?: number | null;
+  content: string;
+  receivedAt: string;
+  processed: boolean;
+  signal?: TelegramSignalDetailDto | null;
+  riskDecision?: TelegramRiskDecisionDto | null;
+  execution?: TelegramOrderExecutionDto | null;
+}

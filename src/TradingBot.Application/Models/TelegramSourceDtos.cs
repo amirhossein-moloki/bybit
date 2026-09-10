@@ -101,3 +101,48 @@ public sealed record TelegramSourceHealthDto(
     int ProcessingErrors,
     int ReconnectCount
 );
+
+public sealed record TelegramSignalDetailDto(
+    Guid Id,
+    string Symbol,
+    string Side,
+    string Status,
+    decimal EntryPrice,
+    decimal? StopLoss,
+    decimal? TakeProfit,
+    int? Leverage,
+    DateTime CreatedAt
+);
+
+public sealed record TelegramRiskDecisionDto(
+    Guid Id,
+    string Decision,
+    decimal RiskScore,
+    string? FailureReasons,
+    decimal? PositionSize,
+    int? MaxLeverage,
+    DateTime EvaluatedAt
+);
+
+public sealed record TelegramOrderExecutionDto(
+    Guid Id,
+    string OrderStatus,
+    decimal Quantity,
+    decimal? Price,
+    string? ExchangeOrderId,
+    DateTime CreatedAt
+);
+
+public sealed record TelegramMessagePipelineItemDto(
+    Guid MessageEntityId,
+    long ChannelId,
+    string ChannelTitle,
+    long MessageId,
+    long? SenderId,
+    string Content,
+    DateTime ReceivedAt,
+    bool Processed,
+    TelegramSignalDetailDto? Signal,
+    TelegramRiskDecisionDto? RiskDecision,
+    TelegramOrderExecutionDto? Execution
+);
