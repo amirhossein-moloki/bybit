@@ -15,17 +15,20 @@ public class TelegramNotificationChannel : INotificationChannel
     private readonly ITelegramClient _telegramClient;
     private readonly TelegramOptions _telegramOptions;
     private readonly ILogger<TelegramNotificationChannel> _logger;
+    private readonly ITelegramBotClient? _telegramBotClient;
 
     public string ChannelName => "Telegram";
 
     public TelegramNotificationChannel(
         ITelegramClient telegramClient,
         IOptions<TelegramOptions> telegramOptions,
-        ILogger<TelegramNotificationChannel> logger)
+        ILogger<TelegramNotificationChannel> logger,
+        ITelegramBotClient? telegramBotClient = null)
     {
         _telegramClient = telegramClient ?? throw new ArgumentNullException(nameof(telegramClient));
         _telegramOptions = telegramOptions?.Value ?? throw new ArgumentNullException(nameof(telegramOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _telegramBotClient = telegramBotClient;
     }
 
     public async Task<NotificationDeliveryResult> SendAsync(Notification notification, CancellationToken cancellationToken = default)
@@ -36,6 +39,16 @@ public class TelegramNotificationChannel : INotificationChannel
             return NotificationDeliveryResult.AsFailure(isRetryable: false, "TELEGRAM_DISABLED", "Telegram integration is globally disabled.");
         }
 
+        var botToken = _telegramOptions.BotToken;
+
+        // If BotToken is configured, send using the separate Telegram Bot API client
+        if (!string.IsNullOrWhiteSpace(botToken) && _telegramBotClient != null)
+        {
+            _logger.LogInformation("TelegramNotificationChannel: Sending message via Telegram Bot API to Recipient {Recipient}...", notification.Recipient);
+            return await _telegramBotClient.SendTextMessageAsync(botToken, notification.Recipient, notification.Message, cancellationToken);
+        }
+
+        // Fallback to sending via main Telegram user account if BotToken is not set
         if (!long.TryParse(notification.Recipient, out var chatId))
         {
             _logger.LogError("TelegramNotificationChannel: Invalid Recipient format '{Recipient}'. Must be a valid long ChatId.", notification.Recipient);

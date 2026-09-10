@@ -55,6 +55,14 @@ public static class DependencyInjection
                 options.SessionPath = envSessionPath.Trim();
             }
 
+            var envBotToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+                              ?? Environment.GetEnvironmentVariable("Telegram__BotToken")
+                              ?? Environment.GetEnvironmentVariable("Notification__Telegram__BotToken");
+            if (!string.IsNullOrWhiteSpace(envBotToken))
+            {
+                options.BotToken = envBotToken.Trim();
+            }
+
             var envProxyUrl = Environment.GetEnvironmentVariable("TELEGRAM_PROXY_URL")
                               ?? Environment.GetEnvironmentVariable("Telegram__ProxyUrl")
                               ?? Environment.GetEnvironmentVariable("BYBIT_PROXY_URL")
@@ -65,6 +73,7 @@ public static class DependencyInjection
             }
         });
 
+        services.AddHttpClient<ITelegramBotClient, TelegramBotClient>();
         services.AddSingleton<ITelegramSessionManager, TelegramSessionManager>();
         services.AddSingleton<ITelegramMessageReceiver, DefaultTelegramMessageReceiver>();
         services.AddSingleton<ITelegramClient, TelegramClientService>();
