@@ -35,6 +35,9 @@ public class OrderSyncBackgroundService : BackgroundService
         _healthRegistry.RegisterWorker(nameof(OrderSyncBackgroundService), isCritical: false);
         _logger.LogInformation("OrderSyncBackgroundService: Starting...");
 
+        // Start dedicated periodic heartbeat loop
+        _ = RunHeartbeatLoopAsync(stoppingToken);
+
         try
         {
             await _orderStream.SubscribeAsync(stoppingToken);
@@ -107,5 +110,25 @@ public class OrderSyncBackgroundService : BackgroundService
         }
 
         _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Stopped");
+    }
+
+    private async Task RunHeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                _healthRegistry.RecordHeartbeat(nameof(OrderSyncBackgroundService), "Running");
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OrderSyncBackgroundService: Error in heartbeat loop.");
+            }
+        }
     }
 }
