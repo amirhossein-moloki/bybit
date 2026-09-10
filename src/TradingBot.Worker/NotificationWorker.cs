@@ -124,7 +124,7 @@ public class NotificationWorker : BackgroundService
 
                     claimedNotifications.Add(dbNotif);
                 }
-                catch (Exception ex) when (ex.GetType().Name.Contains("DbUpdateConcurrencyException"))
+                catch (Exception ex) when (IsConcurrencyException(ex))
                 {
                     _logger.LogWarning("NotificationWorker: Concurrency conflict while claiming notification {NotificationId}. Skipping item.", notification.Id);
                 }
@@ -164,42 +164,39 @@ public class NotificationWorker : BackgroundService
             }
 
             // 3. Update status based on delivery result with retry loop on concurrency conflict
-            using (var scope = _serviceProvider.CreateScope())
+            int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-                var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-
-                var persistedNotification = await repository.GetByIdAsync(notification.Id, cancellationToken);
-                if (persistedNotification == null)
+                try
                 {
-                    _logger.LogError("NotificationWorker: Failed to reload notification {NotificationId} to save delivery result.", notification.Id);
-                    continue;
-                }
+                    using var scope = _serviceProvider.CreateScope();
+                    var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-                int maxRetries = 3;
-                for (int attempt = 1; attempt <= maxRetries; attempt++)
-                {
-                    try
+                    var persistedNotification = await repository.GetByIdAsync(notification.Id, cancellationToken);
+                    if (persistedNotification == null)
                     {
-                        ApplyDeliveryResult(persistedNotification, result);
-                        repository.Update(persistedNotification);
-                        await unitOfWork.SaveChangesAsync(cancellationToken);
+                        _logger.LogError("NotificationWorker: Failed to reload notification {NotificationId} to save delivery result.", notification.Id);
                         break;
                     }
-                    catch (Exception ex) when (ex.GetType().Name.Contains("DbUpdateConcurrencyException"))
+
+                    ApplyDeliveryResult(persistedNotification, result);
+                    repository.Update(persistedNotification);
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                    break;
+                }
+                catch (Exception ex) when (IsConcurrencyException(ex))
+                {
+                    if (attempt == maxRetries)
                     {
-                        if (attempt == maxRetries)
-                        {
-                            _logger.LogWarning(ex, "NotificationWorker: Concurrency conflict when saving delivery result for notification {NotificationId}. Max retries reached.", notification.Id);
-                            break;
-                        }
-
-                        _logger.LogInformation("NotificationWorker: Concurrency conflict saving delivery result for notification {NotificationId}. Retrying ({Attempt}/{Max})...",
-                            notification.Id, attempt, maxRetries);
-
-                        persistedNotification = await repository.GetByIdAsync(notification.Id, cancellationToken);
-                        if (persistedNotification == null) break;
+                        _logger.LogWarning(ex, "NotificationWorker: Concurrency conflict when saving delivery result for notification {NotificationId}. Max retries reached.", notification.Id);
+                        break;
                     }
+
+                    _logger.LogInformation("NotificationWorker: Concurrency conflict saving delivery result for notification {NotificationId}. Retrying ({Attempt}/{Max})...",
+                        notification.Id, attempt, maxRetries);
+
+                    await Task.Delay(50 * attempt, cancellationToken);
                 }
             }
         }
@@ -250,5 +247,13 @@ public class NotificationWorker : BackgroundService
             errorCode: result.ErrorCode,
             errorMessage: result.SafeMessage
         );
+    }
+
+    private static bool IsConcurrencyException(Exception ex)
+    {
+        return ex is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ||
+               ex.InnerException is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ||
+               ex.GetType().Name.Contains("DbUpdateConcurrencyException") ||
+               (ex.InnerException != null && ex.InnerException.GetType().Name.Contains("DbUpdateConcurrencyException"));
     }
 }

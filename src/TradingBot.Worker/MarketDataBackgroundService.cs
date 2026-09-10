@@ -28,6 +28,7 @@ public class MarketDataBackgroundService : BackgroundService
         await Task.Yield();
 
         _healthRegistry.RegisterWorker(nameof(MarketDataBackgroundService), isCritical: false);
+        _healthRegistry.RecordHeartbeat(nameof(MarketDataBackgroundService), "Running");
         _logger.LogInformation("MarketDataBackgroundService: Starting...");
 
         // Start dedicated periodic heartbeat loop

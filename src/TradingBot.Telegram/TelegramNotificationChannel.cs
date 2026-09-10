@@ -75,12 +75,17 @@ public class TelegramNotificationChannel : INotificationChannel
 
             // Inspect WTelegram specific RpcException if applicable, or check the error message directly for permanent failures
             var errorMsg = ex.Message;
-            if (ex.GetType().FullName == "TL.RpcException" ||
+            if (errorMsg.Contains("not found in Telegram dialogs/chats cache", StringComparison.OrdinalIgnoreCase))
+            {
+                isRetryable = false;
+                errorCode = "CHAT_NOT_FOUND";
+            }
+            else if (ex.GetType().FullName == "TL.RpcException" ||
                 exceptionTypeName == "RpcException" ||
-                errorMsg.Contains("PEER_ID_INVALID") ||
-                errorMsg.Contains("CHAT_ID_INVALID") ||
-                errorMsg.Contains("CHAT_WRITE_FORBIDDEN") ||
-                errorMsg.Contains("USER_DEACTIVATED"))
+                errorMsg.Contains("PEER_ID_INVALID", StringComparison.OrdinalIgnoreCase) ||
+                errorMsg.Contains("CHAT_ID_INVALID", StringComparison.OrdinalIgnoreCase) ||
+                errorMsg.Contains("CHAT_WRITE_FORBIDDEN", StringComparison.OrdinalIgnoreCase) ||
+                errorMsg.Contains("USER_DEACTIVATED", StringComparison.OrdinalIgnoreCase))
             {
                 // Permanent errors
                 isRetryable = false;
