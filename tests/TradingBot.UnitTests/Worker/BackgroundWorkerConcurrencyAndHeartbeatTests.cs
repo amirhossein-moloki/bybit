@@ -177,6 +177,9 @@ public class BackgroundWorkerConcurrencyAndHeartbeatTests
         var healthRegistry = new WorkerHealthRegistry();
         var mockStream = new Mock<IMarketStream>();
 
+        mockStream.Setup(s => s.SubscribeAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         mockStream.Setup(s => s.ReceiveEventsAsync(It.IsAny<CancellationToken>()))
             .Returns(GetEmptyAsyncEnumerable<MarketTickerUpdateEvent>());
 
@@ -190,7 +193,7 @@ public class BackgroundWorkerConcurrencyAndHeartbeatTests
 
         // Act
         await worker.StartAsync(cts.Token);
-        await Task.Delay(100);
+        await Task.Delay(200);
         var heartbeats = healthRegistry.GetWorkerHeartbeats();
         var runningStatus = heartbeats[nameof(MarketDataBackgroundService)].Status;
         var lastHb = heartbeats[nameof(MarketDataBackgroundService)].LastHeartbeatAt;

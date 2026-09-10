@@ -574,4 +574,38 @@ public class TelegramIntegrationTests
 
         await worker.StopAsync(cts.Token);
     }
+
+    [Fact]
+    public async Task TelegramNotificationChannel_ShouldReturnPermanentFailure_WhenChatIdNotFoundInCache()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        mockClient.Setup(c => c.IsConnected()).Returns(true);
+        mockClient.Setup(c => c.SendMessageAsync(It.IsAny<long>(), It.IsAny<string>()))
+            .ThrowsAsync(new TelegramConnectionException("Chat with ID -1234567890 not found in Telegram dialogs/chats cache."));
+
+        var options = new TelegramOptions { Enabled = true };
+        var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<TradingBot.Telegram.TelegramNotificationChannel>>();
+
+        var channel = new TradingBot.Telegram.TelegramNotificationChannel(mockClient.Object, mockOptions, mockLogger.Object);
+
+        var notification = new TradingBot.Domain.Entities.Notification(
+            eventId: Guid.NewGuid(),
+            eventType: "TestEvent",
+            severity: "INFO",
+            channel: "Telegram",
+            recipient: "-1234567890",
+            title: "Test Title",
+            message: "Test Message"
+        );
+
+        // Act
+        var result = await channel.SendAsync(notification, CancellationToken.None);
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.IsRetryable.Should().BeFalse();
+        result.ErrorCode.Should().Be("CHAT_NOT_FOUND");
+    }
 }
