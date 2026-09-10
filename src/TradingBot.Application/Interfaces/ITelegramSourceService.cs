@@ -17,6 +17,7 @@ public interface ITelegramSourceService
     Task<SyncSourcesResultDto> SyncSourcesAsync(CancellationToken ct = default);
     Task<List<TelegramMessagePreviewDto>> GetSourceMessagesAsync(Guid id, int page = 1, int pageSize = 20, CancellationToken ct = default);
     Task<List<TelegramSignalPreviewDto>> GetSourceSignalsAsync(Guid id, int page = 1, int pageSize = 20, CancellationToken ct = default);
+    Task<List<TelegramMessagePipelineItemDto>> GetLiveMessagePipelineAsync(Guid? sourceId = null, int page = 1, int pageSize = 20, CancellationToken ct = default);
     Task<TelegramSourceHealthDto> GetSourceHealthAsync(Guid id, CancellationToken ct = default);
     Task<TestSourceResultDto> TestSourceAsync(Guid id, CancellationToken ct = default);
     Task<int> BulkUpdateSourcesAsync(BulkUpdateSourcesDto dto, CancellationToken ct = default);

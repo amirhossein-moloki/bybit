@@ -79,6 +79,7 @@ import {
   fetchSourceSignals,
   fetchSourceHealth,
   testTelegramSource,
+  fetchLivePipeline,
 } from "@/services/telegram-service";
 
 import type {
@@ -91,6 +92,7 @@ import type {
   TelegramSignalPreviewDto,
   TelegramSourceHealthDto,
   TelegramDialogDto,
+  TelegramMessagePipelineItemDto,
 } from "@/types/telegram";
 
 export default function TelegramControlCenterPage() {
@@ -148,6 +150,34 @@ export default function TelegramControlCenterPage() {
   const [health, setHealth] = useState<TelegramSourceHealthDto | null>(null);
   const [testResult, setTestResult] = useState<TestSourceResultDto | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Live Message Pipeline State
+  const [pipelineItems, setPipelineItems] = useState<TelegramMessagePipelineItemDto[]>([]);
+  const [loadingPipeline, setLoadingPipeline] = useState(false);
+  const [selectedPipelineItem, setSelectedPipelineItem] = useState<TelegramMessagePipelineItemDto | null>(null);
+  const [pipelineFilterSourceId, setPipelineFilterSourceId] = useState<string>("All");
+
+  const loadPipeline = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoadingPipeline(true);
+      const items = await fetchLivePipeline(
+        token,
+        pipelineFilterSourceId === "All" ? undefined : pipelineFilterSourceId,
+        1,
+        20
+      );
+      setPipelineItems(items || []);
+    } catch (err) {
+      console.error("Failed to load live pipeline", err);
+    } finally {
+      setLoadingPipeline(false);
+    }
+  }, [token, pipelineFilterSourceId]);
+
+  useEffect(() => {
+    loadPipeline();
+  }, [loadPipeline]);
   const [testingSource, setTestingSource] = useState(false);
   const [msgPage, setMsgPage] = useState(1);
   const [sigPage, setSigPage] = useState(1);
@@ -1428,6 +1458,324 @@ export default function TelegramControlCenterPage() {
                   )}
                 </TabsContent>
               </Tabs>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Live Message & Signal Processing Pipeline Card */}
+      <Card className="mt-6 border-emerald-500/20 bg-gradient-to-b from-card to-background">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div>
+            <CardTitle className="text-lg font-bold flex items-center gap-2">
+              <Activity className="h-5 w-5 text-emerald-500 animate-pulse" />
+              Live Message & Signal Processing Pipeline
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground mt-1">
+              Real-time message ingestion, signal extraction, risk evaluation, and order execution workflow per channel.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={pipelineFilterSourceId} onValueChange={setPipelineFilterSourceId}>
+              <SelectTrigger className="w-[180px] h-8 text-xs">
+                <SelectValue placeholder="All Channels" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Channels</SelectItem>
+                {sources.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={loadPipeline} disabled={loadingPipeline} className="h-8 text-xs">
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loadingPipeline ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loadingPipeline ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
+              <span className="text-xs font-mono">Loading real-time message pipeline...</span>
+            </div>
+          ) : pipelineItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground space-y-2">
+              <Radio className="h-10 w-10 text-muted-foreground/30 stroke-[1.5]" />
+              <p className="text-sm font-semibold text-foreground">No Incoming Messages Recorded</p>
+              <p className="text-xs max-w-sm">
+                Incoming Telegram messages from active channels will appear here automatically with full execution trace.
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="w-28">Received At</TableHead>
+                  <TableHead>Channel & Message</TableHead>
+                  <TableHead className="text-center">Signal Extraction</TableHead>
+                  <TableHead className="text-center">Risk Evaluation</TableHead>
+                  <TableHead className="text-center">Order Execution</TableHead>
+                  <TableHead className="text-right">Full Trace</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pipelineItems.map((item) => {
+                  const hasSignal = !!item.signal;
+                  const hasRisk = !!item.riskDecision;
+                  const hasExec = !!item.execution;
+
+                  return (
+                    <TableRow key={item.messageEntityId} className="hover:bg-muted/20">
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {new Date(item.receivedAt).toLocaleTimeString()}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                            <Radio className="h-3 w-3 text-emerald-500" />
+                            {item.channelTitle}
+                            <span className="text-[10px] text-muted-foreground font-mono">#{item.messageId}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground line-clamp-1 font-mono max-w-md mt-0.5">
+                            {item.content}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasSignal ? (
+                          <div className="inline-flex flex-col items-center">
+                            <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-[11px]">
+                              {item.signal?.side} {item.signal?.symbol}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              @ ${item.signal?.entryPrice}
+                            </span>
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                            Filtered Non-Signal
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasRisk ? (
+                          <Badge
+                            className={`text-[11px] ${
+                              item.riskDecision?.decision === "Approved"
+                                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                : item.riskDecision?.decision === "Rejected"
+                                ? "bg-destructive/10 text-destructive border-destructive/20"
+                                : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                            }`}
+                          >
+                            {item.riskDecision?.decision}
+                          </Badge>
+                        ) : hasSignal ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            Evaluating Risk
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasExec ? (
+                          <div className="inline-flex flex-col items-center">
+                            <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 text-[11px]">
+                              {item.execution?.orderStatus}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              Qty: {item.execution?.quantity}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedPipelineItem(item)}
+                          className="h-7 text-xs"
+                        >
+                          Trace <ChevronRight className="h-3 w-3 ml-1" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Trace Pipeline Item Dialog */}
+      <Dialog open={!!selectedPipelineItem} onOpenChange={(open) => !open && setSelectedPipelineItem(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {selectedPipelineItem && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Activity className="h-5 w-5 text-emerald-500" />
+                  Telegram Message Lifecycle Trace
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  Step-by-step visual audit of channel update, signal parsing, risk engine rules, and exchange order placement.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                {/* Step 1: Ingestion */}
+                <div className="p-3.5 border rounded-lg bg-card space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs flex items-center gap-2 text-foreground">
+                      <Radio className="h-4 w-4 text-emerald-500" />
+                      1. Telegram Message Ingestion
+                    </span>
+                    <Badge variant="outline" className="text-[10px] font-mono">
+                      Message ID: #{selectedPipelineItem.messageId}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                    <div>
+                      <span className="text-muted-foreground">Channel:</span>{" "}
+                      <span className="font-semibold">{selectedPipelineItem.channelTitle}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Received At:</span>{" "}
+                      <span className="font-mono">{new Date(selectedPipelineItem.receivedAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-muted/30 rounded font-mono text-xs text-foreground whitespace-pre-wrap mt-2">
+                    {selectedPipelineItem.content}
+                  </div>
+                </div>
+
+                {/* Step 2: Signal Extraction */}
+                <div className="p-3.5 border rounded-lg bg-card space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs flex items-center gap-2 text-foreground">
+                      <Search className="h-4 w-4 text-primary" />
+                      2. Signal Extraction & Parsing
+                    </span>
+                    {selectedPipelineItem.signal ? (
+                      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-[10px]">
+                        Signal Detected
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px]">
+                        Non-Signal / Filtered
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedPipelineItem.signal ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1 font-mono">
+                      <div className="p-2 bg-muted/20 rounded">
+                        <span className="text-muted-foreground block text-[10px]">Symbol</span>
+                        <span className="font-bold text-foreground">{selectedPipelineItem.signal.symbol}</span>
+                      </div>
+                      <div className="p-2 bg-muted/20 rounded">
+                        <span className="text-muted-foreground block text-[10px]">Side</span>
+                        <span className="font-bold text-foreground">{selectedPipelineItem.signal.side}</span>
+                      </div>
+                      <div className="p-2 bg-muted/20 rounded">
+                        <span className="text-muted-foreground block text-[10px]">Entry Price</span>
+                        <span className="font-bold text-foreground">${selectedPipelineItem.signal.entryPrice}</span>
+                      </div>
+                      <div className="p-2 bg-muted/20 rounded">
+                        <span className="text-muted-foreground block text-[10px]">Stop Loss</span>
+                        <span className="font-bold text-foreground">
+                          {selectedPipelineItem.signal.stopLoss ? `$${selectedPipelineItem.signal.stopLoss}` : "N/A"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Message did not meet trading signal rules and was filtered out safely without order execution.
+                    </p>
+                  )}
+                </div>
+
+                {/* Step 3: Risk Evaluation */}
+                <div className="p-3.5 border rounded-lg bg-card space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs flex items-center gap-2 text-foreground">
+                      <Shield className="h-4 w-4 text-amber-500" />
+                      3. Risk Management Evaluation
+                    </span>
+                    {selectedPipelineItem.riskDecision ? (
+                      <Badge
+                        className={`text-[10px] ${
+                          selectedPipelineItem.riskDecision.decision === "Approved"
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                            : "bg-destructive/10 text-destructive border-destructive/20"
+                        }`}
+                      >
+                        {selectedPipelineItem.riskDecision.decision}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        Not Evaluated
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedPipelineItem.riskDecision && (
+                    <div className="space-y-2 text-xs pt-1">
+                      {selectedPipelineItem.riskDecision.failureReasons && (
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Note: {selectedPipelineItem.riskDecision.failureReasons}
+                        </p>
+                      )}
+                      {selectedPipelineItem.riskDecision.positionSize && (
+                        <p className="text-xs font-mono">
+                          Approved Position Size: <span className="font-bold text-foreground">{selectedPipelineItem.riskDecision.positionSize}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 4: Exchange Order Execution */}
+                <div className="p-3.5 border rounded-lg bg-card space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs flex items-center gap-2 text-foreground">
+                      <Activity className="h-4 w-4 text-blue-500" />
+                      4. Bybit Exchange Order Execution
+                    </span>
+                    {selectedPipelineItem.execution ? (
+                      <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 text-[10px]">
+                        {selectedPipelineItem.execution.orderStatus}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        No Order
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedPipelineItem.execution && (
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-1 font-mono">
+                      <div>
+                        <span className="text-muted-foreground">Quantity:</span>{" "}
+                        <span className="font-bold text-foreground">{selectedPipelineItem.execution.quantity}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Exchange Order ID:</span>{" "}
+                        <span className="font-bold text-foreground">
+                          {selectedPipelineItem.execution.exchangeOrderId || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </DialogContent>

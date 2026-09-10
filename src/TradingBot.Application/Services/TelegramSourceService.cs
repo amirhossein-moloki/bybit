@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Application.Models;
+using TradingBot.Application.Repositories;
 using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
@@ -18,18 +20,24 @@ public class TelegramSourceService : ITelegramSourceService
     private readonly ITelegramSourceRepository _repository;
     private readonly ITelegramDiscoveryClient? _discoveryClient;
     private readonly IMessageRepository? _messageRepository;
+    private readonly TradingBot.Application.Repositories.ISignalRepository? _signalRepository;
+    private readonly IServiceProvider? _serviceProvider;
     private readonly ILogger<TelegramSourceService> _logger;
 
     public TelegramSourceService(
         ITelegramSourceRepository repository,
         ILogger<TelegramSourceService> logger,
         ITelegramDiscoveryClient? discoveryClient = null,
-        IMessageRepository? messageRepository = null)
+        IMessageRepository? messageRepository = null,
+        TradingBot.Application.Repositories.ISignalRepository? signalRepository = null,
+        IServiceProvider? serviceProvider = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _discoveryClient = discoveryClient;
         _messageRepository = messageRepository;
+        _signalRepository = signalRepository;
+        _serviceProvider = serviceProvider;
     }
 
     public async Task<List<TelegramSourceDto>> GetSourcesAsync(TelegramSourceFilterDto filter, CancellationToken ct = default)
@@ -279,8 +287,191 @@ public class TelegramSourceService : ITelegramSourceService
 
     public async Task<List<TelegramSignalPreviewDto>> GetSourceSignalsAsync(Guid id, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
-        await Task.CompletedTask;
-        return new List<TelegramSignalPreviewDto>();
+        var source = await _repository.GetByIdAsync(id, ct);
+        if (source == null || _signalRepository == null) return new List<TelegramSignalPreviewDto>();
+
+        var pagedSignals = await _signalRepository.GetPagedSignalsAsync(page, pageSize, ct);
+        var channelSignals = pagedSignals.Items
+            .Where(s => s.TelegramChannelId == source.TelegramChatId)
+            .Select(s => new TelegramSignalPreviewDto(
+                s.Id,
+                s.TelegramMessageId ?? 0,
+                s.Symbol,
+                s.Side.ToString(),
+                1.0,
+                s.Status.ToString(),
+                s.CreatedAt
+            ))
+            .ToList();
+
+        return channelSignals;
+    }
+
+    public async Task<List<TelegramMessagePipelineItemDto>> GetLiveMessagePipelineAsync(Guid? sourceId = null, int page = 1, int pageSize = 20, CancellationToken ct = default)
+    {
+        page = page < 1 ? 1 : page;
+        pageSize = pageSize < 1 ? 20 : pageSize;
+
+        long? targetChatId = null;
+        if (sourceId.HasValue && sourceId.Value != Guid.Empty)
+        {
+            var source = await _repository.GetByIdAsync(sourceId.Value, ct);
+            if (source != null)
+            {
+                targetChatId = source.TelegramChatId;
+            }
+        }
+
+        var sources = await _repository.GetAllAsync(ct);
+        var channelMap = sources.ToDictionary(s => s.TelegramChatId, s => s.Title);
+
+        if (_messageRepository == null)
+        {
+            return new List<TelegramMessagePipelineItemDto>();
+        }
+
+        using var scope = _serviceProvider?.CreateScope();
+        var messageRepo = scope?.ServiceProvider.GetService<IMessageRepository>() ?? _messageRepository;
+        var signalRepo = scope?.ServiceProvider.GetService<TradingBot.Application.Repositories.ISignalRepository>() ?? _signalRepository;
+        var decisionRepo = scope?.ServiceProvider.GetService<ITradeDecisionRepository>();
+        var riskRepo = scope?.ServiceProvider.GetService<IRiskEvaluationRepository>();
+        var orderRepo = scope?.ServiceProvider.GetService<TradingBot.Application.Repositories.IOrderRepository>();
+
+        if (messageRepo == null)
+        {
+            return new List<TelegramMessagePipelineItemDto>();
+        }
+
+        List<TradingBot.Domain.SignalIntelligence.Entities.TelegramMessage> messages;
+        if (targetChatId.HasValue)
+        {
+            messages = await messageRepo.GetRecentMessagesForChannelAsync(targetChatId.Value, pageSize * page, ct);
+            messages = messages.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        }
+        else
+        {
+            var allMessagesList = new List<TradingBot.Domain.SignalIntelligence.Entities.TelegramMessage>();
+            foreach (var ch in sources)
+            {
+                var channelMsgs = await messageRepo.GetRecentMessagesForChannelAsync(ch.TelegramChatId, pageSize, ct);
+                allMessagesList.AddRange(channelMsgs);
+            }
+            messages = allMessagesList
+                .OrderByDescending(m => m.ReceivedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+        }
+
+        if (!messages.Any())
+        {
+            return new List<TelegramMessagePipelineItemDto>();
+        }
+
+        List<Signal> signals = new List<Signal>();
+        if (signalRepo != null)
+        {
+            var pagedSignals = await signalRepo.GetPagedSignalsAsync(1, 100, ct);
+            signals = pagedSignals.Items.ToList();
+        }
+
+        List<TradingBot.Domain.RiskManagement.Entities.TradeDecision> decisions = new List<TradingBot.Domain.RiskManagement.Entities.TradeDecision>();
+        if (decisionRepo != null)
+        {
+            var allDecisions = await decisionRepo.GetAllAsync(ct);
+            decisions = allDecisions.ToList();
+        }
+
+        List<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation> riskEvals = new List<TradingBot.Domain.RiskManagement.Entities.RiskEvaluation>();
+        if (riskRepo != null)
+        {
+            var allRisk = await riskRepo.GetAllAsync(ct);
+            riskEvals = allRisk.ToList();
+        }
+
+        List<TradingBot.Domain.Entities.Order> orders = new List<TradingBot.Domain.Entities.Order>();
+        if (orderRepo != null)
+        {
+            var allOrders = await orderRepo.GetAllAsync(ct);
+            orders = allOrders.ToList();
+        }
+
+        var pipelineItems = new List<TelegramMessagePipelineItemDto>();
+
+        foreach (var m in messages)
+        {
+            channelMap.TryGetValue(m.ChannelId, out var channelTitle);
+            channelTitle ??= $"Chat #{m.ChannelId}";
+
+            TelegramSignalDetailDto? signalDto = null;
+            TelegramRiskDecisionDto? decisionDto = null;
+            TelegramOrderExecutionDto? executionDto = null;
+
+            var sig = signals.FirstOrDefault(s => s.TelegramChannelId == m.ChannelId && s.TelegramMessageId == m.MessageId);
+            if (sig != null)
+            {
+                signalDto = new TelegramSignalDetailDto(
+                    sig.Id,
+                    sig.Symbol,
+                    sig.Side.ToString(),
+                    sig.Status.ToString(),
+                    sig.EntryPrice,
+                    sig.StopLoss,
+                    sig.TakeProfit,
+                    sig.Leverage,
+                    sig.CreatedAt
+                );
+
+                var dec = decisions.FirstOrDefault(d => d.SignalId == sig.Id);
+                var risk = riskEvals.FirstOrDefault(r => r.SignalId == sig.Id);
+
+                if (dec != null || risk != null)
+                {
+                    var decisionStr = dec?.Decision.ToString() ?? risk?.Decision.ToString() ?? "Unknown";
+                    var reasonStr = dec?.DecisionReason ?? risk?.Reason ?? string.Empty;
+                    var posSize = risk?.PositionSize;
+
+                    decisionDto = new TelegramRiskDecisionDto(
+                        dec?.Id ?? risk?.Id ?? Guid.NewGuid(),
+                        decisionStr,
+                        1.0m,
+                        reasonStr,
+                        posSize,
+                        sig.Leverage,
+                        dec?.CreatedAt ?? risk?.CreatedAt ?? DateTime.UtcNow
+                    );
+                }
+
+                var ord = orders.FirstOrDefault(o => o.SignalId == sig.Id);
+                if (ord != null)
+                {
+                    executionDto = new TelegramOrderExecutionDto(
+                        ord.Id,
+                        ord.Status.ToString(),
+                        ord.Quantity.Value,
+                        ord.Price?.Amount,
+                        ord.ExchangeOrderId,
+                        ord.CreatedAt
+                    );
+                }
+            }
+
+            pipelineItems.Add(new TelegramMessagePipelineItemDto(
+                m.Id,
+                m.ChannelId,
+                channelTitle,
+                m.MessageId,
+                m.SenderId,
+                m.Content,
+                m.ReceivedAt,
+                m.Processed,
+                signalDto,
+                decisionDto,
+                executionDto
+            ));
+        }
+
+        return pipelineItems;
     }
 
     public async Task<TelegramSourceHealthDto> GetSourceHealthAsync(Guid id, CancellationToken ct = default)
