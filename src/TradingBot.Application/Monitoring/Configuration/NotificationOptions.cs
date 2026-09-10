@@ -30,6 +30,7 @@ public class NotificationOptions
 public class TelegramNotificationSettings
 {
     public bool Enabled { get; set; } = true;
+    public string BotToken { get; set; } = string.Empty;
     public string ChatId { get; set; } = "default-chat-id";
     public int RetryCount { get; set; } = 3;
     public int InitialRetryDelaySeconds { get; set; } = 2;

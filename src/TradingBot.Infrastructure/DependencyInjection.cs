@@ -185,6 +185,13 @@ public static class DependencyInjection
         {
             notificationOptions.Telegram.ChatId = envChatId;
         }
+        var envBotToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+                          ?? Environment.GetEnvironmentVariable("Notification__Telegram__BotToken")
+                          ?? Environment.GetEnvironmentVariable("Telegram__BotToken");
+        if (!string.IsNullOrWhiteSpace(envBotToken))
+        {
+            notificationOptions.Telegram.BotToken = envBotToken.Trim();
+        }
         notificationOptions.Validate();
         services.AddSingleton(notificationOptions);
 
