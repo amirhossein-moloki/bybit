@@ -104,6 +104,16 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 });
             services.AddSingleton<ITelegramDiscoveryClient>(mockDiscoveryClient.Object);
 
+            var notifOptionsDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(TradingBot.Application.Monitoring.Configuration.NotificationOptions));
+            if (notifOptionsDescriptor != null)
+            {
+                services.Remove(notifOptionsDescriptor);
+            }
+            var testNotifOptions = new TradingBot.Application.Monitoring.Configuration.NotificationOptions();
+            testNotifOptions.Telegram.ChatId = "987654321";
+            testNotifOptions.Telegram.Enabled = true;
+            services.AddSingleton(testNotifOptions);
+
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));
             if (descriptor != null)
             {

@@ -180,11 +180,18 @@ public static class DependencyInjection
         notificationSection.Bind(notificationOptions);
 
         // Support environment variable overrides
-        var envChatId = Environment.GetEnvironmentVariable("TELEGRAM_CHAT_ID");
+        var envChatId = Environment.GetEnvironmentVariable("TELEGRAM_CHAT_ID")
+                        ?? Environment.GetEnvironmentVariable("Notification__Telegram__ChatId")
+                        ?? Environment.GetEnvironmentVariable("Telegram__ChatId")
+                        ?? Environment.GetEnvironmentVariable("NOTIFICATION_TELEGRAM_CHAT_ID")
+                        ?? Environment.GetEnvironmentVariable("TELEGRAM_NOTIFICATION_CHAT_ID")
+                        ?? Environment.GetEnvironmentVariable("TELEGRAM_CHATID");
         if (!string.IsNullOrEmpty(envChatId))
         {
-            notificationOptions.Telegram.ChatId = envChatId;
+            notificationOptions.Telegram.ChatId = envChatId.Trim();
+            notificationOptions.Telegram.Enabled = true;
         }
+
         var envBotToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
                           ?? Environment.GetEnvironmentVariable("Notification__Telegram__BotToken")
                           ?? Environment.GetEnvironmentVariable("Telegram__BotToken");
@@ -192,6 +199,15 @@ public static class DependencyInjection
         {
             notificationOptions.Telegram.BotToken = envBotToken.Trim();
         }
+
+        if (string.IsNullOrWhiteSpace(notificationOptions.Telegram.ChatId) ||
+            notificationOptions.Telegram.ChatId == "-1234567890" ||
+            notificationOptions.Telegram.ChatId == "1234567890" ||
+            notificationOptions.Telegram.ChatId == "default-chat-id")
+        {
+            notificationOptions.Telegram.Enabled = false;
+        }
+
         notificationOptions.Validate();
         services.AddSingleton(notificationOptions);
 

@@ -72,7 +72,7 @@ public class TradingDbContext : DbContext
             if (entry.State == EntityState.Added)
             {
                 var createdAtProp = entry.Metadata.FindProperty("CreatedAt");
-                if (createdAtProp != null)
+                if (createdAtProp != null && (createdAtProp.PropertyInfo == null || createdAtProp.PropertyInfo.CanWrite))
                 {
                     entry.Property("CreatedAt").CurrentValue = utcNow;
                 }
@@ -80,7 +80,7 @@ public class TradingDbContext : DbContext
             else if (entry.State == EntityState.Modified)
             {
                 var updatedAtProp = entry.Metadata.FindProperty("UpdatedAt");
-                if (updatedAtProp != null)
+                if (updatedAtProp != null && (updatedAtProp.PropertyInfo == null || updatedAtProp.PropertyInfo.CanWrite))
                 {
                     entry.Property("UpdatedAt").CurrentValue = utcNow;
                 }
