@@ -582,7 +582,7 @@ public class TelegramIntegrationTests
         var mockClient = new Mock<ITelegramClient>();
         mockClient.Setup(c => c.IsConnected()).Returns(true);
         mockClient.Setup(c => c.SendMessageAsync(It.IsAny<long>(), It.IsAny<string>()))
-            .ThrowsAsync(new TelegramConnectionException("Chat with ID -1234567890 not found in Telegram dialogs/chats cache."));
+            .ThrowsAsync(new TelegramConnectionException("Chat with ID -9999999999 not found in Telegram dialogs/chats cache."));
 
         var options = new TelegramOptions { Enabled = true };
         var mockOptions = Microsoft.Extensions.Options.Options.Create(options);
@@ -595,7 +595,7 @@ public class TelegramIntegrationTests
             eventType: "TestEvent",
             severity: "INFO",
             channel: "Telegram",
-            recipient: "-1234567890",
+            recipient: "-9999999999",
             title: "Test Title",
             message: "Test Message"
         );

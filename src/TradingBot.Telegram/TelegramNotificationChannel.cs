@@ -49,10 +49,10 @@ public class TelegramNotificationChannel : INotificationChannel
         }
 
         // Fallback to sending via main Telegram user account if BotToken is not set
-        if (!long.TryParse(notification.Recipient, out var chatId))
+        if (!long.TryParse(notification.Recipient, out var chatId) || notification.Recipient == "-1234567890" || notification.Recipient == "1234567890")
         {
-            _logger.LogError("TelegramNotificationChannel: Invalid Recipient format '{Recipient}'. Must be a valid long ChatId.", notification.Recipient);
-            return NotificationDeliveryResult.AsFailure(isRetryable: false, "INVALID_RECIPIENT", $"Recipient format '{notification.Recipient}' is invalid.");
+            _logger.LogError("TelegramNotificationChannel: Invalid or placeholder Recipient '{Recipient}'. Must be a valid real ChatId.", notification.Recipient);
+            return NotificationDeliveryResult.AsFailure(isRetryable: false, "INVALID_RECIPIENT", $"Recipient '{notification.Recipient}' is invalid or unconfigured placeholder.");
         }
 
         try
