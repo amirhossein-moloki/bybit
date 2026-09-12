@@ -166,4 +166,52 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
             _logger.LogError(ex, "DefaultTelegramMessageReceiver: Error processing received message ID {MessageId}", message.MessageId);
         }
     }
+
+    private async Task ForwardListenedMessageNotificationAsync(IServiceScope scope, TelegramMessageDto message, string sourceTitle)
+    {
+        try
+        {
+            var notifOptions = scope.ServiceProvider.GetService<Microsoft.Extensions.Options.IOptions<TradingBot.Application.Monitoring.Configuration.NotificationOptions>>()?.Value;
+            var recipient = notifOptions?.Telegram?.ChatId;
+
+            if (string.IsNullOrWhiteSpace(recipient) || recipient == "-1234567890" || recipient == "1234567890" || recipient == "default-chat-id")
+            {
+                return;
+            }
+
+            var notifRepo = scope.ServiceProvider.GetService<INotificationRepository>();
+            var unitOfWork = scope.ServiceProvider.GetService<TradingBot.Application.Repositories.IUnitOfWork>();
+
+            if (notifRepo != null && unitOfWork != null)
+            {
+                var channelDisplayName = string.IsNullOrWhiteSpace(sourceTitle) ? message.ChannelName : sourceTitle;
+                if (string.IsNullOrWhiteSpace(channelDisplayName)) channelDisplayName = $"Chat {message.ChannelId}";
+
+                var formattedMessage = $"📩 <b>[Listened Telegram Message]</b>\n" +
+                                       $"<b>Source:</b> {channelDisplayName} (<code>{message.ChannelId}</code>)\n" +
+                                       $"<b>Message ID:</b> {message.MessageId}\n" +
+                                       $"<b>Date:</b> {message.Date:yyyy-MM-dd HH:mm:ss} UTC\n\n" +
+                                       $"{message.Text}";
+
+                var notif = new TradingBot.Domain.Entities.Notification(
+                    eventId: Guid.NewGuid(),
+                    eventType: "TelegramListenedMessage",
+                    severity: "INFO",
+                    channel: "Telegram",
+                    recipient: recipient,
+                    title: $"Listened Message: {channelDisplayName}",
+                    message: formattedMessage,
+                    maxAttempts: notifOptions?.Telegram?.RetryCount ?? 3
+                );
+
+                await notifRepo.AddAsync(notif);
+                await unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("DefaultTelegramMessageReceiver: Created notification for listened message ID {MessageId} from '{Source}'.", message.MessageId, channelDisplayName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DefaultTelegramMessageReceiver: Failed to forward listened message notification for message ID {MessageId}", message.MessageId);
+        }
+    }
 }

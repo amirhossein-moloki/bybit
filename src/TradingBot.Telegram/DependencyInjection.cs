@@ -83,6 +83,7 @@ public static class DependencyInjection
         services.AddSingleton<TradingBot.Application.Monitoring.INotificationChannel, TelegramNotificationChannel>();
 
         services.AddHostedService<TelegramListenerWorker>();
+        services.AddHostedService<TelegramMonitoredSourcesReporter>();
 
         services.AddHealthChecks().AddCheck<TelegramHealthCheck>("Telegram");
 
