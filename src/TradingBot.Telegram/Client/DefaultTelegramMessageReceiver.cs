@@ -68,6 +68,8 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
 
             // 1. Check Source capabilities in DB if repository registered
             var sourceRepo = scope.ServiceProvider.GetService<ITelegramSourceRepository>();
+            var unitOfWork = scope.ServiceProvider.GetService<TradingBot.Application.Repositories.IUnitOfWork>();
+
             if (sourceRepo != null)
             {
                 var source = await sourceRepo.GetByChatIdAsync(message.ChannelId);
@@ -75,49 +77,62 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                 {
                     var options = scope.ServiceProvider.GetService<Microsoft.Extensions.Options.IOptions<TradingBot.Telegram.Configuration.TelegramOptions>>();
                     var configured = options?.Value?.Channels;
-                    if (configured == null || configured.Count == 0)
+                    bool isConfigured = configured != null && configured.Any(c => !string.IsNullOrWhiteSpace(c) && (c.Equals(message.ChannelId.ToString(), StringComparison.OrdinalIgnoreCase) || c.Equals(message.ChannelName, StringComparison.OrdinalIgnoreCase)));
+
+                    if (!isConfigured)
                     {
                         _logger.LogInformation("DefaultTelegramMessageReceiver: Channel ID {ChannelId} ({ChannelName}) is not registered in TelegramSources. Ignoring message ID {MessageId}.",
                             message.ChannelId, message.ChannelName, message.MessageId);
                         return;
                     }
+
+                    // Auto-register configured channel as TelegramSource entity in DB
+                    source = new TradingBot.Domain.Entities.TelegramSource(
+                        message.ChannelId,
+                        string.IsNullOrWhiteSpace(message.ChannelName) ? $"Monitored Channel ({message.ChannelId})" : message.ChannelName,
+                        null,
+                        message.IsChannel ? TradingBot.Domain.Enums.TelegramSourceType.Channel : TradingBot.Domain.Enums.TelegramSourceType.Group,
+                        isEnabled: true,
+                        listenForSignals: true,
+                        processMessages: true
+                    );
+                    await sourceRepo.AddAsync(source);
                 }
-                else
+
+                if (!source.IsEnabled || source.IsPaused)
                 {
-                    if (!source.IsEnabled || source.IsPaused)
-                    {
-                        _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' ({ChatId}) is disabled or paused. Ignoring message ID {MessageId}.",
-                            source.Title, source.TelegramChatId, message.MessageId);
-                        return;
-                    }
+                    _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' ({ChatId}) is disabled or paused. Ignoring message ID {MessageId}.",
+                        source.Title, source.TelegramChatId, message.MessageId);
+                    return;
+                }
 
-                    // Save Telegram Message entity if ProcessMessages is enabled
-                    if (source.ProcessMessages)
+                // Save Telegram Message entity if ProcessMessages is enabled
+                if (source.ProcessMessages)
+                {
+                    var msgRepo = scope.ServiceProvider.GetService<IMessageRepository>();
+                    if (msgRepo != null)
                     {
-                        var msgRepo = scope.ServiceProvider.GetService<IMessageRepository>();
-                        if (msgRepo != null)
+                        var domainMsg = new TelegramMessage(
+                            source.TelegramChatId,
+                            message.MessageId,
+                            message.SenderId,
+                            message.Text,
+                            message.Date
+                        );
+                        await msgRepo.CreateAsync(domainMsg);
+                        if (unitOfWork != null)
                         {
-                            var domainMsg = new TelegramMessage(
-                                source.TelegramChatId,
-                                message.MessageId,
-                                message.SenderId,
-                                message.Text,
-                                message.Date
-                            );
-                            await msgRepo.CreateAsync(domainMsg);
-                            _logger.LogDebug("DefaultTelegramMessageReceiver: Persisted message ID {MessageId} for source '{Title}'.", message.MessageId, source.Title);
+                            await unitOfWork.SaveChangesAsync();
                         }
+                        _logger.LogDebug("DefaultTelegramMessageReceiver: Persisted message ID {MessageId} for source '{Title}'.", message.MessageId, source.Title);
                     }
+                }
 
-                    // Forward listened message to main notification engine / channel
-                    await ForwardListenedMessageNotificationAsync(scope, message, source.Title);
-
-                    if (!source.ListenForSignals)
-                    {
-                        _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' has ListenForSignals disabled. Skipping signal analysis for message ID {MessageId}.",
-                            source.Title, message.MessageId);
-                        return;
-                    }
+                if (!source.ListenForSignals)
+                {
+                    _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' has ListenForSignals disabled. Skipping signal analysis for message ID {MessageId}.",
+                        source.Title, message.MessageId);
+                    return;
                 }
             }
 

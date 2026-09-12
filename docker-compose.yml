@@ -6,23 +6,51 @@ services:
       dockerfile: Dockerfile
     container_name: tradingbot-worker
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:80
-      - Database__ConnectionString=Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}
+      - Database__ConnectionString=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}}
+      - DATABASE_CONNECTION=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
       - Exchange__ApiKey=${BYBIT_API_KEY:-}
       - Exchange__ApiSecret=${BYBIT_API_SECRET:-${BYBIT_SECRET_KEY:-}}
+      - Exchange__DemoApiKey=${BYBIT_DEMO_API_KEY:-}
+      - Exchange__DemoApiSecret=${BYBIT_DEMO_API_SECRET:-}
+      - Exchange__MainnetApiKey=${BYBIT_MAINNET_API_KEY:-}
+      - Exchange__MainnetApiSecret=${BYBIT_MAINNET_API_SECRET:-}
+      - Exchange__Environment=${BYBIT_ENVIRONMENT:-Demo}
       - BYBIT_API_KEY=${BYBIT_API_KEY:-}
       - BYBIT_API_SECRET=${BYBIT_API_SECRET:-${BYBIT_SECRET_KEY:-}}
+      - BYBIT_DEMO_API_KEY=${BYBIT_DEMO_API_KEY:-}
+      - BYBIT_DEMO_API_SECRET=${BYBIT_DEMO_API_SECRET:-}
+      - BYBIT_MAINNET_API_KEY=${BYBIT_MAINNET_API_KEY:-}
+      - BYBIT_MAINNET_API_SECRET=${BYBIT_MAINNET_API_SECRET:-}
       - BYBIT_ENVIRONMENT=${BYBIT_ENVIRONMENT:-Demo}
-      - Security__EncryptionKey=${ENCRYPTION_KEY}
+      - BYBIT_PROXY_URL=${BYBIT_PROXY_URL:-}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - Security__EncryptionKey=${ENCRYPTION_KEY:-}
+      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-ValidDashboardReadToken}
+      - Security__DashboardToken=${DASHBOARD_TOKEN:-ValidDashboardReadToken}
+      - Security__AllowedTelegramChatIds=${Security__AllowedTelegramChatIds:-}
       - Telegram__ApiId=${TELEGRAM_API_ID:-}
       - Telegram__ApiHash=${TELEGRAM_API_HASH:-}
       - Telegram__PhoneNumber=${TELEGRAM_PHONE_NUMBER:-}
       - Telegram__SessionPath=${TELEGRAM_SESSION_PATH:-/app/data/telegram/session}
+      - Telegram__BotToken=${TELEGRAM_BOT_TOKEN:-}
       - Telegram__ProxyUrl=${TELEGRAM_PROXY_URL:-}
       - TELEGRAM_API_ID=${TELEGRAM_API_ID:-}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH:-}
+      - TELEGRAM_PHONE_NUMBER=${TELEGRAM_PHONE_NUMBER:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_PROXY_URL=${TELEGRAM_PROXY_URL:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - AI__Provider=${AI__Provider:-Mock}
+      - AI__ApiKey=${AI__ApiKey:-}
+      - AI__Endpoint=${AI__Endpoint:-https://openrouter.ai/api/v1/chat/completions}
+      - AI__Model=${AI__Model:-openrouter/auto}
+      - Notification__Telegram__BotToken=${TELEGRAM_BOT_TOKEN:-}
+      - Notification__Telegram__ChatId=${TELEGRAM_CHAT_ID:-}
+      - NOTIFICATIONS_DISABLED=${NOTIFICATIONS_DISABLED:-false}
     expose:
       - "80"
     volumes:
@@ -41,7 +69,8 @@ services:
     expose:
       - "3000"
     environment:
-      - API_PROXY_TARGET=http://tradingbot-worker
+      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://tradingbot-worker}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
     depends_on:
       - tradingbot-worker
     restart: unless-stopped
@@ -60,7 +89,7 @@ services:
       dockerfile: Dockerfile
     container_name: tradingbot-nginx
     ports:
-      - "80:80"
+      - "${HTTP_PORT:-80}:80"
     expose:
       - "80"
     depends_on:
@@ -80,11 +109,11 @@ services:
     image: postgres:16-alpine
     container_name: tradingbot-postgres
     environment:
-      POSTGRES_DB: tradingbot
-      POSTGRES_USER: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-tradingbot}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -94,7 +123,7 @@ services:
     image: redis:7-alpine
     container_name: tradingbot-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     networks:
