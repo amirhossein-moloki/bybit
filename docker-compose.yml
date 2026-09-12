@@ -7,7 +7,7 @@ services:
     container_name: tradingbot-worker
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
-      - ASPNETCORE_URLS=http://+:80
+      - ASPNETCORE_URLS=http://+:8080
       - Database__ConnectionString=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-}}
       - DATABASE_CONNECTION=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-}}
       - REDIS_HOST=${REDIS_HOST:-redis}
@@ -52,7 +52,7 @@ services:
       - Notification__Telegram__ChatId=${TELEGRAM_CHAT_ID:-}
       - NOTIFICATIONS_DISABLED=${NOTIFICATIONS_DISABLED:-false}
     expose:
-      - "80"
+      - "8080"
     volumes:
       - botdata:/app/data
     depends_on:
@@ -69,7 +69,7 @@ services:
     expose:
       - "3000"
     environment:
-      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://tradingbot-worker}
+      - API_PROXY_TARGET=${API_PROXY_TARGET:-http://tradingbot-worker:8080}
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
     depends_on:
       - tradingbot-worker
