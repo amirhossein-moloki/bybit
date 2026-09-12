@@ -43,7 +43,7 @@ public class TelegramBotClientTests
         var botClient = new TelegramBotClient(httpClient, loggerMock.Object);
 
         // Act
-        var result = await botClient.SendTextMessageAsync("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", "-1001234567890", "Test notification message");
+        var result = await botClient.SendTextMessageAsync("mock_bot_token_12345", "-1001234567890", "Test notification message");
 
         // Assert
         result.Success.Should().BeTrue();
@@ -52,7 +52,7 @@ public class TelegramBotClientTests
             Times.Once(),
             ItExpr.Is<HttpRequestMessage>(req =>
                 req.Method == HttpMethod.Post &&
-                req.RequestUri!.ToString().Contains("https://api.telegram.org/bot123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11/sendMessage")),
+                req.RequestUri!.ToString().Contains("https://api.telegram.org/botmock_bot_token_12345/sendMessage")),
             ItExpr.IsAny<CancellationToken>()
         );
     }
