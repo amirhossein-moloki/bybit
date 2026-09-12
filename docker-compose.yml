@@ -8,8 +8,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:80
-      - Database__ConnectionString=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}}
-      - DATABASE_CONNECTION=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-postgres}}
+      - Database__ConnectionString=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-}}
+      - DATABASE_CONNECTION=${DATABASE_CONNECTION:-Host=postgres;Database=tradingbot;Username=postgres;Password=${DB_PASSWORD:-}}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - Exchange__ApiKey=${BYBIT_API_KEY:-}
@@ -29,8 +29,8 @@ services:
       - BYBIT_PROXY_URL=${BYBIT_PROXY_URL:-}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - Security__EncryptionKey=${ENCRYPTION_KEY:-}
-      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-ValidDashboardReadToken}
-      - Security__DashboardToken=${DASHBOARD_TOKEN:-ValidDashboardReadToken}
+      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
+      - Security__DashboardToken=${DASHBOARD_TOKEN:-}
       - Security__AllowedTelegramChatIds=${Security__AllowedTelegramChatIds:-}
       - Telegram__ApiId=${TELEGRAM_API_ID:-}
       - Telegram__ApiHash=${TELEGRAM_API_HASH:-}
@@ -111,7 +111,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tradingbot}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:

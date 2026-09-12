@@ -128,6 +128,9 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                     }
                 }
 
+                // Forward listened message notification to configured recipient
+                await ForwardListenedMessageNotificationAsync(scope, message, source.Title);
+
                 if (!source.ListenForSignals)
                 {
                     _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' has ListenForSignals disabled. Skipping signal analysis for message ID {MessageId}.",
