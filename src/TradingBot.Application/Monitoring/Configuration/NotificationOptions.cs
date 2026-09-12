@@ -15,8 +15,8 @@ public class NotificationOptions
 
         if (Telegram.Enabled)
         {
-            if (string.IsNullOrWhiteSpace(Telegram.ChatId))
-                throw new ArgumentException("Telegram ChatId cannot be empty when Telegram notifications are enabled.");
+            if (string.IsNullOrWhiteSpace(Telegram.ChatId) || Telegram.ChatId == "-1234567890" || Telegram.ChatId == "1234567890")
+                throw new ArgumentException("Telegram ChatId cannot be empty or a default placeholder when Telegram notifications are enabled.");
             if (Telegram.RetryCount < 0)
                 throw new ArgumentException("Notification retry count cannot be negative.");
             if (Telegram.InitialRetryDelaySeconds <= 0)

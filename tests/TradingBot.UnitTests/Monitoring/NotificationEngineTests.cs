@@ -270,4 +270,70 @@ public class NotificationEngineTests
         result.IsRetryable.Should().BeTrue(); // Timeout, should retry!
         result.ErrorCode.Should().Be("TIMEOUT");
     }
+
+    [Fact]
+    public async Task TelegramNotificationChannel_ShouldRejectPlaceholderChatId_AsNonRetryable()
+    {
+        // Arrange
+        var mockClient = new Mock<ITelegramClient>();
+        var options = Microsoft.Extensions.Options.Options.Create(new TelegramOptions { Enabled = true });
+        var channel = new TelegramNotificationChannel(mockClient.Object, options, Mock.Of<ILogger<TelegramNotificationChannel>>());
+
+        var notification = new Notification(
+            eventId: Guid.NewGuid(),
+            eventType: "ApplicationStarted",
+            severity: "INFORMATION",
+            channel: "Telegram",
+            recipient: "-1234567890",
+            title: "Title",
+            message: "Msg"
+        );
+
+        // Act
+        var result = await channel.SendAsync(notification);
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.IsRetryable.Should().BeFalse();
+        result.ErrorCode.Should().Be("INVALID_RECIPIENT");
+    }
+
+    [Fact]
+    public async Task NotificationEngine_ShouldSkipEnqueueing_WhenChatIdIsPlaceholder()
+    {
+        // Arrange
+        var mockPolicy = new Mock<INotificationPolicy>();
+        mockPolicy.Setup(p => p.ShouldNotify(It.IsAny<MonitoringEvent>())).Returns(true);
+
+        var mockRepo = new Mock<INotificationRepository>();
+        var mockUow = new Mock<IUnitOfWork>();
+
+        var options = new NotificationOptions
+        {
+            Enabled = true,
+            Telegram = new TelegramNotificationSettings
+            {
+                Enabled = true,
+                ChatId = "-1234567890"
+            }
+        };
+
+        var engine = new NotificationEngine(
+            mockPolicy.Object,
+            _messageBuilder,
+            mockRepo.Object,
+            mockUow.Object,
+            options,
+            Mock.Of<ILogger<NotificationEngine>>()
+        );
+
+        var @event = new MonitoringEvent("ApplicationStarted", "INFORMATION", "System", "Host", "Started", "Hello");
+
+        // Act
+        await engine.ProcessEventAsync(@event);
+
+        // Assert - repo should not be called to add notification
+        mockRepo.Verify(r => r.AddAsync(It.IsAny<Notification>(), It.IsAny<System.Threading.CancellationToken>()), Times.Never);
+        mockUow.Verify(u => u.SaveChangesAsync(It.IsAny<System.Threading.CancellationToken>()), Times.Never);
+    }
 }

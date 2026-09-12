@@ -50,9 +50,9 @@ public class NotificationEngine : INotificationEngine
             var channel = "Telegram";
             var recipient = _options.Telegram?.ChatId ?? string.Empty;
 
-            if (string.IsNullOrWhiteSpace(recipient))
+            if (string.IsNullOrWhiteSpace(recipient) || recipient == "-1234567890" || recipient == "1234567890" || recipient == "default-chat-id")
             {
-                _logger.LogWarning("NotificationEngine: Telegram notifications are enabled but ChatId is not configured.");
+                _logger.LogWarning("NotificationEngine: Telegram notifications are enabled but ChatId is not configured or set to a placeholder ({Recipient}).", recipient);
                 return;
             }
 
