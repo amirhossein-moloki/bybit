@@ -90,8 +90,10 @@ services:
     container_name: tradingbot-nginx
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     expose:
       - "80"
+      - "443"
     depends_on:
       - dashboard
       - tradingbot-worker
