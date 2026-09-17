@@ -288,6 +288,37 @@ public static class TelegramEndpoints
             var pipeline = await sourceService.GetLiveMessagePipelineAsync(sourceId, page ?? 1, pageSize ?? 20, ct);
             return Results.Ok(new { status = "success", data = pipeline });
         });
+
+        // 22. Message Flow Trace Endpoint
+        group.MapGet("/messages/trace/{channelId:long}/{messageId:long}", async (
+            TradingBot.Application.SignalIntelligence.Contracts.IMessageRepository msgRepo,
+            TradingBot.Application.SignalIntelligence.Contracts.IMessageAnalysisRepository analysisRepo,
+            TradingBot.Application.SignalIntelligence.Contracts.IMessageProcessingTrackerRepository trackerRepo,
+            TradingBot.Application.Repositories.ISignalRepository signalRepo,
+            long channelId,
+            long messageId,
+            CancellationToken ct) =>
+        {
+            var msg = await msgRepo.GetByChannelMessageIdAsync(channelId, messageId, ct);
+            var analysis = msg != null ? await analysisRepo.GetByMessageIdAsync(msg.Id, ct) : null;
+            var tracker = msg != null ? await trackerRepo.GetByTelegramMessageIdAsync(msg.Id, ct) : null;
+            var signalExists = await signalRepo.ExistsAsync(channelId, messageId, ct);
+
+            return Results.Ok(new
+            {
+                status = "success",
+                data = new
+                {
+                    correlationId = $"tg-{channelId}-{messageId}",
+                    channelId,
+                    messageId,
+                    message = msg != null ? new { msg.Id, msg.Content, msg.ReceivedAt, msg.Processed } : null,
+                    analysis = analysis != null ? new { analysis.Id, MessageType = analysis.MessageType.ToString(), analysis.Confidence, analysis.ExtractedData, analysis.AIUsed, analysis.ProcessedAt } : null,
+                    tracker = tracker != null ? new { tracker.State, tracker.UpdatedAt } : null,
+                    signalExists
+                }
+            });
+        });
     }
 }
 
