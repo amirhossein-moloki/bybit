@@ -162,11 +162,101 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
             else
             {
                 _logger.LogDebug("DefaultTelegramMessageReceiver: Message {MessageId} did not qualify as a signal candidate.", message.MessageId);
+
+                var sourceTitleStr = message.ChannelName;
+                if (sourceRepo != null)
+                {
+                    var src = await sourceRepo.GetByChatIdAsync(message.ChannelId);
+                    if (src != null && !string.IsNullOrWhiteSpace(src.Title)) sourceTitleStr = src.Title;
+                }
+                await ForwardSignalRejectedNotificationAsync(scope, message, sourceTitleStr ?? $"Chat {message.ChannelId}");
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "DefaultTelegramMessageReceiver: Error processing received message ID {MessageId}", message.MessageId);
+        }
+    }
+
+    private async Task ForwardSignalRejectedNotificationAsync(IServiceScope scope, TelegramMessageDto message, string sourceTitle)
+    {
+        try
+        {
+            var notifOptions = scope.ServiceProvider.GetService<Microsoft.Extensions.Options.IOptions<TradingBot.Application.Monitoring.Configuration.NotificationOptions>>()?.Value;
+            var recipient = notifOptions?.Telegram?.ChatId;
+
+            if (string.IsNullOrWhiteSpace(recipient) || recipient == "-1234567890" || recipient == "1234567890" || recipient == "default-chat-id")
+            {
+                return;
+            }
+
+            var notifRepo = scope.ServiceProvider.GetService<INotificationRepository>();
+            var unitOfWork = scope.ServiceProvider.GetService<TradingBot.Application.Repositories.IUnitOfWork>();
+
+            if (notifRepo != null && unitOfWork != null)
+            {
+                var channelDisplayName = string.IsNullOrWhiteSpace(sourceTitle) ? message.ChannelName : sourceTitle;
+                if (string.IsNullOrWhiteSpace(channelDisplayName)) channelDisplayName = $"Chat {message.ChannelId}";
+
+                var payloadDict = new System.Collections.Generic.Dictionary<string, object?>
+                {
+                    ["Status"] = "⛔ Signal Not Detected / Filter Rejected",
+                    ["Reason"] = "Message did not meet minimum signal criteria or score threshold. No valid trading symbol or direction detected.",
+                    ["SourceTitle"] = channelDisplayName,
+                    ["ChatId"] = message.ChannelId,
+                    ["MessageId"] = message.MessageId,
+                    ["SenderId"] = message.SenderId,
+                    ["RawText"] = message.Text
+                };
+
+                var payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadDict);
+
+                var messageBuilder = scope.ServiceProvider.GetService<TradingBot.Application.Monitoring.ITelegramMessageBuilder>();
+                string formattedMsg;
+
+                if (messageBuilder != null)
+                {
+                    var evt = new TradingBot.Domain.Entities.MonitoringEvent(
+                        eventType: "SignalRejected",
+                        severity: "WARNING",
+                        source: channelDisplayName,
+                        component: "SignalIntelligence",
+                        status: "⛔ Signal Not Detected / Filter Rejected",
+                        message: "Message did not meet minimum signal criteria or score threshold. No valid trading symbol or direction detected.",
+                        payload: payloadJson
+                    );
+                    formattedMsg = messageBuilder.BuildMessage(evt);
+                }
+                else
+                {
+                    formattedMsg = $"📩 <b>[Telegram Intercepted Message]</b>\n" +
+                                   $"<b>Source:</b> {channelDisplayName} (<code>{message.ChannelId}</code>)\n" +
+                                   $"<b>Message ID:</b> <code>{message.MessageId}</code>\n" +
+                                   $"<b>Time:</b> {message.Date:yyyy-MM-dd HH:mm:ss} UTC\n\n" +
+                                   $"<b>Status:</b> ⛔ Signal Not Detected / Filter Rejected\n" +
+                                   $"<b>Reason:</b> Message did not meet minimum signal criteria or score threshold.\n\n" +
+                                   $"<b>Content:</b>\n<i>{message.Text}</i>";
+                }
+
+                var notif = new TradingBot.Domain.Entities.Notification(
+                    eventId: Guid.NewGuid(),
+                    eventType: "SignalRejected",
+                    severity: "WARNING",
+                    channel: "Telegram",
+                    recipient: recipient,
+                    title: $"Signal Rejected: {channelDisplayName}",
+                    message: formattedMsg,
+                    payload: payloadJson,
+                    maxAttempts: notifOptions?.Telegram?.RetryCount ?? 3
+                );
+
+                await notifRepo.AddAsync(notif);
+                await unitOfWork.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DefaultTelegramMessageReceiver: Failed to forward signal rejection notification for message ID {MessageId}", message.MessageId);
         }
     }
 

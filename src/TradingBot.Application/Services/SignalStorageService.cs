@@ -75,6 +75,20 @@ public class SignalStorageService : ISignalStorageService
                 _metrics.IncrementDuplicatesIgnored();
                 _logger.LogInformation("Duplicate signal ignored\nChannel:\n{ChannelId}\n\nMessageId:\n{MessageId}",
                     candidate.ChannelId, candidate.MessageId);
+
+                await SendNotificationAsync(
+                    eventType: "DuplicateSignal",
+                    severity: "WARNING",
+                    title: "Duplicate Signal Ignored",
+                    status: "⚠️ Duplicate Signal Ignored",
+                    reason: $"Message ID {candidate.MessageId} from this source was already processed previously. Ignored to avoid duplicate execution.",
+                    channelId: candidate.ChannelId,
+                    messageId: candidate.MessageId,
+                    date: candidate.DetectedAt,
+                    rawText: candidate.RawText,
+                    symbol: candidate.DetectedSymbol,
+                    side: candidate.DetectedSide
+                );
                 return;
             }
         }
@@ -269,8 +283,37 @@ public class SignalStorageService : ISignalStorageService
                 _logger.LogInformation("RiskEvaluationCompleted: SignalId {SignalId}, Decision: {Decision}, Message: {Message}",
                     signal.Id, workflowResult.TradeDecision?.Decision, workflowResult.Message);
 
+                bool isRiskApproved = workflowResult.IsSuccess &&
+                                       workflowResult.TradeDecision != null &&
+                                       workflowResult.TradeDecision.Decision == TradingBot.Domain.RiskManagement.Enums.RiskDecisionStatus.Approved;
+
+                if (!isRiskApproved)
+                {
+                    var riskReason = !string.IsNullOrWhiteSpace(workflowResult.Message)
+                        ? workflowResult.Message
+                        : $"Risk check resulted in '{workflowResult.TradeDecision?.Decision}'. Trade not approved.";
+
+                    await SendNotificationAsync(
+                        eventType: "RiskRejected",
+                        severity: "WARNING",
+                        title: $"Risk Check Rejected: {signal.Symbol}",
+                        status: "⛔ Risk Check Rejected",
+                        reason: riskReason,
+                        channelId: candidate.ChannelId,
+                        messageId: candidate.MessageId,
+                        date: candidate.DetectedAt,
+                        rawText: candidate.RawText,
+                        symbol: signal.Symbol,
+                        side: signal.Side.ToString(),
+                        entryPrice: effectiveEntry,
+                        stopLoss: effectiveSl,
+                        takeProfit: signal.TakeProfit ?? takeProfits.FirstOrDefault(),
+                        leverage: leverage
+                    );
+                }
+
                 // 3. Trade Execution Orchestrator
-                if (workflowResult.IsSuccess && workflowResult.TradeDecision != null && workflowResult.TradeDecision.Decision == TradingBot.Domain.RiskManagement.Enums.RiskDecisionStatus.Approved)
+                if (isRiskApproved)
                 {
                     var orchestrator = _serviceProvider?.GetService(typeof(TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionOrchestrator))
                         as TradingBot.Application.Trading.Execution.Contracts.ITradeExecutionOrchestrator;
@@ -305,6 +348,45 @@ public class SignalStorageService : ISignalStorageService
                             _signalRepository.Update(signal);
                             await _unitOfWork.SaveChangesAsync();
                             await _unitOfWork.CommitTransactionAsync();
+
+                            await SendNotificationAsync(
+                                eventType: "TradeExecutedFromSignal",
+                                severity: "INFORMATION",
+                                title: $"Trade Executed: {signal.Symbol}",
+                                status: "✅ Trade Created & Order Executed",
+                                reason: "Signal passed all validations and risk checks. Order successfully submitted to Bybit.",
+                                channelId: candidate.ChannelId,
+                                messageId: candidate.MessageId,
+                                date: candidate.DetectedAt,
+                                rawText: candidate.RawText,
+                                symbol: signal.Symbol,
+                                side: signal.Side.ToString(),
+                                entryPrice: effectiveEntry,
+                                stopLoss: effectiveSl,
+                                takeProfit: signal.TakeProfit ?? takeProfits.FirstOrDefault(),
+                                leverage: leverage,
+                                orderId: executionResult.OrderId.ToString()
+                            );
+                        }
+                        else
+                        {
+                            await SendNotificationAsync(
+                                eventType: "TradeExecutionFailed",
+                                severity: "ERROR",
+                                title: $"Trade Execution Failed: {signal.Symbol}",
+                                status: "❌ Exchange Execution Failed",
+                                reason: string.IsNullOrWhiteSpace(executionResult.FailureReason) ? "Order submission to exchange failed." : executionResult.FailureReason,
+                                channelId: candidate.ChannelId,
+                                messageId: candidate.MessageId,
+                                date: candidate.DetectedAt,
+                                rawText: candidate.RawText,
+                                symbol: signal.Symbol,
+                                side: signal.Side.ToString(),
+                                entryPrice: effectiveEntry,
+                                stopLoss: effectiveSl,
+                                takeProfit: signal.TakeProfit ?? takeProfits.FirstOrDefault(),
+                                leverage: leverage
+                            );
                         }
                     }
                 }
@@ -313,6 +395,113 @@ public class SignalStorageService : ISignalStorageService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error occurred during signal parsing, risk evaluation, and trade execution pipeline for SignalId {SignalId}", signal.Id);
+        }
+    }
+
+    private async Task SendNotificationAsync(
+        string eventType,
+        string severity,
+        string title,
+        string status,
+        string reason,
+        long channelId,
+        long messageId,
+        DateTime date,
+        string rawText,
+        string? symbol = null,
+        string? side = null,
+        decimal? entryPrice = null,
+        decimal? stopLoss = null,
+        decimal? takeProfit = null,
+        int? leverage = null,
+        string? orderId = null)
+    {
+        try
+        {
+            if (_serviceProvider == null) return;
+
+            var notifOptions = _serviceProvider.GetService(typeof(Microsoft.Extensions.Options.IOptions<TradingBot.Application.Monitoring.Configuration.NotificationOptions>))
+                as Microsoft.Extensions.Options.IOptions<TradingBot.Application.Monitoring.Configuration.NotificationOptions>;
+            var recipient = notifOptions?.Value?.Telegram?.ChatId;
+
+            if (string.IsNullOrWhiteSpace(recipient) || recipient == "-1234567890" || recipient == "1234567890" || recipient == "default-chat-id")
+            {
+                return;
+            }
+
+            var notifRepo = _serviceProvider.GetService(typeof(INotificationRepository)) as INotificationRepository;
+            var unitOfWork = _serviceProvider.GetService(typeof(IUnitOfWork)) as IUnitOfWork;
+
+            if (notifRepo != null && unitOfWork != null)
+            {
+                var sourceTitle = $"Chat {channelId}";
+
+                var payloadDict = new System.Collections.Generic.Dictionary<string, object?>
+                {
+                    ["Status"] = status,
+                    ["Reason"] = reason,
+                    ["SourceTitle"] = sourceTitle,
+                    ["ChatId"] = channelId,
+                    ["MessageId"] = messageId,
+                    ["RawText"] = rawText,
+                    ["Symbol"] = symbol,
+                    ["Side"] = side,
+                    ["EntryPrice"] = entryPrice?.ToString(),
+                    ["StopLoss"] = stopLoss?.ToString(),
+                    ["TakeProfit"] = takeProfit?.ToString(),
+                    ["Leverage"] = leverage?.ToString(),
+                    ["OrderId"] = orderId
+                };
+
+                var payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadDict);
+
+                var messageBuilder = _serviceProvider.GetService(typeof(TradingBot.Application.Monitoring.ITelegramMessageBuilder))
+                    as TradingBot.Application.Monitoring.ITelegramMessageBuilder;
+                string formattedMsg;
+
+                if (messageBuilder != null)
+                {
+                    var evt = new TradingBot.Domain.Entities.MonitoringEvent(
+                        eventType: eventType,
+                        severity: severity,
+                        source: sourceTitle,
+                        component: "SignalIntelligence",
+                        status: status,
+                        message: reason,
+                        payload: payloadJson
+                    );
+                    formattedMsg = messageBuilder.BuildMessage(evt);
+                }
+                else
+                {
+                    formattedMsg = $"📩 <b>[Telegram Intercepted Message]</b>\n" +
+                                   $"<b>Source:</b> {sourceTitle} (<code>{channelId}</code>)\n" +
+                                   $"<b>Message ID:</b> <code>{messageId}</code>\n" +
+                                   $"<b>Time:</b> {date:yyyy-MM-dd HH:mm:ss} UTC\n\n" +
+                                   $"<b>Status:</b> {status}\n" +
+                                   $"<b>Reason:</b> {reason}\n\n" +
+                                   $"<b>Content:</b>\n<i>{rawText}</i>";
+                }
+
+                var notification = new TradingBot.Domain.Entities.Notification(
+                    eventId: Guid.NewGuid(),
+                    eventType: eventType,
+                    severity: severity,
+                    channel: "Telegram",
+                    recipient: recipient,
+                    title: title,
+                    message: formattedMsg,
+                    payload: payloadJson,
+                    maxAttempts: notifOptions?.Value?.Telegram?.RetryCount ?? 3
+                );
+
+                await notifRepo.AddAsync(notification);
+                await unitOfWork.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send notification for signal candidate Message ID {MessageId}", messageId);
         }
     }
 }
