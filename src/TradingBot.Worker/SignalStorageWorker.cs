@@ -56,9 +56,11 @@ public class SignalStorageWorker : BackgroundService
 
             try
             {
+                var correlationId = $"tg-{candidate.ChannelId}-{candidate.MessageId}";
+                using var _ = Serilog.Context.LogContext.PushProperty("CorrelationId", correlationId);
 
-                _logger.LogDebug("SignalStorageWorker: Dequeued signal candidate. Channel: {ChannelId}, MessageId: {MessageId}",
-                    candidate.ChannelId, candidate.MessageId);
+                _logger.LogDebug("SignalStorageWorker: Dequeued signal candidate. Channel: {ChannelId}, MessageId: {MessageId} [CorrelationId: {CorrelationId}]",
+                    candidate.ChannelId, candidate.MessageId, correlationId);
 
                 // 2. Process within scoped container to resolve Scoped DB contexts and repositories
                 using (var scope = _serviceProvider.CreateScope())

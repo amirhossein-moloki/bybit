@@ -46,8 +46,11 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
 
     public async Task ReceiveMessageAsync(TelegramMessageDto message)
     {
-        _logger.LogInformation("DefaultTelegramMessageReceiver: Received message ID {MessageId} from {ChannelName} (ID: {ChannelId})",
-            message.MessageId, message.ChannelName, message.ChannelId);
+        var correlationId = $"tg-{message.ChannelId}-{message.MessageId}";
+        using var _ = Serilog.Context.LogContext.PushProperty("CorrelationId", correlationId);
+
+        _logger.LogInformation("DefaultTelegramMessageReceiver: Received message ID {MessageId} from {ChannelName} (ID: {ChannelId}) [CorrelationId: {CorrelationId}]",
+            message.MessageId, message.ChannelName, message.ChannelId, correlationId);
 
         if (_tradingGate != null && (_tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopping ||
                                      _tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopped))
@@ -81,8 +84,22 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
 
                     if (!isConfigured)
                     {
-                        _logger.LogInformation("DefaultTelegramMessageReceiver: Channel ID {ChannelId} ({ChannelName}) is not registered in TelegramSources. Ignoring message ID {MessageId}.",
+                        _logger.LogWarning("DefaultTelegramMessageReceiver: Channel ID {ChannelId} ({ChannelName}) is not registered in TelegramSources. Ignoring message ID {MessageId}.",
                             message.ChannelId, message.ChannelName, message.MessageId);
+
+                        var eventPublisher = scope.ServiceProvider.GetService<TradingBot.Application.Monitoring.IMonitoringEventPublisher>();
+                        if (eventPublisher != null)
+                        {
+                            var evt = new TradingBot.Domain.Entities.MonitoringEvent(
+                                "UnmonitoredChannelMessageReceived",
+                                "WARNING",
+                                "TelegramReceiver",
+                                "DefaultTelegramMessageReceiver",
+                                "IGNORED",
+                                $"Message ID {message.MessageId} received from unmonitored channel '{message.ChannelName}' (ID: {message.ChannelId})."
+                            );
+                            await eventPublisher.PublishAsync(evt);
+                        }
                         return;
                     }
 
@@ -103,6 +120,20 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                 {
                     _logger.LogInformation("DefaultTelegramMessageReceiver: Source '{Title}' ({ChatId}) is disabled or paused. Ignoring message ID {MessageId}.",
                         source.Title, source.TelegramChatId, message.MessageId);
+
+                    var eventPublisher = scope.ServiceProvider.GetService<TradingBot.Application.Monitoring.IMonitoringEventPublisher>();
+                    if (eventPublisher != null)
+                    {
+                        var evt = new TradingBot.Domain.Entities.MonitoringEvent(
+                            "DisabledSourceMessageIgnored",
+                            "INFO",
+                            "TelegramReceiver",
+                            "DefaultTelegramMessageReceiver",
+                            "IGNORED",
+                            $"Message ID {message.MessageId} from source '{source.Title}' ignored because source is disabled or paused."
+                        );
+                        await eventPublisher.PublishAsync(evt);
+                    }
                     return;
                 }
 

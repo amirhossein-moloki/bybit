@@ -43,6 +43,9 @@ public class SignalStorageService : ISignalStorageService
 
     public async Task StoreAsync(SignalCandidate candidate)
     {
+        var correlationId = candidate != null ? $"tg-{candidate.ChannelId}-{candidate.MessageId}" : "tg-unknown";
+        using var scope = _logger.BeginScope(new System.Collections.Generic.Dictionary<string, object> { ["CorrelationId"] = correlationId });
+
         if (_tradingGate != null && (_tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopping ||
                                      _tradingGate.CurrentState == TradingBot.Domain.Enums.ApplicationState.Stopped))
         {

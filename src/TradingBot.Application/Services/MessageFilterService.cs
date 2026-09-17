@@ -218,7 +218,8 @@ public class MessageFilterService : IMessageFilter
                 return Task.FromResult<SignalCandidate?>(candidate);
             }
 
-            _logger.LogInformation("Message ignored. MessageId: {MessageId}, Score: {Score}", message.MessageId, score);
+            _logger.LogInformation("Message ignored by filter. MessageId: {MessageId}, Score: {Score}/{MinimumScore}, Symbol: {Symbol}, Side: {Side}, PriceKw: {HasPriceKw}, RiskKw: {HasRiskKw}",
+                message.MessageId, score, _settings.MinimumScore, detectedSymbol ?? "None", detectedSide ?? "None", hasPriceKeyword, hasRiskKeyword);
             return Task.FromResult<SignalCandidate?>(null);
         }
         catch (Exception ex)
