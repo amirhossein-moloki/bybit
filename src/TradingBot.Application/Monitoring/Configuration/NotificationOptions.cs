@@ -50,6 +50,9 @@ public class NotificationEvents
     public bool ApplicationError { get; set; } = true;
     public bool CriticalError { get; set; } = true;
     public bool WorkerFailed { get; set; } = true;
+    public bool TelegramMessageListened { get; set; } = true;
+    public bool SignalProcessed { get; set; } = true;
+    public bool SignalRejected { get; set; } = true;
 
     public bool IsEnabled(string eventType)
     {
@@ -66,7 +69,10 @@ public class NotificationEvents
             "ApplicationError" => ApplicationError,
             "CriticalError" => CriticalError,
             "WorkerFailed" => WorkerFailed,
-            _ => false
+            "TelegramMessageListened" => TelegramMessageListened,
+            "SignalProcessed" => SignalProcessed,
+            "SignalRejected" => SignalRejected,
+            _ => true
         };
     }
 }

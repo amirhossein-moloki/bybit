@@ -177,4 +177,93 @@ public class TelegramListenedNotificationTests
 
         mockUnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task DefaultTelegramMessageReceiver_ShouldForwardSignalRejectedNotification_WhenFilterRejectsMessage()
+    {
+        // Arrange
+        var mockScopeFactory = new Mock<IServiceScopeFactory>();
+        var mockScope = new Mock<IServiceScope>();
+        var mockServiceProvider = new Mock<IServiceProvider>();
+
+        mockScopeFactory.Setup(s => s.CreateScope()).Returns(mockScope.Object);
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+
+        var mockSourceRepo = new Mock<ITelegramSourceRepository>();
+        var mockNotifRepo = new Mock<INotificationRepository>();
+        var mockUnitOfWork = new Mock<TradingBot.Application.Repositories.IUnitOfWork>();
+        var mockQueue = new Mock<ISignalStorageQueue>();
+        var mockMetrics = new Mock<ISignalStorageMetrics>();
+        var mockTradingGate = new Mock<ITradingGate>();
+        var mockFilter = new Mock<IMessageFilter>();
+        var mockLogger = new Mock<ILogger<DefaultTelegramMessageReceiver>>();
+
+        var telegramSource = new TelegramSource(
+            telegramChatId: 1001234567,
+            title: "Test Signal Group",
+            isEnabled: true,
+            listenForSignals: true,
+            processMessages: true
+        );
+
+        mockSourceRepo.Setup(r => r.GetByChatIdAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(telegramSource);
+
+        mockFilter.Setup(f => f.AnalyzeAsync(It.IsAny<TelegramMessageDto>()))
+            .ReturnsAsync((TradingBot.Application.Models.SignalCandidate?)null);
+
+        var notificationOptions = new NotificationOptions
+        {
+            Enabled = true,
+            Telegram = new TelegramNotificationSettings
+            {
+                Enabled = true,
+                ChatId = "987654321"
+            }
+        };
+
+        var optionsWrapper = Options.Create(notificationOptions);
+
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(ITelegramSourceRepository)))
+            .Returns(mockSourceRepo.Object);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(INotificationRepository)))
+            .Returns(mockNotifRepo.Object);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(TradingBot.Application.Repositories.IUnitOfWork)))
+            .Returns(mockUnitOfWork.Object);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(IOptions<NotificationOptions>)))
+            .Returns(optionsWrapper);
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(IMessageFilter)))
+            .Returns(mockFilter.Object);
+
+        var receiver = new DefaultTelegramMessageReceiver(
+            mockScopeFactory.Object,
+            mockQueue.Object,
+            mockMetrics.Object,
+            mockTradingGate.Object,
+            mockLogger.Object
+        );
+
+        var testMessage = new TelegramMessageDto
+        {
+            ChannelId = 1001234567,
+            ChannelName = "Test Signal Group",
+            MessageId = 99,
+            SenderId = 12345,
+            Text = "Good morning everyone!",
+            Date = DateTime.UtcNow
+        };
+
+        // Act
+        await receiver.ReceiveMessageAsync(testMessage);
+
+        // Assert
+        mockNotifRepo.Verify(r => r.AddAsync(
+            It.Is<Notification>(n =>
+                n.EventType == "SignalRejected" &&
+                n.Recipient == "987654321" &&
+                n.Message.Contains("Signal Not Detected / Filter Rejected") &&
+                n.Message.Contains("Good morning everyone!")),
+            It.IsAny<CancellationToken>()
+        ), Times.Once);
+    }
 }

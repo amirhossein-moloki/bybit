@@ -136,6 +136,64 @@ public class TelegramMessageBuilder : ITelegramMessageBuilder
                 }
                 break;
 
+            case "TelegramMessageListened":
+            case "SignalRejected":
+            case "DuplicateSignal":
+            case "RiskRejected":
+            case "TradeExecutedFromSignal":
+            case "TradeExecutionFailed":
+                {
+                    var status = GetJsonVal("Status", @event.Status ?? "INFO");
+                    var reason = GetJsonVal("Reason", @event.Message);
+                    var sourceTitle = GetJsonVal("SourceTitle", @event.Source);
+                    var chatId = GetJsonVal("ChatId", "N/A");
+                    var messageId = GetJsonVal("MessageId", "N/A");
+                    var senderId = GetJsonVal("SenderId", "N/A");
+                    var rawText = GetJsonVal("RawText", GetJsonVal("MessageText", ""));
+                    var symbol = GetJsonVal("Symbol", "");
+                    var side = GetJsonVal("Side", "");
+                    var entry = GetJsonVal("EntryPrice", "");
+                    var sl = GetJsonVal("StopLoss", "");
+                    var tp = GetJsonVal("TakeProfit", "");
+                    var leverage = GetJsonVal("Leverage", "");
+                    var orderId = GetJsonVal("OrderId", "");
+
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine($"📩 <b>[Telegram Intercepted Message]</b>");
+                    sb.AppendLine($"<b>Source:</b> {EscapeHtml(sourceTitle)} (<code>{EscapeHtml(chatId)}</code>)");
+                    sb.AppendLine($"<b>Message ID:</b> <code>{EscapeHtml(messageId)}</code>");
+                    if (!string.IsNullOrEmpty(senderId) && senderId != "N/A")
+                        sb.AppendLine($"<b>Sender ID:</b> <code>{EscapeHtml(senderId)}</code>");
+                    sb.AppendLine($"<b>Time:</b> {timestampStr} UTC");
+
+                    if (!string.IsNullOrEmpty(symbol))
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine($"<b>Extracted Signal Parameters:</b>");
+                        sb.AppendLine($"• <b>Symbol:</b> <code>{EscapeHtml(symbol)}</code>");
+                        if (!string.IsNullOrEmpty(side)) sb.AppendLine($"• <b>Side:</b> {EscapeHtml(side)}");
+                        if (!string.IsNullOrEmpty(entry)) sb.AppendLine($"• <b>Entry Price:</b> {EscapeHtml(entry)}");
+                        if (!string.IsNullOrEmpty(sl)) sb.AppendLine($"• <b>Stop Loss:</b> {EscapeHtml(sl)}");
+                        if (!string.IsNullOrEmpty(tp)) sb.AppendLine($"• <b>Take Profit:</b> {EscapeHtml(tp)}");
+                        if (!string.IsNullOrEmpty(leverage)) sb.AppendLine($"• <b>Leverage:</b> {EscapeHtml(leverage)}x");
+                        if (!string.IsNullOrEmpty(orderId)) sb.AppendLine($"• <b>Order ID:</b> <code>{EscapeHtml(orderId)}</code>");
+                    }
+
+                    sb.AppendLine();
+                    sb.AppendLine($"<b>Status:</b> {EscapeHtml(status)}");
+                    sb.AppendLine($"<b>Reason:</b> {EscapeHtml(reason)}");
+
+                    if (!string.IsNullOrEmpty(rawText))
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine($"<b>Raw Content:</b>");
+                        sb.AppendLine($"<i>{EscapeHtml(rawText)}</i>");
+                    }
+
+                    formattedMessage = sb.ToString().TrimEnd();
+                }
+                break;
+
             case "ApplicationError":
             case "Error":
             case "WorkerFailed":
