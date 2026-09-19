@@ -75,7 +75,6 @@ public class NotificationRepository : RepositoryBase<Notification>, INotificatio
                     )
                     RETURNING *;
                 ")
-                .Include(x => x.DeliveryAttempts)
                 .ToListAsync(cancellationToken);
 
             return claimed;
