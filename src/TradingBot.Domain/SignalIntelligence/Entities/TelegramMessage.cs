@@ -13,6 +13,9 @@ public class TelegramMessage
     public DateTime ReceivedAt { get; private set; }
     public bool Processed { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public long? ReplyToMessageId { get; private set; }
+    public string? MediaInfo { get; private set; }
+    public string? EditInfo { get; private set; }
 
     // Required for EF Core
     private TelegramMessage()
@@ -28,7 +31,10 @@ public class TelegramMessage
         long messageId,
         long? senderId,
         string content,
-        DateTime receivedAt)
+        DateTime receivedAt,
+        long? replyToMessageId = null,
+        string? mediaInfo = null,
+        string? editInfo = null)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -53,6 +59,9 @@ public class TelegramMessage
         ReceivedAt = receivedAt == default ? DateTime.UtcNow : receivedAt;
         Processed = false;
         CreatedAt = DateTime.UtcNow;
+        ReplyToMessageId = replyToMessageId;
+        MediaInfo = mediaInfo;
+        EditInfo = editInfo;
     }
 
     public void MarkProcessed()
