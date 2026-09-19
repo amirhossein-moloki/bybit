@@ -432,6 +432,15 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             isGroup = true;
         }
 
+        long? replyToMsgId = null;
+        if (m.reply_to is TL.MessageReplyHeader rHeader && rHeader.reply_to_msg_id > 0)
+        {
+            replyToMsgId = rHeader.reply_to_msg_id;
+        }
+
+        string? mediaInfo = m.media != null ? m.media.GetType().Name : null;
+        string? editInfo = m.edit_date != default ? $"EditedAt:{m.edit_date:o}" : null;
+
         var dto = new TelegramMessageDto
         {
             ChannelId = chat.ID,
@@ -442,7 +451,10 @@ public class TelegramClientService : ITelegramClient, ITelegramDiscoveryClient, 
             Date = m.date.ToUniversalTime(),
             IsChannel = isChannel,
             IsGroup = isGroup,
-            RawUpdate = rawUpdate?.GetType().Name ?? "UpdateNewMessage"
+            RawUpdate = rawUpdate?.GetType().Name ?? "UpdateNewMessage",
+            ReplyToMessageId = replyToMsgId,
+            MediaInfo = mediaInfo,
+            EditInfo = editInfo
         };
 
         _logger.Information("Message Received: ID {MessageId} from channel {ChannelName} (ID: {ChannelId})", dto.MessageId, dto.ChannelName, dto.ChannelId);

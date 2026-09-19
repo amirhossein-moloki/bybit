@@ -117,7 +117,10 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                             message.MessageId,
                             message.SenderId,
                             message.Text,
-                            message.Date
+                            message.Date,
+                            replyToMessageId: message.ReplyToMessageId,
+                            mediaInfo: message.MediaInfo,
+                            editInfo: message.EditInfo
                         );
                         await msgRepo.CreateAsync(domainMsg);
                         if (unitOfWork != null)

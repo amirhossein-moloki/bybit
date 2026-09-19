@@ -13,4 +13,7 @@ public class TelegramMessageDto
     public bool IsChannel { get; set; }
     public bool IsGroup { get; set; }
     public string RawUpdate { get; set; } = string.Empty;
+    public long? ReplyToMessageId { get; set; }
+    public string? MediaInfo { get; set; }
+    public string? EditInfo { get; set; }
 }
