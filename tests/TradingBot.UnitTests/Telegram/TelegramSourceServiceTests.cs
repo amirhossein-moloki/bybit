@@ -13,6 +13,7 @@ using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.SignalIntelligence.Entities;
+using TradingBot.Domain.SignalIntelligence.Enums;
 using Xunit;
 
 namespace TradingBot.UnitTests.Telegram;
@@ -229,6 +230,80 @@ public class TelegramSourceServiceTests
         // Assert
         Assert.NotNull(result);
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetLiveMessagePipelineAsync_WithPositionManagementAnalysis_ShouldReturnFormattedLifecycleTrace()
+    {
+        // Arrange
+        var source = new TelegramSource(1001, "Forex Signals Channel");
+        _mockRepo.Setup(r => r.GetByIdAsync(source.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(source);
+        _mockRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TelegramSource> { source });
+
+        var message = new TelegramMessage(1001, 48269, 500, "یورو ریسک فری شده", DateTime.UtcNow);
+        _mockMessageRepo.Setup(m => m.GetRecentMessagesForChannelAsync(1001, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<TelegramMessage> { message });
+
+        var analysis = new MessageAnalysis(
+            message.Id,
+            MessageType.TRADE_UPDATE,
+            0.95m,
+            "{}",
+            false,
+            DateTime.UtcNow,
+            TelegramMessageIntent.PositionManagement,
+            action: "MoveStopLossToEntry",
+            targetSymbol: "EURUSD",
+            processingStatus: "Executed",
+            extractedMetadata: "{}"
+        );
+
+        var mockAnalysisRepo = new Mock<IMessageAnalysisRepository>();
+        mockAnalysisRepo.Setup(a => a.GetByMessageIdAsync(message.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(analysis);
+
+        var mockServiceProvider = new Mock<IServiceProvider>();
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(IMessageAnalysisRepository)))
+            .Returns(mockAnalysisRepo.Object);
+
+        var mockScope = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScope>();
+        mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
+
+        var mockScopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+        mockScopeFactory.Setup(sf => sf.CreateScope()).Returns(mockScope.Object);
+
+        mockServiceProvider.Setup(sp => sp.GetService(typeof(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory)))
+            .Returns(mockScopeFactory.Object);
+
+        var service = new TelegramSourceService(
+            _mockRepo.Object,
+            NullLogger<TelegramSourceService>.Instance,
+            _mockDiscovery.Object,
+            _mockMessageRepo.Object,
+            null,
+            mockServiceProvider.Object
+        );
+
+        // Act
+        var result = await service.GetLiveMessagePipelineAsync(source.Id);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Single(result);
+
+        var item = result.First();
+        Assert.NotNull(item.Signal);
+        Assert.Equal("Position Management Detected", item.Signal.Status);
+        Assert.Equal("EURUSD", item.Signal.Symbol);
+        Assert.Equal("MoveStopLossToEntry", item.Signal.Side);
+
+        Assert.NotNull(item.RiskDecision);
+        Assert.Equal("Validated Existing Position", item.RiskDecision.Decision);
+
+        Assert.NotNull(item.Execution);
+        Assert.Equal("Stop Loss Updated Successfully", item.Execution.OrderStatus);
     }
 
     [Fact]
