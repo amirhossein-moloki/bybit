@@ -13,6 +13,7 @@ using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.SignalIntelligence.Entities;
+using TradingBot.Domain.SignalIntelligence.Enums;
 
 namespace TradingBot.Application.Services;
 
@@ -364,6 +365,7 @@ public class TelegramSourceService : ITelegramSourceService
         var decisionRepo = scope?.ServiceProvider.GetService<ITradeDecisionRepository>();
         var riskRepo = scope?.ServiceProvider.GetService<IRiskEvaluationRepository>();
         var orderRepo = scope?.ServiceProvider.GetService<TradingBot.Application.Repositories.IOrderRepository>();
+        var analysisRepo = scope?.ServiceProvider.GetService<IMessageAnalysisRepository>();
 
         if (messageRepo == null)
         {
@@ -439,6 +441,12 @@ public class TelegramSourceService : ITelegramSourceService
             TelegramRiskDecisionDto? decisionDto = null;
             TelegramOrderExecutionDto? executionDto = null;
 
+            MessageAnalysis? analysis = null;
+            if (analysisRepo != null)
+            {
+                analysis = await analysisRepo.GetByMessageIdAsync(m.Id, ct);
+            }
+
             var sig = signals.FirstOrDefault(s => s.TelegramChannelId == m.ChannelId && s.TelegramMessageId == m.MessageId);
             if (sig != null)
             {
@@ -486,6 +494,98 @@ public class TelegramSourceService : ITelegramSourceService
                         ord.CreatedAt
                     );
                 }
+            }
+            else if (analysis != null && (analysis.Intent == TelegramMessageIntent.PositionManagement || analysis.Intent == TelegramMessageIntent.ExitSignal || analysis.MessageType == MessageType.TRADE_UPDATE || analysis.MessageType == MessageType.CANCEL_COMMAND))
+            {
+                var statusText = analysis.Intent == TelegramMessageIntent.PositionManagement
+                    ? "Position Management Detected"
+                    : analysis.Intent == TelegramMessageIntent.ExitSignal
+                        ? "Exit Signal Detected"
+                        : "Position Update Detected";
+
+                var actionText = !string.IsNullOrWhiteSpace(analysis.Action)
+                    ? analysis.Action
+                    : analysis.Intent.ToString();
+
+                signalDto = new TelegramSignalDetailDto(
+                    analysis.Id,
+                    analysis.TargetSymbol ?? "N/A",
+                    actionText,
+                    statusText,
+                    0m,
+                    null,
+                    null,
+                    null,
+                    analysis.ProcessedAt
+                );
+
+                var riskDecisionStr = analysis.ProcessingStatus == "Executed"
+                    ? "Validated Existing Position"
+                    : analysis.ProcessingStatus == "Ignored"
+                        ? "No Active Position Found"
+                        : analysis.ProcessingStatus == "Filtered"
+                            ? "Filtered Low Confidence / Invalid Symbol"
+                            : "Risk Evaluation Rejected";
+
+                decisionDto = new TelegramRiskDecisionDto(
+                    analysis.Id,
+                    riskDecisionStr,
+                    analysis.ConfidenceScore,
+                    analysis.ExtractedMetadata ?? analysis.ProcessingStatus,
+                    null,
+                    null,
+                    analysis.ProcessedAt
+                );
+
+                var execStatusStr = analysis.ProcessingStatus == "Executed"
+                    ? (analysis.Action == "MoveStopLossToEntry"
+                        ? "Stop Loss Updated Successfully"
+                        : analysis.Action == "TakePartialProfit"
+                            ? "Partial Close Order Executed"
+                            : "Position Closed Successfully")
+                    : $"No Order ({analysis.ProcessingStatus})";
+
+                executionDto = new TelegramOrderExecutionDto(
+                    analysis.Id,
+                    execStatusStr,
+                    0m,
+                    null,
+                    analysis.ProcessingStatus == "Executed" ? "BYBIT-POS-UPDATED" : null,
+                    analysis.ProcessedAt
+                );
+            }
+            else if (analysis != null && (analysis.Intent == TelegramMessageIntent.Noise || analysis.Intent == TelegramMessageIntent.MarketAnalysis || analysis.Intent == TelegramMessageIntent.Informational))
+            {
+                signalDto = new TelegramSignalDetailDto(
+                    analysis.Id,
+                    analysis.TargetSymbol ?? "N/A",
+                    "None",
+                    "Non-Signal / Filtered",
+                    0m,
+                    null,
+                    null,
+                    null,
+                    analysis.ProcessedAt
+                );
+
+                decisionDto = new TelegramRiskDecisionDto(
+                    analysis.Id,
+                    "Not Evaluated",
+                    analysis.ConfidenceScore,
+                    "Message classified as noise, analysis, or informational.",
+                    null,
+                    null,
+                    analysis.ProcessedAt
+                );
+
+                executionDto = new TelegramOrderExecutionDto(
+                    analysis.Id,
+                    "No Order",
+                    0m,
+                    null,
+                    null,
+                    analysis.ProcessedAt
+                );
             }
 
             pipelineItems.Add(new TelegramMessagePipelineItemDto(

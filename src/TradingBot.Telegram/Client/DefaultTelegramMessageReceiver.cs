@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using TradingBot.Application.Interfaces.Persistence;
 using TradingBot.Application.Repositories;
 using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.SignalIntelligence.Entities;
+using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
 
@@ -70,6 +72,8 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
             var sourceRepo = scope.ServiceProvider.GetService<ITelegramSourceRepository>();
             var unitOfWork = scope.ServiceProvider.GetService<TradingBot.Application.Repositories.IUnitOfWork>();
 
+            TelegramMessage? domainMsg = null;
+
             if (sourceRepo != null)
             {
                 var source = await sourceRepo.GetByChatIdAsync(message.ChannelId);
@@ -112,7 +116,7 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
                     var msgRepo = scope.ServiceProvider.GetService<IMessageRepository>();
                     if (msgRepo != null)
                     {
-                        var domainMsg = new TelegramMessage(
+                        domainMsg = new TelegramMessage(
                             source.TelegramChatId,
                             message.MessageId,
                             message.SenderId,
@@ -145,7 +149,33 @@ public class DefaultTelegramMessageReceiver : ITelegramMessageReceiver
             // 2. Increment Signals Received Metric if available
             _metrics?.IncrementSignalsReceived();
 
-            // 3. Resolve Scoped IMessageFilter to check for signals if queue is configured
+            // 3. Message Intent Classification & Position Management Pipeline
+            if (domainMsg != null)
+            {
+                var classifier = scope.ServiceProvider.GetService<IMessageClassifier>();
+                var analysisRepo = scope.ServiceProvider.GetService<IMessageAnalysisRepository>();
+
+                if (classifier != null && analysisRepo != null)
+                {
+                    var analysis = await classifier.ClassifyAsync(domainMsg);
+                    await analysisRepo.CreateAsync(analysis);
+                    if (unitOfWork != null) await unitOfWork.SaveChangesAsync();
+
+                    if (analysis.Intent == TelegramMessageIntent.PositionManagement || analysis.Intent == TelegramMessageIntent.ExitSignal)
+                    {
+                        var pmHandler = scope.ServiceProvider.GetService<IPositionManagementHandler>();
+                        if (pmHandler != null)
+                        {
+                            var pmResult = await pmHandler.ProcessPositionManagementAsync(analysis, domainMsg);
+                            _logger.LogInformation("DefaultTelegramMessageReceiver: Position management message ID {MessageId} processed. Status={Status}, Reason={Reason}",
+                                message.MessageId, pmResult.Status, pmResult.AuditReason);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 4. Resolve Scoped IMessageFilter for Entry Signals if queue is configured
             if (_queue == null)
             {
                 _logger.LogDebug("DefaultTelegramMessageReceiver: Signal storage queue is not configured. Skipping signal detection.");
