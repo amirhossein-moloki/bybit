@@ -146,3 +146,11 @@ public sealed record TelegramMessagePipelineItemDto(
     TelegramRiskDecisionDto? RiskDecision,
     TelegramOrderExecutionDto? Execution
 );
+
+public sealed record TelegramPipelineDiagnosticsDto(
+    int RegisteredSourcesCount,
+    int TotalReceivedMessagesCount,
+    DateTime? LastReceivedMessageAt,
+    DateTime? LastProcessedMessageAt,
+    DateTime DiagnosticsTimestamp
+);

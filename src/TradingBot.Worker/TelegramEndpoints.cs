@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
 using TradingBot.Telegram.Interfaces;
@@ -17,6 +19,45 @@ public static class TelegramEndpoints
     {
         var group = app.MapGroup("/api/telegram")
                        .RequireAuthorization("DashboardRead");
+
+        // Centralized Exception & Correlation ID Filter for all Telegram API endpoints
+        group.AddEndpointFilter(async (context, next) =>
+        {
+            var correlationId = context.HttpContext.TraceIdentifier;
+            if (string.IsNullOrWhiteSpace(correlationId))
+            {
+                correlationId = Guid.NewGuid().ToString("N");
+            }
+
+            try
+            {
+                return await next(context);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("TelegramEndpoints");
+                logger?.LogWarning(ex, "Telegram API resource not found [CorrelationId: {CorrelationId}]", correlationId);
+                return Results.Json(new { status = "error", code = "NotFound", message = ex.Message, correlationId }, statusCode: 404);
+            }
+            catch (ArgumentException ex)
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("TelegramEndpoints");
+                logger?.LogWarning(ex, "Telegram API bad request [CorrelationId: {CorrelationId}]", correlationId);
+                return Results.Json(new { status = "error", code = "BadRequest", message = ex.Message, correlationId }, statusCode: 400);
+            }
+            catch (InvalidOperationException ex)
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("TelegramEndpoints");
+                logger?.LogWarning(ex, "Telegram API invalid operation [CorrelationId: {CorrelationId}]", correlationId);
+                return Results.Json(new { status = "error", code = "InvalidOperation", message = ex.Message, correlationId }, statusCode: 400);
+            }
+            catch (Exception ex)
+            {
+                var logger = context.HttpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("TelegramEndpoints");
+                logger?.LogError(ex, "Telegram API unhandled error [CorrelationId: {CorrelationId}]", correlationId);
+                return Results.Json(new { status = "error", code = "InternalServerError", message = "An internal server error occurred: " + ex.Message, correlationId }, statusCode: 500);
+            }
+        });
 
         // ----------------------------------------------------------------------
         // Authentication & Client Status Endpoints
@@ -104,15 +145,8 @@ public static class TelegramEndpoints
         // 8. Get Dialogs (Channels and Groups)
         group.MapGet("/dialogs", async (ITelegramClient telegramClient) =>
         {
-            try
-            {
-                var dialogs = await telegramClient.GetDialogsAsync();
-                return Results.Ok(new { status = "success", data = dialogs });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { status = "error", code = "TelegramUnavailable", message = ex.Message });
-            }
+            var dialogs = await telegramClient.GetDialogsAsync();
+            return Results.Ok(new { status = "success", data = dialogs });
         });
 
         // 9. Get Monitored Channels (Backward compatibility)
@@ -167,15 +201,8 @@ public static class TelegramEndpoints
         // 12. Sync Sources
         group.MapPost("/sources/sync", async (ITelegramSourceService sourceService, CancellationToken ct) =>
         {
-            try
-            {
-                var result = await sourceService.SyncSourcesAsync(ct);
-                return Results.Ok(new { status = "success", data = result });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { status = "error", code = "SynchronizationFailed", message = "Sync failed: " + ex.Message });
-            }
+            var result = await sourceService.SyncSourcesAsync(ct);
+            return Results.Ok(new { status = "success", data = result });
         });
 
         // 13. Bulk Update Sources
@@ -205,19 +232,8 @@ public static class TelegramEndpoints
         // 15. Update Source Capabilities / Pause
         group.MapPatch("/sources/{id:guid}", async (ITelegramSourceService sourceService, Guid id, UpdateTelegramSourceDto request, CancellationToken ct) =>
         {
-            try
-            {
-                var updated = await sourceService.UpdateSourceAsync(id, request, ct);
-                return Results.Ok(new { status = "success", data = updated });
-            }
-            catch (KeyNotFoundException)
-            {
-                return Results.NotFound(new { status = "error", code = "SourceNotFound", message = $"Source with ID '{id}' was not found." });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { status = "error", code = "InvalidSourceConfiguration", message = ex.Message });
-            }
+            var updated = await sourceService.UpdateSourceAsync(id, request, ct);
+            return Results.Ok(new { status = "success", data = updated });
         });
 
         // 16. Delete Source
@@ -259,15 +275,8 @@ public static class TelegramEndpoints
         // 19. Get Source Health
         group.MapGet("/sources/{id:guid}/health", async (ITelegramSourceService sourceService, Guid id, CancellationToken ct) =>
         {
-            try
-            {
-                var health = await sourceService.GetSourceHealthAsync(id, ct);
-                return Results.Ok(new { status = "success", data = health });
-            }
-            catch (KeyNotFoundException)
-            {
-                return Results.NotFound(new { status = "error", code = "SourceNotFound", message = $"Source with ID '{id}' was not found." });
-            }
+            var health = await sourceService.GetSourceHealthAsync(id, ct);
+            return Results.Ok(new { status = "success", data = health });
         });
 
         // 20. Test Source
@@ -287,6 +296,13 @@ public static class TelegramEndpoints
         {
             var pipeline = await sourceService.GetLiveMessagePipelineAsync(sourceId, page ?? 1, pageSize ?? 20, ct);
             return Results.Ok(new { status = "success", data = pipeline });
+        });
+
+        // 22. Pipeline Diagnostics
+        group.MapGet("/diagnostics", async (ITelegramSourceService sourceService, CancellationToken ct) =>
+        {
+            var diagnostics = await sourceService.GetPipelineDiagnosticsAsync(ct);
+            return Results.Ok(new { status = "success", data = diagnostics });
         });
     }
 }

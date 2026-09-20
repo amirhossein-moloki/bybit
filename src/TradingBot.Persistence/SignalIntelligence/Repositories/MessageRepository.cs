@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -42,7 +43,7 @@ public class MessageRepository : RepositoryBase<TelegramMessage>, IMessageReposi
         }
     }
 
-    public async Task<System.Collections.Generic.List<TelegramMessage>> GetRecentMessagesForChannelAsync(long channelId, int limit, CancellationToken cancellationToken = default)
+    public async Task<List<TelegramMessage>> GetRecentMessagesForChannelAsync(long channelId, int limit, CancellationToken cancellationToken = default)
     {
         long rawId = NormalizeChatId(channelId);
         return await DbContext.Set<TelegramMessage>()
@@ -52,6 +53,26 @@ public class MessageRepository : RepositoryBase<TelegramMessage>, IMessageReposi
             .OrderByDescending(m => m.ReceivedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> GetTotalCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<TelegramMessage>().CountAsync(cancellationToken);
+    }
+
+    public async Task<TelegramMessage?> GetLastReceivedMessageAsync(CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<TelegramMessage>()
+            .OrderByDescending(m => m.ReceivedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<TelegramMessage?> GetLastProcessedMessageAsync(CancellationToken cancellationToken = default)
+    {
+        return await DbContext.Set<TelegramMessage>()
+            .Where(m => m.Processed)
+            .OrderByDescending(m => m.ReceivedAt)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private static long NormalizeChatId(long chatId)

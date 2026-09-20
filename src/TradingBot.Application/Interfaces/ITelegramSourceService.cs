@@ -22,4 +22,5 @@ public interface ITelegramSourceService
     Task<TestSourceResultDto> TestSourceAsync(Guid id, CancellationToken ct = default);
     Task<int> BulkUpdateSourcesAsync(BulkUpdateSourcesDto dto, CancellationToken ct = default);
     Task<List<TelegramSource>> GetActiveSourcesAsync(CancellationToken ct = default);
+    Task<TelegramPipelineDiagnosticsDto> GetPipelineDiagnosticsAsync(CancellationToken ct = default);
 }
