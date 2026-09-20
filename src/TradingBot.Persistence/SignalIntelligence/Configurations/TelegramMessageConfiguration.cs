@@ -37,6 +37,14 @@ public class TelegramMessageConfiguration : IEntityTypeConfiguration<TelegramMes
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
             .IsRequired();
 
+        builder.Property(x => x.ReplyToMessageId);
+
+        builder.Property(x => x.MediaInfo)
+            .HasColumnType("text");
+
+        builder.Property(x => x.EditInfo)
+            .HasColumnType("text");
+
         // Shadow property for UpdatedAt to match standard pattern
         builder.Property<DateTime?>("UpdatedAt")
             .HasColumnType("timestamp with time zone");
@@ -49,5 +57,6 @@ public class TelegramMessageConfiguration : IEntityTypeConfiguration<TelegramMes
         builder.HasIndex(x => x.ChannelId);
         builder.HasIndex(x => x.MessageId);
         builder.HasIndex(x => x.Processed);
+        builder.HasIndex(x => x.ReplyToMessageId);
     }
 }
