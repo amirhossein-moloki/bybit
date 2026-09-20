@@ -12,6 +12,7 @@ using TradingBot.Application.Repositories;
 using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
+using TradingBot.Domain.SignalIntelligence.Entities;
 
 namespace TradingBot.Application.Services;
 
@@ -243,7 +244,6 @@ public class TelegramSourceService : ITelegramSourceService
                 }
                 else
                 {
-                    // Update metadata without overwriting capability settings (IsEnabled, ListenForSignals, ProcessMessages, PausedUntil)
                     existing.UpdateMetadata(dialog.Title, dialog.Username, type);
                     await _repository.UpdateAsync(existing, ct);
                     updatedCount++;
@@ -265,32 +265,64 @@ public class TelegramSourceService : ITelegramSourceService
     public async Task<List<TelegramMessagePreviewDto>> GetSourceMessagesAsync(Guid id, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
         var source = await _repository.GetByIdAsync(id, ct);
-        if (source == null) return new List<TelegramMessagePreviewDto>();
+        if (source == null)
+        {
+            throw new KeyNotFoundException($"TelegramSource with ID '{id}' was not found.");
+        }
 
-        if (_messageRepository == null) return new List<TelegramMessagePreviewDto>();
+        using var scope = _serviceProvider?.CreateScope();
+        var msgRepo = scope?.ServiceProvider.GetService<IMessageRepository>() ?? _messageRepository;
 
-        var rawMessages = await _messageRepository.GetRecentMessagesForChannelAsync(source.TelegramChatId, pageSize * page, ct);
+        if (msgRepo == null)
+        {
+            _logger.LogWarning("IMessageRepository is not configured or resolved for GetSourceMessagesAsync.");
+            return new List<TelegramMessagePreviewDto>();
+        }
+
+        page = page < 1 ? 1 : page;
+        pageSize = pageSize < 1 ? 20 : pageSize;
+
+        _logger.LogInformation("Retrieving messages for TelegramSource '{Title}' ({ChatId}), Page: {Page}, PageSize: {PageSize}",
+            source.Title, source.TelegramChatId, page, pageSize);
+
+        var rawMessages = await msgRepo.GetRecentMessagesForChannelAsync(source.TelegramChatId, pageSize * page, ct) ?? new List<TelegramMessage>();
 
         return rawMessages
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(m => new TelegramMessagePreviewDto(
-                m.Id,
-                m.MessageId,
-                m.SenderId,
-                m.Content.Length > 100 ? m.Content.Substring(0, 97) + "..." : m.Content,
-                m.ReceivedAt,
-                m.Processed
-            ))
+            .Select(m =>
+            {
+                string content = m.Content ?? string.Empty;
+                string preview = content.Length > 100 ? content.Substring(0, 97) + "..." : content;
+                return new TelegramMessagePreviewDto(
+                    m.Id,
+                    m.MessageId,
+                    m.SenderId,
+                    preview,
+                    m.ReceivedAt,
+                    m.Processed
+                );
+            })
             .ToList();
     }
 
     public async Task<List<TelegramSignalPreviewDto>> GetSourceSignalsAsync(Guid id, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
         var source = await _repository.GetByIdAsync(id, ct);
-        if (source == null || _signalRepository == null) return new List<TelegramSignalPreviewDto>();
+        if (source == null)
+        {
+            throw new KeyNotFoundException($"TelegramSource with ID '{id}' was not found.");
+        }
 
-        var pagedSignals = await _signalRepository.GetPagedSignalsAsync(page, pageSize, ct);
+        using var scope = _serviceProvider?.CreateScope();
+        var sigRepo = scope?.ServiceProvider.GetService<TradingBot.Application.Repositories.ISignalRepository>() ?? _signalRepository;
+
+        if (sigRepo == null) return new List<TelegramSignalPreviewDto>();
+
+        page = page < 1 ? 1 : page;
+        pageSize = pageSize < 1 ? 20 : pageSize;
+
+        var pagedSignals = await sigRepo.GetPagedSignalsAsync(page, pageSize, ct);
         var channelSignals = pagedSignals.Items
             .Where(s => s.TelegramChannelId == source.TelegramChatId)
             .Select(s => new TelegramSignalPreviewDto(
@@ -316,19 +348,15 @@ public class TelegramSourceService : ITelegramSourceService
         if (sourceId.HasValue && sourceId.Value != Guid.Empty)
         {
             var source = await _repository.GetByIdAsync(sourceId.Value, ct);
-            if (source != null)
+            if (source == null)
             {
-                targetChatId = source.TelegramChatId;
+                throw new KeyNotFoundException($"TelegramSource with ID '{sourceId.Value}' was not found.");
             }
+            targetChatId = source.TelegramChatId;
         }
 
         var sources = await _repository.GetAllAsync(ct);
         var channelMap = sources.ToDictionary(s => s.TelegramChatId, s => s.Title);
-
-        if (_messageRepository == null)
-        {
-            return new List<TelegramMessagePipelineItemDto>();
-        }
 
         using var scope = _serviceProvider?.CreateScope();
         var messageRepo = scope?.ServiceProvider.GetService<IMessageRepository>() ?? _messageRepository;
@@ -339,13 +367,14 @@ public class TelegramSourceService : ITelegramSourceService
 
         if (messageRepo == null)
         {
+            _logger.LogWarning("IMessageRepository is not available for GetLiveMessagePipelineAsync.");
             return new List<TelegramMessagePipelineItemDto>();
         }
 
         List<TradingBot.Domain.SignalIntelligence.Entities.TelegramMessage> messages;
         if (targetChatId.HasValue)
         {
-            messages = await messageRepo.GetRecentMessagesForChannelAsync(targetChatId.Value, pageSize * page, ct);
+            messages = await messageRepo.GetRecentMessagesForChannelAsync(targetChatId.Value, pageSize * page, ct) ?? new List<TelegramMessage>();
             messages = messages.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         }
         else
@@ -353,7 +382,7 @@ public class TelegramSourceService : ITelegramSourceService
             var allMessagesList = new List<TradingBot.Domain.SignalIntelligence.Entities.TelegramMessage>();
             foreach (var ch in sources)
             {
-                var channelMsgs = await messageRepo.GetRecentMessagesForChannelAsync(ch.TelegramChatId, pageSize, ct);
+                var channelMsgs = await messageRepo.GetRecentMessagesForChannelAsync(ch.TelegramChatId, pageSize, ct) ?? new List<TelegramMessage>();
                 allMessagesList.AddRange(channelMsgs);
             }
             messages = allMessagesList
@@ -362,6 +391,9 @@ public class TelegramSourceService : ITelegramSourceService
                 .Take(pageSize)
                 .ToList();
         }
+
+        _logger.LogInformation("GetLiveMessagePipelineAsync retrieved {MessageCount} messages for SourceId '{SourceId}' (TargetChatId: {TargetChatId})",
+            messages.Count, sourceId, targetChatId);
 
         if (!messages.Any())
         {
@@ -448,7 +480,7 @@ public class TelegramSourceService : ITelegramSourceService
                     executionDto = new TelegramOrderExecutionDto(
                         ord.Id,
                         ord.Status.ToString(),
-                        ord.Quantity.Value,
+                        ord.Quantity?.Value ?? 0m,
                         ord.Price?.Amount,
                         ord.ExchangeOrderId,
                         ord.CreatedAt
@@ -462,7 +494,7 @@ public class TelegramSourceService : ITelegramSourceService
                 channelTitle,
                 m.MessageId,
                 m.SenderId,
-                m.Content,
+                m.Content ?? string.Empty,
                 m.ReceivedAt,
                 m.Processed,
                 signalDto,
@@ -485,10 +517,19 @@ public class TelegramSourceService : ITelegramSourceService
         var connStatus = _discoveryClient != null && _discoveryClient.IsConnected() ? "Connected" : "Disconnected";
         var listenerState = _discoveryClient != null ? _discoveryClient.GetCurrentState() : "NotConnected";
 
+        DateTime? lastMessageAt = null;
+        using var scope = _serviceProvider?.CreateScope();
+        var msgRepo = scope?.ServiceProvider.GetService<IMessageRepository>() ?? _messageRepository;
+        if (msgRepo != null)
+        {
+            var msgs = await msgRepo.GetRecentMessagesForChannelAsync(source.TelegramChatId, 1, ct);
+            lastMessageAt = msgs.FirstOrDefault()?.ReceivedAt;
+        }
+
         return new TelegramSourceHealthDto(
             connStatus,
             listenerState,
-            source.UpdatedAt,
+            lastMessageAt ?? source.UpdatedAt,
             null,
             0,
             0
@@ -585,6 +626,41 @@ public class TelegramSourceService : ITelegramSourceService
     public async Task<List<TelegramSource>> GetActiveSourcesAsync(CancellationToken ct = default)
     {
         return await _repository.GetActiveSourcesAsync(ct);
+    }
+
+    public async Task<TelegramPipelineDiagnosticsDto> GetPipelineDiagnosticsAsync(CancellationToken ct = default)
+    {
+        var sources = await _repository.GetAllAsync(ct);
+        int registeredSourcesCount = sources.Count;
+
+        int totalReceivedMessagesCount = 0;
+        DateTime? lastReceivedAt = null;
+        DateTime? lastProcessedAt = null;
+
+        using var scope = _serviceProvider?.CreateScope();
+        var msgRepo = scope?.ServiceProvider.GetService<IMessageRepository>() ?? _messageRepository;
+
+        if (msgRepo != null)
+        {
+            totalReceivedMessagesCount = await msgRepo.GetTotalCountAsync(ct);
+            var lastReceivedMsg = await msgRepo.GetLastReceivedMessageAsync(ct);
+            var lastProcessedMsg = await msgRepo.GetLastProcessedMessageAsync(ct);
+
+            lastReceivedAt = lastReceivedMsg?.ReceivedAt;
+            lastProcessedAt = lastProcessedMsg?.ReceivedAt;
+        }
+
+        _logger.LogInformation(
+            "Telegram Pipeline Diagnostics: RegisteredSources={RegisteredSourcesCount}, TotalReceivedMessages={TotalReceivedMessagesCount}, LastReceivedAt={LastReceivedAt}, LastProcessedAt={LastProcessedAt}",
+            registeredSourcesCount, totalReceivedMessagesCount, lastReceivedAt, lastProcessedAt);
+
+        return new TelegramPipelineDiagnosticsDto(
+            registeredSourcesCount,
+            totalReceivedMessagesCount,
+            lastReceivedAt,
+            lastProcessedAt,
+            DateTime.UtcNow
+        );
     }
 
     private static TelegramSourceDto MapToDto(TelegramSource s)

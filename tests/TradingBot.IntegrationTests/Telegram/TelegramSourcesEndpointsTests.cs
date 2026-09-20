@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using TradingBot.Application.Interfaces.Persistence;
@@ -84,6 +85,50 @@ public class TelegramSourcesEndpointsTests : IClassFixture<CustomWebApplicationF
         // 5. DELETE source
         var delRes = await _client.DeleteAsync($"/api/telegram/sources/{source.Id}");
         Assert.Equal(HttpStatusCode.OK, delRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetSourceMessages_WithMissingSourceId_ShouldReturn404WithErrorResponseAndCorrelationId()
+    {
+        // Act
+        var missingId = Guid.NewGuid();
+        var response = await _client.GetAsync($"/api/telegram/sources/{missingId}/messages");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("error", json.GetProperty("status").GetString());
+        Assert.Equal("NotFound", json.GetProperty("code").GetString());
+        Assert.True(json.TryGetProperty("correlationId", out var corrId) && !string.IsNullOrEmpty(corrId.GetString()));
+    }
+
+    [Fact]
+    public async Task GetPipelineDiagnostics_ShouldReturnSuccessAndDiagnosticsData()
+    {
+        // Act
+        var response = await _client.GetAsync("/api/telegram/diagnostics");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<ApiResponse<TelegramPipelineDiagnosticsDto>>();
+        Assert.NotNull(content);
+        Assert.Equal("success", content.Status);
+        Assert.NotNull(content.Data);
+        Assert.True(content.Data.RegisteredSourcesCount >= 0);
+    }
+
+    [Fact]
+    public async Task GetLivePipeline_WithEmptyDatabase_ShouldReturn200AndEmptyData()
+    {
+        // Act
+        var response = await _client.GetAsync("/api/telegram/live-pipeline");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<ApiResponse<List<TelegramMessagePipelineItemDto>>>();
+        Assert.NotNull(content);
+        Assert.Equal("success", content.Status);
+        Assert.NotNull(content.Data);
     }
 
     [Fact]
