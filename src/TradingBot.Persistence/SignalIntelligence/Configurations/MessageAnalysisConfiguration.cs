@@ -2,6 +2,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TradingBot.Domain.SignalIntelligence.Entities;
+using TradingBot.Domain.SignalIntelligence.Enums;
 
 namespace TradingBot.Persistence.SignalIntelligence.Configurations;
 
@@ -44,6 +45,28 @@ public class MessageAnalysisConfiguration : IEntityTypeConfiguration<MessageAnal
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
             .IsRequired();
 
+        builder.Property(x => x.Intent)
+            .HasConversion<string>()
+            .HasMaxLength(50)
+            .HasDefaultValue(TelegramMessageIntent.Unknown)
+            .IsRequired();
+
+        builder.Property(x => x.Action)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.TargetSymbol)
+            .HasMaxLength(50);
+
+        builder.Property(x => x.ProcessingStatus)
+            .HasMaxLength(50)
+            .HasDefaultValue("Completed")
+            .IsRequired();
+
+        builder.Property(x => x.ExtractedMetadata)
+            .HasColumnType("text")
+            .HasDefaultValue("{}")
+            .IsRequired();
+
         // Shadow property for UpdatedAt to match standard pattern
         builder.Property<DateTime?>("UpdatedAt")
             .HasColumnType("timestamp with time zone");
@@ -57,5 +80,6 @@ public class MessageAnalysisConfiguration : IEntityTypeConfiguration<MessageAnal
         // Indexes
         builder.HasIndex(x => x.TelegramMessageId);
         builder.HasIndex(x => x.MessageType);
+        builder.HasIndex(x => x.Intent);
     }
 }

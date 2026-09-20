@@ -29,50 +29,44 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
 
         var text = NormalizeText(context.CurrentMessage.Text);
 
-        // 1. Check Clearly Status Reports or Commentary first to avoid mistaking status reports for commands
-        // Status: "ریسک فری شد", "یورو ریسک فری شده", "استاپ شد", "تارگت اول"
-        if (IsStatusReport(text, context, out var statusIntent))
-        {
-            return Task.FromResult<StructuredIntent?>(statusIntent);
-        }
-
-        if (IsCommentaryOrQuestion(text, context, out var commentaryIntent))
-        {
-            return Task.FromResult<StructuredIntent?>(commentaryIntent);
-        }
-
-        // 2. Check Clearly Fast-Path Commands
-        // Risk Free Command: "ریسک فری کنید", "risk free", "breakeven", "break even", "همه معاملات رو ریسک فری کنید"
+        // 1. Check Clearly Fast-Path Imperative Commands first
         if (IsRiskFreeCommand(text, context, out var rfIntent))
         {
             return Task.FromResult<StructuredIntent?>(rfIntent);
         }
 
-        // Cancel Pending Orders Command: "اوردرها رو کنسل کنید", "cancel pending orders", "کنسل کنید", "امشب اخبار مهمی داریم همه اوردر هایی ک فعال نشدن رو کنسل کنید"
-        if (IsCancelOrdersCommand(text, context, out var cancelIntent))
-        {
-            return Task.FromResult<StructuredIntent?>(cancelIntent);
-        }
-
-        // Close Position Command: "ببندید", "close position", "معامله را ببندید"
         if (IsClosePositionCommand(text, context, out var closeIntent))
         {
             return Task.FromResult<StructuredIntent?>(closeIntent);
         }
 
-        // Restore Orders Command: "اوردر ها رو برگردونید", "restore orders"
+        if (IsCancelOrdersCommand(text, context, out var cancelIntent))
+        {
+            return Task.FromResult<StructuredIntent?>(cancelIntent);
+        }
+
         if (IsRestoreOrdersCommand(text, context, out var restoreIntent))
         {
             return Task.FromResult<StructuredIntent?>(restoreIntent);
         }
 
-        // Re-entry Signal Update: "یورو ورود مجدد داده"
         if (IsReEntryCommand(text, context, out var reEntryIntent))
         {
             return Task.FromResult<StructuredIntent?>(reEntryIntent);
         }
 
-        // No deterministic rule matched -> return null to defer to AI Fallback
+        // 2. Check Commentary or Questions
+        if (IsCommentaryOrQuestion(text, context, out var commentaryIntent))
+        {
+            return Task.FromResult<StructuredIntent?>(commentaryIntent);
+        }
+
+        // 3. Check Informational Status Reports
+        if (IsStatusReport(text, context, out var statusIntent))
+        {
+            return Task.FromResult<StructuredIntent?>(statusIntent);
+        }
+
         return Task.FromResult<StructuredIntent?>(null);
     }
 
@@ -80,7 +74,6 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
     {
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
 
-        // Convert Persian/Arabic digits to English digits
         char[] persianDigits = { '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹' };
         char[] arabicDigits = { '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩' };
         for (int i = 0; i < 10; i++)
@@ -89,142 +82,8 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
             text = text.Replace(arabicDigits[i], (char)('0' + i));
         }
 
-        // Standardize Persian characters
         text = text.Replace('ك', 'ک').Replace('ي', 'ی');
         return text.Trim();
-    }
-
-    private bool IsStatusReport(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
-    {
-        intent = null;
-
-        // "ریسک فری شد", "یورو ریسک فری شده", "ریسک فری اعلام میکنیم"
-        if (Regex.IsMatch(text, @"(?:ریسک\s*فری\s*(?:شد|شده|شدیم|اعلام)|risk\s*free\s*done|breakeven\s*done)", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.STATUS,
-                Intent = TradingIntent.STATUS_REPORT,
-                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.ALL_ACTIVE_TRADES,
-                Targets = sym != null ? new List<string> { sym } : new List<string>(),
-                Confidence = 0.98m,
-                RequiresExecution = false,
-                Reason = "Message reports risk free status reached.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        // "فعاله"
-        if (Regex.IsMatch(text, @"^\s*(?:فعاله|فعال\s*شد|active)\s*$", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.STATUS,
-                Intent = TradingIntent.STATUS_REPORT,
-                Scope = IntentScope.SIGNAL,
-                Targets = context.ReplyContext?.Symbol != null ? new List<string> { context.ReplyContext.Symbol } : new List<string>(),
-                Confidence = 0.95m,
-                RequiresExecution = false,
-                Reason = "Message reports trade or signal active status.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        // "تارگت اول✅", "تارگت ۱", "TP1 hit"
-        if (Regex.IsMatch(text, @"(?:تارگت|target|tp).*?✅", RegexOptions.IgnoreCase) || Regex.IsMatch(text, @"(?:تارگت|target|tp)\s*(?:[1-9]|اول|دوم|سوم|چهارم)\s*(?:شد|رسید|hit)?", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.STATUS,
-                Intent = TradingIntent.STATUS_REPORT,
-                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.SIGNAL,
-                Targets = sym != null ? new List<string> { sym } : new List<string>(),
-                Confidence = 0.96m,
-                RequiresExecution = false,
-                Reason = "Message reports take profit target hit status.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        // "استاپ شد", "حد ضرر خورد"
-        if (Regex.IsMatch(text, @"(?:استاپ\s*شد|حد\s*ضرر\s*خورد|stop\s*loss\s*hit|sl\s*hit)", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.STATUS,
-                Intent = TradingIntent.STATUS_REPORT,
-                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.POSITION,
-                Targets = sym != null ? new List<string> { sym } : new List<string>(),
-                Confidence = 0.98m,
-                RequiresExecution = false,
-                Reason = "Message reports stop loss hit status.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool IsCommentaryOrQuestion(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
-    {
-        intent = null;
-
-        // "چهارتا اوردر داریم منتظریم که ببینیم چی میشه"
-        if (Regex.IsMatch(text, @"(?:چهارتا|چندتا|\d+)\s*اوردر\s*داریم|منتظریم", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.COMMENTARY,
-                Intent = TradingIntent.NO_ACTION,
-                Scope = IntentScope.NONE,
-                Targets = new List<string>(),
-                Confidence = 0.95m,
-                RequiresExecution = false,
-                Reason = "Message is channel market commentary.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        // "پوند معتبره"
-        if (Regex.IsMatch(text, @"(?:معتبره|معتبر\s*است|valid)", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.COMMENTARY,
-                Intent = TradingIntent.NO_ACTION,
-                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.SIGNAL,
-                Targets = sym != null ? new List<string> { sym } : new List<string>(),
-                Confidence = 0.92m,
-                RequiresExecution = false,
-                Reason = "Message is signal validation commentary.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        // "وضعیت معاملاتتون رو اعلام کنید"
-        if (Regex.IsMatch(text, @"وضعیت\s*معاملات|\bstatus\b", RegexOptions.IgnoreCase) && Regex.IsMatch(text, @"اعلام|چطوره|\?", RegexOptions.IgnoreCase))
-        {
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.QUESTION,
-                Intent = TradingIntent.NO_ACTION,
-                Scope = IntentScope.NONE,
-                Targets = new List<string>(),
-                Confidence = 0.94m,
-                RequiresExecution = false,
-                Reason = "Message is a status question/request to members.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        return false;
     }
 
     private bool IsRiskFreeCommand(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
@@ -267,7 +126,6 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
             }
             else
             {
-                // Ambiguous target! Let TargetResolver resolve or mark ambiguous
                 scope = IntentScope.SYMBOL;
             }
 
@@ -280,6 +138,46 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Confidence = 0.96m,
                 RequiresExecution = true,
                 Reason = "Deterministic fast-path matched Risk Free command.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsClosePositionCommand(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
+    {
+        intent = null;
+
+        bool hasCloseKeyword = Regex.IsMatch(text, @"(?:ببندید|ببندین|ببند|ببندید.|close|exit)", RegexOptions.IgnoreCase);
+        if (hasCloseKeyword && !text.Contains("اوردر"))
+        {
+            bool isAll = Regex.IsMatch(text, @"(?:همه|تمام|all)", RegexOptions.IgnoreCase);
+            bool hasSymbol = ExtractSymbol(text, context, out var symbol);
+
+            IntentScope scope = isAll ? IntentScope.ALL_ACTIVE_TRADES : IntentScope.POSITION;
+            var targets = new List<string>();
+
+            if (hasSymbol && symbol != null)
+            {
+                scope = IntentScope.SYMBOL;
+                targets.Add(symbol);
+            }
+            else if (context.ReplyContext?.Symbol != null)
+            {
+                targets.Add(context.ReplyContext.Symbol);
+            }
+
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.COMMAND,
+                Intent = isAll ? TradingIntent.CLOSE_ALL : TradingIntent.CLOSE,
+                Scope = scope,
+                Targets = targets,
+                Confidence = 0.95m,
+                RequiresExecution = true,
+                Reason = "Deterministic fast-path matched Close Position command.",
                 DetectionMethod = "RULE"
             };
             return true;
@@ -337,46 +235,6 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
         return false;
     }
 
-    private bool IsClosePositionCommand(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
-    {
-        intent = null;
-
-        bool hasCloseKeyword = Regex.IsMatch(text, @"(?:ببندید|ببندین|ببند|ببندید.|close|exit)", RegexOptions.IgnoreCase);
-        if (hasCloseKeyword && !text.Contains("اوردر"))
-        {
-            bool isAll = Regex.IsMatch(text, @"(?:همه|تمام|all)", RegexOptions.IgnoreCase);
-            bool hasSymbol = ExtractSymbol(text, context, out var symbol);
-
-            IntentScope scope = isAll ? IntentScope.ALL_ACTIVE_TRADES : IntentScope.POSITION;
-            var targets = new List<string>();
-
-            if (hasSymbol && symbol != null)
-            {
-                scope = IntentScope.SYMBOL;
-                targets.Add(symbol);
-            }
-            else if (context.ReplyContext?.Symbol != null)
-            {
-                targets.Add(context.ReplyContext.Symbol);
-            }
-
-            intent = new StructuredIntent
-            {
-                MessageType = IntelligenceMessageType.COMMAND,
-                Intent = isAll ? TradingIntent.CLOSE_ALL : TradingIntent.CLOSE,
-                Scope = scope,
-                Targets = targets,
-                Confidence = 0.95m,
-                RequiresExecution = true,
-                Reason = "Deterministic fast-path matched Close Position command.",
-                DetectionMethod = "RULE"
-            };
-            return true;
-        }
-
-        return false;
-    }
-
     private bool IsRestoreOrdersCommand(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
     {
         intent = null;
@@ -425,6 +283,132 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
         return false;
     }
 
+    private bool IsCommentaryOrQuestion(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
+    {
+        intent = null;
+
+        if (Regex.IsMatch(text, @"(?:چهارتا|چندتا|\d+)\s*اوردر\s*داریم|منتظریم", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.COMMENTARY,
+                Intent = TradingIntent.NO_ACTION,
+                Scope = IntentScope.NONE,
+                Targets = new List<string>(),
+                Confidence = 0.95m,
+                RequiresExecution = false,
+                Reason = "Message is channel market commentary.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        if (Regex.IsMatch(text, @"(?:معتبره|معتبر\s*است|valid)", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.COMMENTARY,
+                Intent = TradingIntent.NO_ACTION,
+                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.SIGNAL,
+                Targets = sym != null ? new List<string> { sym } : new List<string>(),
+                Confidence = 0.92m,
+                RequiresExecution = false,
+                Reason = "Message is signal validation commentary.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        if (Regex.IsMatch(text, @"وضعیت\s*معاملات|\bstatus\b", RegexOptions.IgnoreCase) && Regex.IsMatch(text, @"اعلام|چطوره|\?", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.QUESTION,
+                Intent = TradingIntent.NO_ACTION,
+                Scope = IntentScope.NONE,
+                Targets = new List<string>(),
+                Confidence = 0.94m,
+                RequiresExecution = false,
+                Reason = "Message is a status question/request to members.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsStatusReport(string text, MessageIntelligenceContext context, out StructuredIntent? intent)
+    {
+        intent = null;
+
+        if (Regex.IsMatch(text, @"(?:ریسک\s*فری\s*(?:شد|شده|شدیم|اعلام)|risk\s*free\s*done|breakeven\s*done)", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.STATUS,
+                Intent = TradingIntent.STATUS_REPORT,
+                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.ALL_ACTIVE_TRADES,
+                Targets = sym != null ? new List<string> { sym } : new List<string>(),
+                Confidence = 0.98m,
+                RequiresExecution = false,
+                Reason = "Message reports risk free status reached.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        if (Regex.IsMatch(text, @"^\s*(?:فعاله|فعال\s*شد|active)\s*$", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.STATUS,
+                Intent = TradingIntent.STATUS_REPORT,
+                Scope = IntentScope.SIGNAL,
+                Targets = context.ReplyContext?.Symbol != null ? new List<string> { context.ReplyContext.Symbol } : new List<string>(),
+                Confidence = 0.95m,
+                RequiresExecution = false,
+                Reason = "Message reports trade or signal active status.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        if (Regex.IsMatch(text, @"(?:تارگت|target|tp).*?✅", RegexOptions.IgnoreCase) || Regex.IsMatch(text, @"(?:تارگت|target|tp)\s*(?:[1-9]|اول|دوم|سوم|چهارم)\s*(?:شد|رسید|hit)?", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.STATUS,
+                Intent = TradingIntent.STATUS_REPORT,
+                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.SIGNAL,
+                Targets = sym != null ? new List<string> { sym } : new List<string>(),
+                Confidence = 0.96m,
+                RequiresExecution = false,
+                Reason = "Message reports take profit target hit status.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        if (Regex.IsMatch(text, @"(?:استاپ\s*شد|حد\s*ضرر\s*خورد|stop\s*loss\s*hit|sl\s*hit)", RegexOptions.IgnoreCase))
+        {
+            intent = new StructuredIntent
+            {
+                MessageType = IntelligenceMessageType.STATUS,
+                Intent = TradingIntent.STATUS_REPORT,
+                Scope = ExtractSymbol(text, context, out var sym) ? IntentScope.SYMBOL : IntentScope.POSITION,
+                Targets = sym != null ? new List<string> { sym } : new List<string>(),
+                Confidence = 0.98m,
+                RequiresExecution = false,
+                Reason = "Message reports stop loss hit status.",
+                DetectionMethod = "RULE"
+            };
+            return true;
+        }
+
+        return false;
+    }
+
     private bool ExtractSymbol(string text, MessageIntelligenceContext context, out string? symbol)
     {
         symbol = null;
@@ -441,6 +425,7 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
             { "کاد", "USDCAD" },
             { "استرالیا", "AUDUSD" },
             { "بیتکوین", "BTCUSDT" },
+            { "بیت کوین", "BTCUSDT" },
             { "بیت", "BTCUSDT" },
             { "اتریوم", "ETHUSDT" }
         };
@@ -454,7 +439,6 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
             }
         }
 
-        // Match English standard forex/crypto ticker symbols
         var match = Regex.Match(text, @"\b([A-Z]{6}|[A-Z]{3}/[A-Z]{3}|BTCUSDT|ETHUSDT|EURUSD|GBPUSD|XAUUSD|USDJPY)\b", RegexOptions.IgnoreCase);
         if (match.Success)
         {
@@ -462,7 +446,6 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
             return true;
         }
 
-        // Fallback to ReplyContext symbol
         if (context.ReplyContext?.Symbol != null)
         {
             symbol = context.ReplyContext.Symbol;

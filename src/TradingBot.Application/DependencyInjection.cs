@@ -31,6 +31,9 @@ public static class DependencyInjection
         services.AddSingleton<ISignalStorageQueue, SignalStorageQueue>();
         services.AddScoped<ISignalStorageService, SignalStorageService>();
 
+        // Register Position Management Handler
+        services.AddScoped<IPositionManagementHandler, PositionManagementHandler>();
+
         // Register Signal Intelligence & Parser services
         services.AddScoped<IMessagePreprocessor, MessagePreprocessor>();
         services.AddScoped<IMessageClassifier, MessageClassifier>();
