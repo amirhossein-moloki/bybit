@@ -37,6 +37,14 @@ public class ExchangeSettings
     public string Environment { get; set; } = "Demo";
     public int RecvWindow { get; set; } = 5000;
     public string ProxyUrl { get; set; } = string.Empty;
+    public TimeSyncSettings TimeSync { get; set; } = new();
+}
+
+public class TimeSyncSettings
+{
+    public bool Enabled { get; set; } = true;
+    public int RefreshIntervalMinutes { get; set; } = 5;
+    public int RequestTimeoutSeconds { get; set; } = 5;
 }
 
 public class LoggingSettings

@@ -25,6 +25,7 @@ public class BybitExchangeClient : IExchangeClient
     private readonly IResilienceService _resilienceService;
     private readonly ILogger<BybitExchangeClient> _logger;
     private readonly IBybitAccountProvider _accountProvider;
+    private readonly IExchangeTimeProvider _timeProvider;
 
     public string ExchangeName => "Bybit";
 
@@ -33,12 +34,14 @@ public class BybitExchangeClient : IExchangeClient
         BybitSettings settings,
         IResilienceService resilienceService,
         ILogger<BybitExchangeClient> logger,
-        IBybitAccountProvider? accountProvider = null)
+        IBybitAccountProvider? accountProvider = null,
+        IExchangeTimeProvider? timeProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? new SystemExchangeTimeProvider();
         var defaultApiKey = _settings.EffectiveApiKey;
         var defaultApiSecret = _settings.EffectiveApiSecret;
         _accountProvider = accountProvider ?? new SingleBybitAccountProvider(defaultApiKey, defaultApiSecret, settings.Environment);
@@ -404,7 +407,7 @@ public class BybitExchangeClient : IExchangeClient
 
         return await _resilienceService.ExecuteHttpAsync(async ct =>
         {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var timestamp = _timeProvider.GetCurrentMilliseconds().ToString();
             var recvWindow = "5000";
             var apiKey = account.ApiKey;
             var apiSecret = account.ApiSecret;

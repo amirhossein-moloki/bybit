@@ -23,18 +23,21 @@ public class PositionGateway : IPositionGateway
     private readonly IResilienceService _resilienceService;
     private readonly ILogger<PositionGateway> _logger;
     private readonly IBybitAccountProvider _accountProvider;
+    private readonly IExchangeTimeProvider _timeProvider;
 
     public PositionGateway(
         HttpClient httpClient,
         BybitSettings settings,
         IResilienceService resilienceService,
         ILogger<PositionGateway> logger,
-        IBybitAccountProvider? accountProvider = null)
+        IBybitAccountProvider? accountProvider = null,
+        IExchangeTimeProvider? timeProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? new SystemExchangeTimeProvider();
         var defaultApiKey = _settings.EffectiveApiKey;
         var defaultApiSecret = _settings.EffectiveApiSecret;
         _accountProvider = accountProvider ?? new SingleBybitAccountProvider(defaultApiKey, defaultApiSecret, settings.Environment);
@@ -255,7 +258,7 @@ public class PositionGateway : IPositionGateway
     {
         return await _resilienceService.ExecuteHttpAsync(async ct =>
         {
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+            var timestamp = _timeProvider.GetCurrentMilliseconds().ToString();
             var recvWindow = _settings.RecvWindow.ToString();
             var apiKey = account.ApiKey;
             var apiSecret = account.ApiSecret;
