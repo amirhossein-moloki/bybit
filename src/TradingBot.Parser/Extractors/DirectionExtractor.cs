@@ -44,12 +44,24 @@ public class DirectionExtractor : ISignalExtractor
             }
         }
 
-        // Standalone or matched phrases (Fallback/Default patterns)
-        if (Regex.IsMatch(normalized, @"(?:\bLONG\s+POSITION\b|\bLONG\b|\bBUY\b|\bBULLISH\b|خرید)", RegexOptions.IgnoreCase))
+        // Check explicit English BUY/SELL token priority first
+        if (Regex.IsMatch(normalized, @"\bBUY\b", RegexOptions.IgnoreCase) && !Regex.IsMatch(normalized, @"\bSELL\b", RegexOptions.IgnoreCase))
+        {
+            signal.Side = OrderSide.Buy;
+            return Task.CompletedTask;
+        }
+        if (Regex.IsMatch(normalized, @"\bSELL\b", RegexOptions.IgnoreCase) && !Regex.IsMatch(normalized, @"\bBUY\b", RegexOptions.IgnoreCase))
+        {
+            signal.Side = OrderSide.Sell;
+            return Task.CompletedTask;
+        }
+
+        // Standalone or matched phrases (Fallback/Default patterns including Persian labels)
+        if (Regex.IsMatch(normalized, @"(?:نوع\s*معامله[\s:]*خرید|\bLONG\s+POSITION\b|\bLONG\b|\bBUY\b|\bBULLISH\b|خرید)", RegexOptions.IgnoreCase))
         {
             signal.Side = OrderSide.Buy;
         }
-        else if (Regex.IsMatch(normalized, @"(?:\bSHORT\s+POSITION\b|\bSHORT\b|\bSELL\b|\bBEARISH\b|فروش)", RegexOptions.IgnoreCase))
+        else if (Regex.IsMatch(normalized, @"(?:نوع\s*معامله[\s:]*فروش|\bSHORT\s+POSITION\b|\bSHORT\b|\bSELL\b|\bBEARISH\b|فروش)", RegexOptions.IgnoreCase))
         {
             signal.Side = OrderSide.Sell;
         }

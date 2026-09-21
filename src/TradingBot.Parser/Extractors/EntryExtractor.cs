@@ -25,7 +25,7 @@ public class EntryExtractor : ISignalExtractor
             rule = activeTemplate.GetRules().FirstOrDefault(r => r.Extractor == "EntryExtractor" || r.Field == "EntryPrice");
         }
 
-        string patternToUse = @"(?:ENTRY|ENTRY\s+PRICE|BUY\s+ZONE|BUY|نقطه\s*ورود|ورود)";
+        string patternToUse = @"(?:ENTRY|ENTRY\s+PRICE|BUY\s+ZONE|BUY|نقطه\s*ورود|قیمت\s*ورود|ورود)";
         if (rule != null && !string.IsNullOrWhiteSpace(rule.Pattern))
         {
             var preparedPattern = SignalTextNormalizer.PreparePattern(rule.Pattern);
