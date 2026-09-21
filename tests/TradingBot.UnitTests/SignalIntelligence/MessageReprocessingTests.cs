@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using TradingBot.Application.Models;
@@ -354,5 +356,27 @@ public class MessageReprocessingTests
         Assert.Equal("Executed", execResult.Status);
         Assert.NotNull(execResult.OrderId);
         Assert.Equal("ExecutedByOperator", completedAttempt.ExecutionResult);
+    }
+
+    [Fact]
+    public void DependencyInjection_ShouldResolveMessageReprocessingService_WhenDIContainerBuilt()
+    {
+        // Arrange
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
+        services.AddLogging();
+        services.AddApplication(configuration);
+        services.AddInfrastructure(configuration);
+        services.AddParser(configuration);
+
+        var provider = services.BuildServiceProvider();
+
+        // Act & Assert
+        var service = provider.GetService<IMessageReprocessingService>();
+        var contextBuilder = provider.GetService<IMessageContextBuilder>();
+
+        Assert.NotNull(service);
+        Assert.NotNull(contextBuilder);
     }
 }
