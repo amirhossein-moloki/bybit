@@ -46,15 +46,18 @@ public class MessageClassifier : IMessageClassifier
                           upper.Contains("فری کنید") || upper.Contains("حد ضرر منتقل");
 
         bool isPartialClose = upper.Contains("CLOSE PARTIAL") || upper.Contains("CLOSE HALF") || upper.Contains("سیو سود") ||
-                              upper.Contains("بخشی از معامله") || upper.Contains("تارگت اول") || upper.Contains("تارگت 1") ||
-                              upper.Contains("تارگت۱") || upper.Contains("TP1 HIT") || upper.Contains("TARGET 1 HIT");
+                              upper.Contains("بخشی از معامله") || upper.Contains("بخشی از حجم") || upper.Contains("تارگت اول") ||
+                              upper.Contains("تارگت دوم") || upper.Contains("تارگت 1") || upper.Contains("تارگت 2") ||
+                              upper.Contains("تارگت۱") || upper.Contains("تارگت۲") || upper.Contains("TP1 HIT") ||
+                              upper.Contains("TP2 HIT") || upper.Contains("TARGET 1 HIT") || upper.Contains("TARGET 2 HIT");
 
         bool isUpdateSl = upper.Contains("UPDATE SL") || upper.Contains("MOVE SL") || upper.Contains("MOVE STOP") || upper.Contains("تغییر حد ضرر");
         bool isUpdateTp = upper.Contains("UPDATE TP") || upper.Contains("تغییر حد سود");
 
         bool isCloseAll = upper.Contains("CLOSE ALL") || upper.Contains("همه معاملات") || upper.Contains("تمام معاملات") || upper.Contains("همه اوردرها");
         bool isClosePosition = upper.Contains("CLOSE POSITION") || upper.Contains("EXIT NOW") || upper.Contains("ببندید") ||
-                               upper.Contains("خروج کامل") || upper.Contains("معامله بسته شد") || upper.Contains("پوزیشن بسته شد");
+                               upper.Contains("خروج کامل") || upper.Contains("معامله بسته شد") || upper.Contains("معامله بسته شود") ||
+                               upper.Contains("پوزیشن بسته شد") || upper.Contains("پوزیشن بسته شود");
 
         if (isCancelCommand)
         {

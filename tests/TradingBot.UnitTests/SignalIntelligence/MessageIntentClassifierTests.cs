@@ -56,7 +56,9 @@ public class MessageIntentClassifierTests
 
     [Theory]
     [InlineData("بیت کوین تارگت اول خورد", "BTCUSDT", "TakePartialProfit")]
+    [InlineData("تارگت دوم خورد یورو", "EURUSD", "TakePartialProfit")]
     [InlineData("بخشی از معامله بسته شد اتریوم", "ETHUSDT", "TakePartialProfit")]
+    [InlineData("بخشی از حجم بسته شود طلا", "XAUUSD", "TakePartialProfit")]
     [InlineData("سیو سود پوند", "GBPUSD", "TakePartialProfit")]
     public async Task ClassifyAsync_WithTakeProfitHitMessage_ShouldClassifyAsPositionManagement(string content, string expectedSymbol, string expectedAction)
     {
@@ -77,6 +79,7 @@ public class MessageIntentClassifierTests
     [InlineData("همه معاملات بسته شود", "CloseAllPositions")]
     [InlineData("خروج کامل", "ClosePosition")]
     [InlineData("معامله بسته شد", "ClosePosition")]
+    [InlineData("معامله بسته شود", "ClosePosition")]
     public async Task ClassifyAsync_WithExitSignalMessage_ShouldClassifyAsExitSignal(string content, string expectedAction)
     {
         // Arrange
