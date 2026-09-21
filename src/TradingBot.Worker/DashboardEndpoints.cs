@@ -107,7 +107,9 @@ public static class DashboardEndpoints
 
                     var (statusCode, code, message) = ex switch
                     {
+                        KeyNotFoundException keyEx => (404, "NOT_FOUND", keyEx.Message),
                         ArgumentException argEx => (400, "BAD_REQUEST", argEx.Message),
+                        InvalidOperationException invEx => (400, "INVALID_OPERATION", invEx.Message),
                         TradingBot.Application.Exceptions.DatabaseException dbEx => (500, "DATABASE_ERROR", "A database error occurred."),
                         _ => (500, "INTERNAL_SERVER_ERROR", "An unexpected error occurred.")
                     };
