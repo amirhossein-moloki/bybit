@@ -71,6 +71,14 @@ public static class ParserDependencyInjection
         services.AddScoped<IMessageParser, MessageParser>();
         services.AddScoped<IStructuredSignalExtractor, StructuredSignalExtractor>();
 
+        // Message Intelligence Engine Services
+        services.AddScoped<IMessageContextBuilder, TradingBot.Parser.Services.MessageContextBuilder>();
+        services.AddScoped<IDeterministicRuleEngine, TradingBot.Parser.Services.DeterministicRuleEngine>();
+        services.AddScoped<IAIIntentInterpreter, TradingBot.Parser.Services.AIIntentInterpreter>();
+        services.AddScoped<ITargetResolver, TradingBot.Parser.Services.TargetResolver>();
+        services.AddScoped<IIntentSafetyValidator, TradingBot.Parser.Services.IntentSafetyValidator>();
+        services.AddScoped<IIntentExecutionRouter, TradingBot.Parser.Services.IntentExecutionRouter>();
+
         // Register Validation Engine and Rules
         services.AddScoped<IValidationRule, SymbolValidationRule>();
         services.AddScoped<IValidationRule, DirectionValidationRule>();

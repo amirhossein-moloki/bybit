@@ -18,6 +18,7 @@ public class BybitSettings
     public string Environment { get; set; } = "Demo";
     public int RecvWindow { get; set; } = 5000;
     public string ProxyUrl { get; set; } = string.Empty;
+    public BybitTimeSyncOptions TimeSync { get; set; } = new();
     public List<BybitAccountSettings> Accounts { get; set; } = new();
 
     public string EffectiveApiKey => !string.IsNullOrEmpty(ApiKey)

@@ -108,6 +108,15 @@ try
         options.Environment = settings.Exchange.Environment;
         options.RecvWindow = settings.Exchange.RecvWindow;
         options.ProxyUrl = settings.Exchange.ProxyUrl;
+        if (settings.Exchange.TimeSync != null)
+        {
+            options.TimeSync.Enabled = settings.Exchange.TimeSync.Enabled;
+            options.TimeSync.RefreshIntervalMinutes = settings.Exchange.TimeSync.RefreshIntervalMinutes;
+            options.TimeSync.RequestTimeoutSeconds = settings.Exchange.TimeSync.RequestTimeoutSeconds;
+        }
+
+        // Bind from "Bybit:TimeSync" if present in configuration
+        builder.Configuration.GetSection("Bybit:TimeSync").Bind(options.TimeSync);
     });
     builder.Services.AddTelegramIntegration(builder.Configuration);
 

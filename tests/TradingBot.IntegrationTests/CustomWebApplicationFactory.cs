@@ -63,10 +63,33 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureTestServices(services =>
         {
+            var exchangeClientDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IExchangeClient));
+            if (exchangeClientDescriptor != null)
+            {
+                services.Remove(exchangeClientDescriptor);
+            }
+
             var mockExchangeClient = new Mock<IExchangeClient>();
             mockExchangeClient.Setup(x => x.ExchangeName).Returns("Bybit");
             mockExchangeClient.Setup(x => x.PingAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
             services.AddSingleton(mockExchangeClient.Object);
+
+            var timeProviderDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IExchangeTimeProvider));
+            if (timeProviderDescriptor != null)
+            {
+                services.Remove(timeProviderDescriptor);
+            }
+
+            var hostedServiceDescriptors = services.Where(d => d.ImplementationType == typeof(TradingBot.Exchange.Bybit.Services.BybitTimeSyncBackgroundService) || d.ServiceType == typeof(TradingBot.Exchange.Bybit.Services.BybitTimeProvider)).ToList();
+            foreach (var hsd in hostedServiceDescriptors)
+            {
+                services.Remove(hsd);
+            }
+
+            var mockTimeProvider = new Mock<IExchangeTimeProvider>();
+            mockTimeProvider.Setup(x => x.GetCurrentMilliseconds()).Returns(() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            mockTimeProvider.Setup(x => x.SyncTimeAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            services.AddSingleton(mockTimeProvider.Object);
 
             services.AddSingleton<IExchangeStreamClient, FakeExchangeStreamClient>();
 
@@ -113,6 +136,18 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             testNotifOptions.Telegram.ChatId = "987654321";
             testNotifOptions.Telegram.Enabled = true;
             services.AddSingleton(testNotifOptions);
+
+            var startupOptionsDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(TradingBot.Application.Configuration.StartupShutdownOptions));
+            if (startupOptionsDescriptor != null)
+            {
+                services.Remove(startupOptionsDescriptor);
+            }
+            var testStartupOptions = new TradingBot.Application.Configuration.StartupShutdownOptions
+            {
+                RequireDatabase = true,
+                RequireExchange = false
+            };
+            services.AddSingleton(testStartupOptions);
 
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<TradingDbContext>));
             if (descriptor != null)

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using TradingBot.Application.Enums;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Streams;
+using TradingBot.Exchange.Bybit.Services;
 
 namespace TradingBot.Exchange.Bybit.WebSocket;
 
@@ -21,6 +22,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
     private readonly SubscriptionManager _subscriptionManager;
     private readonly MessageHandler _messageHandler;
     private readonly IResilienceService _resilienceService;
+    private readonly IExchangeTimeProvider _timeProvider;
 
     private ClientWebSocket? _publicSocket;
     private ClientWebSocket? _privateSocket;
@@ -62,7 +64,8 @@ public class BybitWebSocketClient : IExchangeStreamClient
         SubscriptionManager subscriptionManager,
         MessageHandler messageHandler,
         IResilienceService resilienceService,
-        ILogger<BybitWebSocketClient> logger)
+        ILogger<BybitWebSocketClient> logger,
+        IExchangeTimeProvider? timeProvider = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         MarketStream = marketStream ?? throw new ArgumentNullException(nameof(marketStream));
@@ -72,6 +75,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
         _messageHandler = messageHandler ?? throw new ArgumentNullException(nameof(messageHandler));
         _resilienceService = resilienceService ?? throw new ArgumentNullException(nameof(resilienceService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _timeProvider = timeProvider ?? new SystemExchangeTimeProvider();
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -218,7 +222,7 @@ public class BybitWebSocketClient : IExchangeStreamClient
             return;
         }
 
-        var expires = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 10000;
+        var expires = _timeProvider.GetCurrentMilliseconds() + 10000;
         var rawSig = $"GET/realtime{expires}";
 
         string signature;

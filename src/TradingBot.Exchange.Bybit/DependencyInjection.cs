@@ -36,6 +36,12 @@ public static class DependencyInjection
             }
         }
 
+        ConfigureHttpClientProxy(services.AddHttpClient("BybitTimeProvider"));
+
+        services.AddSingleton<TradingBot.Exchange.Bybit.Services.BybitTimeProvider>();
+        services.AddSingleton<IExchangeTimeProvider>(sp => sp.GetRequiredService<TradingBot.Exchange.Bybit.Services.BybitTimeProvider>());
+        services.AddHostedService<TradingBot.Exchange.Bybit.Services.BybitTimeSyncBackgroundService>();
+
         ConfigureHttpClientProxy(services.AddHttpClient<IExchangeClient, BybitExchangeClient>());
         ConfigureHttpClientProxy(services.AddHttpClient<IExchangeTradingGateway, BybitExecutionAdapter>());
         ConfigureHttpClientProxy(services.AddHttpClient<IPositionGateway, PositionGateway>());
