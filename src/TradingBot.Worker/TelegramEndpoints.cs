@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
+using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Telegram.Interfaces;
 using TradingBot.Telegram.Models;
 
@@ -303,6 +304,43 @@ public static class TelegramEndpoints
         {
             var diagnostics = await sourceService.GetPipelineDiagnosticsAsync(ct);
             return Results.Ok(new { status = "success", data = diagnostics });
+        });
+
+        // ----------------------------------------------------------------------
+        // Telegram Message Reprocessing / Replay Endpoints
+        // ----------------------------------------------------------------------
+
+        // 23. Manual Reprocess Telegram Message
+        group.MapPost("/messages/{messageId:guid}/reprocess", async (
+            IMessageReprocessingService reprocessingService,
+            Guid messageId,
+            ReprocessMessageRequestDto? request,
+            CancellationToken ct) =>
+        {
+            var result = await reprocessingService.ReprocessMessageAsync(messageId, request ?? new ReprocessMessageRequestDto(), ct);
+            return Results.Ok(new { status = "success", data = result });
+        });
+
+        // 24. Get Processing Attempts History for Telegram Message
+        group.MapGet("/messages/{messageId:guid}/attempts", async (
+            IMessageReprocessingService reprocessingService,
+            Guid messageId,
+            CancellationToken ct) =>
+        {
+            var attempts = await reprocessingService.GetMessageAttemptsAsync(messageId, ct);
+            return Results.Ok(new { status = "success", data = attempts });
+        });
+
+        // 25. Explicit Trade Execution for Completed Reprocessing Attempt
+        group.MapPost("/messages/{messageId:guid}/attempts/{attemptId:guid}/execute", async (
+            IMessageReprocessingService reprocessingService,
+            Guid messageId,
+            Guid attemptId,
+            ExplicitExecutionRequestDto? request,
+            CancellationToken ct) =>
+        {
+            var result = await reprocessingService.ExecuteAttemptTradeAsync(messageId, attemptId, request ?? new ExplicitExecutionRequestDto(attemptId), ct);
+            return Results.Ok(new { status = "success", data = result });
         });
     }
 }

@@ -188,3 +188,46 @@ export interface TelegramMessagePipelineItemDto {
   riskDecision?: TelegramRiskDecisionDto | null;
   execution?: TelegramOrderExecutionDto | null;
 }
+
+export interface MessageProcessingAttemptDto {
+  id: string;
+  telegramMessageId: string;
+  attemptNumber: number;
+  startedAt: string;
+  completedAt?: string | null;
+  triggerType: string;
+  triggeredBy?: string | null;
+  processingMode: string;
+  parserVersion?: string | null;
+  aiModelVersion?: string | null;
+  status: string;
+  intent?: string | null;
+  symbol?: string | null;
+  side?: string | null;
+  entryPrice?: number | null;
+  stopLoss?: number | null;
+  takeProfitsJson?: string | null;
+  leverage?: number | null;
+  spreadAllowance?: string | null;
+  validationResult?: string | null;
+  riskResult?: string | null;
+  executionResult?: string | null;
+  errorMessage?: string | null;
+  metadataJson?: string | null;
+}
+
+export interface ReprocessingResultDto {
+  success: boolean;
+  attemptId: string;
+  attempt: MessageProcessingAttemptDto;
+  previousAttempt?: MessageProcessingAttemptDto | null;
+  message: string;
+}
+
+export interface ExplicitExecutionResultDto {
+  success: boolean;
+  attemptId: string;
+  status: string;
+  orderId?: string | null;
+  message: string;
+}

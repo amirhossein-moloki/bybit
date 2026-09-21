@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
+using TradingBot.Application.Models;
 using TradingBot.Domain.SignalIntelligence.Models;
-using TradingBot.Telegram.Models;
 
 namespace TradingBot.Application.SignalIntelligence.Contracts;
 

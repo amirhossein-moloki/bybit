@@ -12,7 +12,7 @@ using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Domain.SignalIntelligence.Models;
 using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Services;
-using TradingBot.Telegram.Models;
+using TradingBot.Application.Models;
 using Xunit;
 
 namespace TradingBot.IntegrationTests.SignalIntelligence;

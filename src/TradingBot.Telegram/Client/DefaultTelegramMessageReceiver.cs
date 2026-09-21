@@ -10,7 +10,7 @@ using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.SignalIntelligence.Entities;
 using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Telegram.Interfaces;
-using TradingBot.Telegram.Models;
+using TradingBot.Application.Models;
 
 namespace TradingBot.Telegram.Client;
 

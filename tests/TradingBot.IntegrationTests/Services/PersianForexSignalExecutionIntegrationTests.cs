@@ -154,7 +154,7 @@ public class PersianForexSignalExecutionIntegrationTests : IAsyncLifetime
         var serviceProvider = services.BuildServiceProvider();
 
         var messageFilter = new MessageFilterService(NullLogger<MessageFilterService>.Instance, Options.Create(new SignalDetectionSettings()));
-        var telegramDto = new TradingBot.Telegram.Models.TelegramMessageDto
+        var telegramDto = new TelegramMessageDto
         {
             ChannelId = 123456,
             MessageId = 7890,

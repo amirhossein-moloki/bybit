@@ -14,7 +14,7 @@ using TradingBot.Domain.Entities;
 using TradingBot.Telegram.Client;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Interfaces;
-using TradingBot.Telegram.Models;
+using TradingBot.Application.Models;
 using Xunit;
 
 namespace TradingBot.UnitTests.Telegram;

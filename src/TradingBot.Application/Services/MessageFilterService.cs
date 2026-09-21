@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
-using TradingBot.Telegram.Models;
 
 namespace TradingBot.Application.Services;
 

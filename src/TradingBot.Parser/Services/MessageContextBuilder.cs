@@ -9,7 +9,7 @@ using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Domain.Entities;
 using TradingBot.Domain.Enums;
 using TradingBot.Domain.SignalIntelligence.Models;
-using TradingBot.Telegram.Models;
+using TradingBot.Application.Models;
 using AppRepos = TradingBot.Application.Repositories;
 
 namespace TradingBot.Parser.Services;

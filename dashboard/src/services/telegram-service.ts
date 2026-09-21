@@ -18,6 +18,9 @@ import type {
   TelegramSignalPreviewDto,
   TelegramSourceHealthDto,
   TelegramMessagePipelineItemDto,
+  MessageProcessingAttemptDto,
+  ReprocessingResultDto,
+  ExplicitExecutionResultDto,
 } from "@/types/telegram";
 
 const base = "/api/telegram";
@@ -188,5 +191,36 @@ export async function fetchLivePipeline(
   return apiGet<ApiSuccess<TelegramMessagePipelineItemDto[]>>(`${base}/live-pipeline`, {
     token,
     query: { sourceId, page, pageSize },
+  }).then(unwrap);
+}
+
+export async function reprocessTelegramMessage(
+  token: string,
+  messageId: string,
+  mode = "REPROCESS_ONLY"
+): Promise<ReprocessingResultDto> {
+  return apiPost<ApiSuccess<ReprocessingResultDto>>(`${base}/messages/${messageId}/reprocess`, {
+    token,
+    body: { mode, triggeredBy: "Operator (Dashboard)" },
+  }).then(unwrap);
+}
+
+export async function fetchMessageAttempts(
+  token: string,
+  messageId: string
+): Promise<MessageProcessingAttemptDto[]> {
+  return apiGet<ApiSuccess<MessageProcessingAttemptDto[]>>(`${base}/messages/${messageId}/attempts`, {
+    token,
+  }).then(unwrap);
+}
+
+export async function executeAttemptTrade(
+  token: string,
+  messageId: string,
+  attemptId: string
+): Promise<ExplicitExecutionResultDto> {
+  return apiPost<ApiSuccess<ExplicitExecutionResultDto>>(`${base}/messages/${messageId}/attempts/${attemptId}/execute`, {
+    token,
+    body: { attemptId, confirmedBy: "Operator (Dashboard)" },
   }).then(unwrap);
 }

@@ -1,6 +1,6 @@
 using System;
 
-namespace TradingBot.Telegram.Models;
+namespace TradingBot.Application.Models;
 
 public class TelegramMessageDto
 {

@@ -12,7 +12,7 @@ using TradingBot.Domain.SignalIntelligence.Entities;
 using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Domain.SignalIntelligence.Models;
 using TradingBot.Parser.Services;
-using TradingBot.Telegram.Models;
+using TradingBot.Application.Models;
 using AppRepos = TradingBot.Application.Repositories;
 using Xunit;
 

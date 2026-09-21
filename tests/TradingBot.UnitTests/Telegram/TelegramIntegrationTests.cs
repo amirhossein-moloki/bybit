@@ -15,6 +15,7 @@ using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Exceptions;
 using TradingBot.Telegram.Health;
 using TradingBot.Telegram.Interfaces;
+using TradingBot.Application.Models;
 using TradingBot.Telegram.Models;
 using Xunit;
 

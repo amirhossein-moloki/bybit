@@ -32,6 +32,9 @@ import {
   KeyRound,
   ShieldCheck,
   Settings,
+  RotateCcw,
+  ArrowRightLeft,
+  CheckSquare,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
@@ -80,6 +83,9 @@ import {
   fetchSourceHealth,
   testTelegramSource,
   fetchLivePipeline,
+  reprocessTelegramMessage,
+  fetchMessageAttempts,
+  executeAttemptTrade,
 } from "@/services/telegram-service";
 
 import type {
@@ -93,6 +99,7 @@ import type {
   TelegramSourceHealthDto,
   TelegramDialogDto,
   TelegramMessagePipelineItemDto,
+  MessageProcessingAttemptDto,
 } from "@/types/telegram";
 
 export default function TelegramControlCenterPage() {
@@ -157,6 +164,15 @@ export default function TelegramControlCenterPage() {
   const [selectedPipelineItem, setSelectedPipelineItem] = useState<TelegramMessagePipelineItemDto | null>(null);
   const [pipelineFilterSourceId, setPipelineFilterSourceId] = useState<string>("All");
 
+  // Reprocessing State
+  const [reprocessTarget, setReprocessTarget] = useState<TelegramMessagePipelineItemDto | null>(null);
+  const [showReprocessConfirm, setShowReprocessConfirm] = useState(false);
+  const [reprocessMode, setReprocessMode] = useState<"REPROCESS_ONLY" | "REPROCESS_AND_EVALUATE">("REPROCESS_ONLY");
+  const [reprocessing, setReprocessing] = useState(false);
+  const [attemptsHistory, setAttemptsHistory] = useState<MessageProcessingAttemptDto[]>([]);
+  const [showAttemptsModal, setShowAttemptsModal] = useState(false);
+  const [executingTrade, setExecutingTrade] = useState(false);
+
   const loadPipeline = useCallback(async () => {
     if (!token) return;
     try {
@@ -178,9 +194,8 @@ export default function TelegramControlCenterPage() {
   useEffect(() => {
     loadPipeline();
   }, [loadPipeline]);
+
   const [testingSource, setTestingSource] = useState(false);
-  const [msgPage, setMsgPage] = useState(1);
-  const [sigPage, setSigPage] = useState(1);
 
   // Load Status & Sources
   const loadStatus = useCallback(async () => {
@@ -221,6 +236,67 @@ export default function TelegramControlCenterPage() {
     loadStatus();
     loadSources();
   }, [loadStatus, loadSources]);
+
+  // Reprocessing Actions
+  const handleOpenReprocess = (item: TelegramMessagePipelineItemDto) => {
+    setReprocessTarget(item);
+    setReprocessMode("REPROCESS_ONLY");
+    setShowReprocessConfirm(true);
+  };
+
+  const handleTriggerReprocess = async () => {
+    if (!token || !reprocessTarget) return;
+
+    try {
+      setReprocessing(true);
+      const res = await reprocessTelegramMessage(token, reprocessTarget.messageEntityId, reprocessMode);
+      toast({
+        title: "پردازش مجدد با موفقیت انجام شد",
+        description: res.message,
+        variant: "success",
+      });
+      setShowReprocessConfirm(false);
+
+      // Load attempt history to display old vs new comparison
+      const attempts = await fetchMessageAttempts(token, reprocessTarget.messageEntityId);
+      setAttemptsHistory(attempts || []);
+      setShowAttemptsModal(true);
+      await loadPipeline();
+    } catch (err) {
+      toast({
+        title: "خطا در پردازش مجدد",
+        description: err instanceof Error ? err.message : "Reprocessing failed",
+        variant: "error",
+      });
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const handleExecuteAttemptTrade = async (attemptId: string) => {
+    if (!token || !reprocessTarget) return;
+    if (!confirm("آیا از تأیید و اجرای مستقیم معامله در Bybit اطمینان دارید؟")) return;
+
+    try {
+      setExecutingTrade(true);
+      const res = await executeAttemptTrade(token, reprocessTarget.messageEntityId, attemptId);
+      toast({
+        title: res.success ? "تأیید و اجرای معامله" : "اجرا متوقف شد",
+        description: res.message,
+        variant: res.success ? "success" : "error",
+      });
+      const attempts = await fetchMessageAttempts(token, reprocessTarget.messageEntityId);
+      setAttemptsHistory(attempts || []);
+    } catch (err) {
+      toast({
+        title: "خطا در اجرای معامله",
+        description: err instanceof Error ? err.message : "Execution failed",
+        variant: "error",
+      });
+    } finally {
+      setExecutingTrade(false);
+    }
+  };
 
   // QR Auth Polling
   useEffect(() => {
@@ -278,7 +354,7 @@ export default function TelegramControlCenterPage() {
     }
   };
 
-  // Reset OTP state when changing methods or steps
+  // Reset OTP state
   const resetOtpFlow = () => {
     setOtpStep(1);
     setPhoneCodeHash("");
@@ -434,7 +510,7 @@ export default function TelegramControlCenterPage() {
     }
   };
 
-  // Toggle Capability directly on card/row
+  // Toggle Capability
   const handleToggleCapability = async (
     source: TelegramSourceDto,
     key: "isEnabled" | "listenForSignals" | "processMessages",
@@ -442,7 +518,6 @@ export default function TelegramControlCenterPage() {
   ) => {
     if (!token) return;
 
-    // Optimistic Update
     setSources((prev) =>
       prev.map((s) => (s.id === source.id ? { ...s, [key]: value } : s))
     );
@@ -456,7 +531,6 @@ export default function TelegramControlCenterPage() {
       });
       await loadSources();
     } catch (err) {
-      // Revert Optimistic Update
       setSources((prev) =>
         prev.map((s) => (s.id === source.id ? { ...s, [key]: !value } : s))
       );
@@ -542,8 +616,6 @@ export default function TelegramControlCenterPage() {
     setActiveSource(source);
     setDetailsTab("overview");
     setTestResult(null);
-    setMsgPage(1);
-    setSigPage(1);
 
     if (!token) return;
 
@@ -1518,7 +1590,7 @@ export default function TelegramControlCenterPage() {
                   <TableHead className="text-center">Signal Extraction</TableHead>
                   <TableHead className="text-center">Risk Evaluation</TableHead>
                   <TableHead className="text-center">Order Execution</TableHead>
-                  <TableHead className="text-right">Full Trace</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1596,14 +1668,26 @@ export default function TelegramControlCenterPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedPipelineItem(item)}
-                          className="h-7 text-xs"
-                        >
-                          Trace <ChevronRight className="h-3 w-3 ml-1" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenReprocess(item)}
+                            className="h-7 text-xs border-primary/40 text-primary hover:bg-primary/10"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            پردازش مجدد
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedPipelineItem(item)}
+                            className="h-7 text-xs"
+                          >
+                            Trace <ChevronRight className="h-3 w-3 ml-1" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -1613,6 +1697,182 @@ export default function TelegramControlCenterPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Reprocessing Confirmation Dialog */}
+      <Dialog open={showReprocessConfirm} onOpenChange={setShowReprocessConfirm}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary dir-rtl">
+              <RotateCcw className="h-5 w-5" /> پردازش مجدد پیام تلگرام (Reprocess)
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-2 dir-rtl">
+              این پیام با قوانین و Parser فعلی مجدداً پردازش خواهد شد. پردازش مجدد به‌تنهایی سفارشی در Bybit ایجاد نمی‌کند.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reprocessTarget && (
+            <div className="space-y-4 py-2 dir-rtl">
+              <div className="p-3 bg-muted/30 border rounded-lg space-y-1">
+                <p className="text-xs text-muted-foreground">متن پیام اصلی (پیام # {reprocessTarget.messageId}):</p>
+                <p className="text-xs font-mono text-foreground whitespace-pre-wrap">{reprocessTarget.content}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-foreground block">حالت پردازش (Processing Mode):</label>
+                <Select value={reprocessMode} onValueChange={(v) => setReprocessMode(v as any)}>
+                  <SelectTrigger className="w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="REPROCESS_ONLY">
+                      REPROCESS_ONLY (بازبینی پارسر، ساختار و AI بدون تحلیل مدیریت ریسک)
+                    </SelectItem>
+                    <SelectItem value="REPROCESS_AND_EVALUATE">
+                      REPROCESS_AND_EVALUATE (آنالیز کامل همراه با ارزیابی ریسک در حالت فعلی بازار)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-row-reverse gap-2 sm:justify-start">
+            <Button
+              onClick={handleTriggerReprocess}
+              disabled={reprocessing}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {reprocessing ? (
+                <>
+                  <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                  در حال پردازش...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="ml-2 h-4 w-4" />
+                  تأیید و پردازش مجدد
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={() => setShowReprocessConfirm(false)} disabled={reprocessing}>
+              انصراف
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Attempts History & Comparison Modal */}
+      <Dialog open={showAttemptsModal} onOpenChange={setShowAttemptsModal}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ArrowRightLeft className="h-5 w-5 text-primary" />
+              مقایسه نتايج پردازش (Previous vs. Latest Processing Attempt)
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              مقایسه تاریخچه نتايج استخراج پارسر و ارزیابی ریسک پیام برای اشکال‌زدایی بهبودهای پارسر.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {attemptsHistory.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-xs">
+                هیچ تاریخچه پردازشی یافت نشد.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {attemptsHistory.map((att) => (
+                  <Card key={att.id} className={`border ${att.attemptNumber === 1 ? "border-muted" : "border-primary/50 bg-primary/5"}`}>
+                    <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between">
+                      <Badge variant={att.attemptNumber === 1 ? "secondary" : "default"}>
+                        Attempt #{att.attemptNumber} ({att.triggerType})
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(att.startedAt).toLocaleString()}
+                      </span>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 space-y-2 text-xs font-mono">
+                      <div className="grid grid-cols-2 gap-1 border-b pb-2">
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Intent</span>
+                          <span className="font-bold text-foreground">{att.intent || "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Symbol</span>
+                          <span className="font-bold text-foreground">{att.symbol || "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Side</span>
+                          <span className="font-bold text-foreground">{att.side || "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Entry Price</span>
+                          <span className="font-bold text-foreground">{att.entryPrice ? `$${att.entryPrice}` : "N/A"}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1 border-b pb-2">
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Stop Loss</span>
+                          <span className="font-bold text-foreground">{att.stopLoss ? `$${att.stopLoss}` : "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Spread</span>
+                          <span className="font-bold text-foreground">{att.spreadAllowance || "N/A"}</span>
+                        </div>
+                      </div>
+
+                      {att.takeProfitsJson && (
+                        <div className="border-b pb-2">
+                          <span className="text-muted-foreground block text-[10px]">Take Profit Targets</span>
+                          <span className="font-mono text-[11px] text-foreground">{att.takeProfitsJson}</span>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-1 pt-1">
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Validation</span>
+                          <Badge variant="outline" className="text-[10px]">{att.validationResult || "N/A"}</Badge>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Risk</span>
+                          <Badge variant="outline" className="text-[10px]">{att.riskResult || "N/A"}</Badge>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-[10px]">Execution</span>
+                          <Badge variant="outline" className="text-[10px]">{att.executionResult || "NoOrder"}</Badge>
+                        </div>
+                      </div>
+
+                      {att.validationResult === "Valid" && att.executionResult === "NoOrder" && att.attemptNumber > 1 && (
+                        <div className="pt-2 border-t mt-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleExecuteAttemptTrade(att.id)}
+                            disabled={executingTrade}
+                            className="w-full text-xs bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            {executingTrade ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                            ) : (
+                              <CheckSquare className="h-3.5 w-3.5 mr-1" />
+                            )}
+                            تأیید و اجرای معامله
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setShowAttemptsModal(false)}>بستن</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Trace Pipeline Item Dialog */}
       <Dialog open={!!selectedPipelineItem} onOpenChange={(open) => !open && setSelectedPipelineItem(null)}>
