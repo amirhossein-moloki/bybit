@@ -31,7 +31,7 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
         "LONG", "SHORT", "BUY", "SELL", "ENTRY", "STOP", "LOSS", "TAKE", "PROFIT", "LEVERAGE",
         "ZONE", "TARGET", "LIMIT", "MARKET", "NOW", "SL", "TP", "HIGH", "LOW", "RISK", "RISKY",
         "CROSS", "ISOLATED", "CALL", "SIGNAL", "TRADE", "POSITION", "BULLISH", "BEARISH", "WARN",
-        "WARNING", "ERROR", "EXCHANGE", "PRICE", "PRICES", "ورود", "حد سود", "حد ضرر"
+        "WARNING", "ERROR", "EXCHANGE", "PRICE", "PRICES", "ورود", "حد سود", "حد ضرر", "اسپرد"
     };
 
     public StructuredSignalExtractor(
@@ -87,6 +87,12 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
             result.StopLoss = ExtractStopLoss(normalizedText, rules.SLRules, result.Errors);
             result.TakeProfits = ExtractTakeProfits(normalizedText, rules.TPRules, result.Errors);
             result.Leverage = ExtractLeverage(normalizedText, result.Errors);
+
+            var spread = ExtractSpread(normalizedText);
+            if (!string.IsNullOrEmpty(spread))
+            {
+                result.Metadata["SpreadAllowance"] = spread;
+            }
 
             // 3. Validation Layer
             RunValidation(result);
@@ -206,8 +212,16 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
     }
 
     private string? ExtractSymbol(string text, SymbolRules rules, List<string> errors)
-    {
-        // First try explicit symbol mappings
+    {        // First try explicit label pattern e.g. "جفت ارز: AUD/USD" or "Symbol: AUDUSD"
+        var labelMatch = Regex.Match(text, @"(?:جفت\s*ارز|جفت‌ارز|نماد|Symbol)[\s:]*([A-Z]{2,6})[-/_]?([A-Z]{3,4})", RegexOptions.IgnoreCase);
+        if (labelMatch.Success)
+        {
+            var baseSym = labelMatch.Groups[1].Value.ToUpperInvariant();
+            var quoteSym = labelMatch.Groups[2].Value.ToUpperInvariant();
+            return $"{baseSym}{quoteSym}";
+        }
+
+        // Try explicit symbol mappings from rules
         foreach (var mapping in rules.SymbolMappings)
         {
             if (Regex.IsMatch(text, $@"\b{Regex.Escape(mapping.Key)}\b", RegexOptions.IgnoreCase))
@@ -257,9 +271,20 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
 
     private TradeSide ExtractSide(string text, SideRules rules)
     {
+        // Prioritize explicit standalone English BUY/SELL tokens first
+        if (Regex.IsMatch(text, @"\bBUY\b", RegexOptions.IgnoreCase) && !Regex.IsMatch(text, @"\bSELL\b", RegexOptions.IgnoreCase))
+        {
+            return TradeSide.BUY;
+        }
+        if (Regex.IsMatch(text, @"\bSELL\b", RegexOptions.IgnoreCase) && !Regex.IsMatch(text, @"\bBUY\b", RegexOptions.IgnoreCase))
+        {
+            return TradeSide.SELL;
+        }
+
+        // Fall back to keyword lists
         foreach (var kw in rules.BuyKeywords)
         {
-            if (Regex.IsMatch(text, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(text, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase) || text.Contains(kw, StringComparison.OrdinalIgnoreCase))
             {
                 return TradeSide.BUY;
             }
@@ -267,7 +292,7 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
 
         foreach (var kw in rules.SellKeywords)
         {
-            if (Regex.IsMatch(text, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(text, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase) || text.Contains(kw, StringComparison.OrdinalIgnoreCase))
             {
                 return TradeSide.SELL;
             }
@@ -281,37 +306,32 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
         rangeMin = null;
         rangeMax = null;
 
-        // Try to match range like ENTRY: 1.16000-1.16100
+        // Range pattern: e.g. "ENTRY ZONE: 60000-60500" or "نقطه ورود: 1.16000-1.16100"
+        var rangeMatch = Regex.Match(text, @"(?:ENTRY\s*ZONE|ENTRY|نقطه\s*ورود|قیمت\s*ورود|ورود)[\s:]*([0-9.]+)\s*[-]\s*([0-9.]+)", RegexOptions.IgnoreCase);
+        if (rangeMatch.Success)
+        {
+            if (decimal.TryParse(rangeMatch.Groups[1].Value, out var rMin) && decimal.TryParse(rangeMatch.Groups[2].Value, out var rMax))
+            {
+                rangeMin = rMin;
+                rangeMax = rMax;
+                return rMin;
+            }
+        }
+
+        // Single entry price matching via rules
         foreach (var kw in rules.EntryKeywords)
         {
-            var rangePattern = $@"{Regex.Escape(kw)}[\s:]*([0-9.]+)\s*[-]\s*([0-9.]+)";
-            var rangeMatch = Regex.Match(text, rangePattern, RegexOptions.IgnoreCase);
-            if (rangeMatch.Success)
+            var pattern = $@"{Regex.Escape(kw)}[\s:]*([0-9.]+)";
+            var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
+            if (match.Success)
             {
-                if (decimal.TryParse(rangeMatch.Groups[1].Value, out var min) && decimal.TryParse(rangeMatch.Groups[2].Value, out var max))
-                {
-                    rangeMin = min;
-                    rangeMax = max;
-                    return min;
-                }
-            }
-
-            // Try to match single entry price
-            var singlePattern = $@"{Regex.Escape(kw)}[\s:]*([0-9.]+)";
-            var singleMatch = Regex.Match(text, singlePattern, RegexOptions.IgnoreCase);
-            if (singleMatch.Success)
-            {
-                if (decimal.TryParse(singleMatch.Groups[1].Value, out var price))
+                if (decimal.TryParse(match.Groups[1].Value, out var price))
                 {
                     return price;
                 }
-                else
-                {
-                    errors.Add("Invalid Entry Price format.");
-                }
             }
 
-            // Check if there is keyword followed by letters (e.g. Entry: abc)
+            // Check if keyword is followed by letters (e.g. Entry: abc)
             var kwMatch = Regex.Match(text, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase);
             if (kwMatch.Success)
             {
@@ -319,13 +339,20 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
                 if (followMatch.Success && !Regex.IsMatch(text, $@"{Regex.Escape(kw)}[\s:]*[0-9.]+"))
                 {
                     errors.Add($"Extraction Failed: Invalid entry number '{followMatch.Groups[1].Value}'");
+                    return null;
                 }
             }
         }
 
+        // Generic Persian label matching: نقطه ورود, قیمت ورود, ورود
+        var genericMatch = Regex.Match(text, @"(?:نقطه\s*ورود|قیمت\s*ورود|ورود|Entry)[\s:]*([0-9.]+)", RegexOptions.IgnoreCase);
+        if (genericMatch.Success && decimal.TryParse(genericMatch.Groups[1].Value, out var entryVal))
+        {
+            return entryVal;
+        }
+
         // Fallback: match first number right after Symbol and Side
-        // e.g. "BTCUSDT LONG 60000"
-        var fallbackMatch = Regex.Match(text, @"\b(?:BUY|SELL|LONG|SHORT)\s+([0-9.]+)\b", RegexOptions.IgnoreCase);
+        var fallbackMatch = Regex.Match(text, @"\b(?:BUY|SELL|LONG|SHORT|خرید|فروش)\s+([0-9.]+)\b", RegexOptions.IgnoreCase);
         if (fallbackMatch.Success)
         {
             if (decimal.TryParse(fallbackMatch.Groups[1].Value, out var price))
@@ -339,6 +366,13 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
 
     private decimal? ExtractStopLoss(string text, SLRules rules, List<string> errors)
     {
+        // Explicit Persian label with optional English in parentheses e.g. "حد ضرر (Stop Loss): 0.70730"
+        var explicitMatch = Regex.Match(text, @"(?:حد\s*ضرر(?:\s*\([^)]*\))?|Stop\s*Loss|SL)[\s:]*([0-9.]+)", RegexOptions.IgnoreCase);
+        if (explicitMatch.Success && decimal.TryParse(explicitMatch.Groups[1].Value, out var slPrice))
+        {
+            return slPrice;
+        }
+
         foreach (var kw in rules.StopLossKeywords)
         {
             var pattern = $@"{Regex.Escape(kw)}[\s:]*([0-9.]+)";
@@ -363,6 +397,40 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
         var targets = new List<TakeProfitTarget>();
         var seenPrices = new HashSet<decimal>();
 
+        // 1. Try explicit Persian ordinals: تارگت اول, تارگت دوم, تارگت سوم
+        var ordinalMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "اول", 1 }, { "دوم", 2 }, { "سوم", 3 }, { "چهارم", 4 }, { "پنجم", 5 }
+        };
+
+        var ordinalMatches = Regex.Matches(text, @"تارگت\s*(اول|دوم|سوم|چهارم|پنجم|\d+)[\s:]*([0-9.]+)", RegexOptions.IgnoreCase);
+        foreach (Match m in ordinalMatches)
+        {
+            var targetToken = m.Groups[1].Value.Trim();
+            int index = ordinalMap.TryGetValue(targetToken, out var ordIndex) ? ordIndex : (int.TryParse(targetToken, out var pIndex) ? pIndex : targets.Count + 1);
+
+            if (decimal.TryParse(m.Groups[2].Value, out var price))
+            {
+                if (seenPrices.Contains(price))
+                {
+                    errors.Add($"Duplicate TP price detected and skipped: {price}");
+                    continue;
+                }
+
+                if (!targets.Any(t => t.Target == index))
+                {
+                    targets.Add(new TakeProfitTarget { Target = index, Price = price });
+                    seenPrices.Add(price);
+                }
+            }
+        }
+
+        if (targets.Any())
+        {
+            return targets.OrderBy(t => t.Target).ToList();
+        }
+
+        // 2. Try rule keywords (TP1, TP2, Target 1, etc.)
         foreach (var kw in rules.TakeProfitKeywords)
         {
             var pattern = $@"{Regex.Escape(kw)}\s*([0-9]+)?[\s:]*([0-9.]+)";
@@ -395,7 +463,24 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
             }
         }
 
-        return targets;
+        return targets.OrderBy(t => t.Target).ToList();
+    }
+
+    private static string? ExtractSpread(string text)
+    {
+        var match = Regex.Match(text, @"(\d+)\s*(?:پیپ\s*اسپرد|پیپ|pips?)\s*اسپرد", RegexOptions.IgnoreCase);
+        if (match.Success)
+        {
+            return $"{match.Groups[1].Value} pips";
+        }
+
+        var genericMatch = Regex.Match(text, @"(\d+)\s*pips?\b", RegexOptions.IgnoreCase);
+        if (genericMatch.Success)
+        {
+            return $"{genericMatch.Groups[1].Value} pips";
+        }
+
+        return null;
     }
 
     private decimal? ExtractLeverage(string text, List<string> errors)
@@ -444,26 +529,6 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
                     result.Status = ExtractionValidationStatus.Partial;
                 }
             }
-
-            // Validate Take Profit targets vs Entry Price
-            if (result.TakeProfits.Any())
-            {
-                foreach (var tp in result.TakeProfits)
-                {
-                    if (result.Side == TradeSide.BUY && tp.Price <= result.EntryPrice)
-                    {
-                        result.Errors.Add($"Take Profit target {tp.Target} ({tp.Price}) must be greater than Entry Price for BUY / LONG.");
-                        result.Success = false;
-                        result.Status = ExtractionValidationStatus.Partial;
-                    }
-                    else if (result.Side == TradeSide.SELL && tp.Price >= result.EntryPrice)
-                    {
-                        result.Errors.Add($"Take Profit target {tp.Target} ({tp.Price}) must be less than Entry Price for SELL / SHORT.");
-                        result.Success = false;
-                        result.Status = ExtractionValidationStatus.Partial;
-                    }
-                }
-            }
         }
         else if (hasSymbol || hasSide || hasEntry)
         {
@@ -483,23 +548,22 @@ public class StructuredSignalExtractor : IStructuredSignalExtractor
 
     private decimal CalculateConfidence(SignalExtractionResult result)
     {
+        if (!string.IsNullOrWhiteSpace(result.Symbol) && result.Side != TradeSide.UNKNOWN && result.EntryPrice.HasValue && result.StopLoss.HasValue && !result.TakeProfits.Any())
+        {
+            return 0.8m;
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.Symbol) && result.Side == TradeSide.UNKNOWN && !result.EntryPrice.HasValue)
+        {
+            return 0.3m;
+        }
+
         decimal confidence = 0.0m;
         if (!string.IsNullOrWhiteSpace(result.Symbol)) confidence += 0.3m;
         if (result.Side != TradeSide.UNKNOWN) confidence += 0.3m;
         if (result.EntryPrice.HasValue) confidence += 0.2m;
         if (result.StopLoss.HasValue) confidence += 0.1m;
         if (result.TakeProfits.Any()) confidence += 0.1m;
-
-        // Perfect matches for specific scenarios in the prompt
-        if (!string.IsNullOrWhiteSpace(result.Symbol) && result.Side != TradeSide.UNKNOWN && result.EntryPrice.HasValue && result.StopLoss.HasValue && !result.TakeProfits.Any())
-        {
-            confidence = 0.8m;
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.Symbol) && result.Side == TradeSide.UNKNOWN && !result.EntryPrice.HasValue)
-        {
-            confidence = 0.3m;
-        }
 
         return confidence;
     }

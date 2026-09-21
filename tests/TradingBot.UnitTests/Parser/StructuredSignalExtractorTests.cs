@@ -53,6 +53,174 @@ public class StructuredSignalExtractorTests
     }
 
     [Fact]
+    public async Task ExtractAsync_ExactTelegramMessage48286_ShouldExtractAllStructuredFieldsCorrectly()
+    {
+        // Arrange
+        string messageText = @"💎 سیگنال
+📊 جفت ارز: AUD/USD
+📉 نوع معامله: خرید ( BUY)
+📍 نقطه ورود: 0.70920
+🎯 حد سود
+تارگت اول: 0.70110
+تارگت دوم: 0.71350
+تارگت سوم: 0.71500
+🛑 حد ضرر (Stop Loss): 0.70730
+نهایتا 2 پیپ اسپرد صرفا روی نقطه ورود لحاظ گردد";
+
+        var msg = CreateMessage(messageText);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Success.Should().BeTrue();
+        result.Symbol.Should().Be("AUDUSD");
+        result.Side.Should().Be(TradeSide.BUY);
+        result.EntryPrice.Should().Be(0.70920m);
+        result.StopLoss.Should().Be(0.70730m);
+
+        result.TakeProfits.Should().HaveCount(3);
+        result.TakeProfits[0].Target.Should().Be(1);
+        result.TakeProfits[0].Price.Should().Be(0.70110m);
+        result.TakeProfits[1].Target.Should().Be(2);
+        result.TakeProfits[1].Price.Should().Be(0.71350m);
+        result.TakeProfits[2].Target.Should().Be(3);
+        result.TakeProfits[2].Price.Should().Be(0.71500m);
+
+        result.Metadata.Should().ContainKey("SpreadAllowance");
+        result.Metadata["SpreadAllowance"].Should().Be("2 pips");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_BuySignalWithPersianLabels_ShouldExtractCorrectly()
+    {
+        // Arrange
+        string text = @"جفت ارز: EUR/USD
+نوع معامله: خرید
+نقطه ورود: 1.08500
+تارگت اول: 1.09000
+حد ضرر: 1.08000";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        result.Symbol.Should().Be("EURUSD");
+        result.Side.Should().Be(TradeSide.BUY);
+        result.EntryPrice.Should().Be(1.08500m);
+        result.TakeProfits.Should().ContainSingle(t => t.Price == 1.09000m);
+        result.StopLoss.Should().Be(1.08000m);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_SellSignalWithPersianLabels_ShouldExtractCorrectly()
+    {
+        // Arrange
+        string text = @"نماد: GBP/USD
+نوع معامله: فروش
+ورود: 1.26500
+تارگت اول: 1.26000
+تارگت دوم: 1.25500
+حد ضرر: 1.27000";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        result.Symbol.Should().Be("GBPUSD");
+        result.Side.Should().Be(TradeSide.SELL);
+        result.EntryPrice.Should().Be(1.26500m);
+        result.TakeProfits.Select(t => t.Price).Should().Equal(1.26000m, 1.25500m);
+        result.StopLoss.Should().Be(1.27000m);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_MissingEntry_ShouldReturnPartialFailureState()
+    {
+        // Arrange
+        string text = @"جفت ارز: AUD/USD
+نوع معامله: خرید
+حد ضرر: 0.70000";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.Status.Should().Be(ExtractionValidationStatus.Partial);
+        result.EntryPrice.Should().BeNull();
+        result.Errors.Should().Contain(e => e.Contains("Entry Price is missing"));
+    }
+
+    [Fact]
+    public async Task ExtractAsync_MissingStopLoss_ShouldExtractOtherFieldsSuccessfully()
+    {
+        // Arrange
+        string text = @"جفت ارز: AUD/USD
+نوع معامله: BUY
+نقطه ورود: 0.70920
+تارگت اول: 0.71200";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        result.StopLoss.Should().BeNull();
+        result.EntryPrice.Should().Be(0.70920m);
+        result.TakeProfits.Should().ContainSingle(t => t.Price == 0.71200m);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_MalformedNumericValue_ShouldRecordErrorAndNotAssignZero()
+    {
+        // Arrange
+        string text = @"جفت ارز: AUD/USD
+نوع معامله: BUY
+نقطه ورود: invalid_number
+حد ضرر: 0.70000";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.EntryPrice.Should().BeNull();
+        result.EntryPrice.Should().NotBe(0m);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_PersianArabicNumerals_ShouldExtractCorrectNumericValues()
+    {
+        // Arrange
+        string text = @"جفت ارز: AUD/USD
+نوع معامله: خرید ( BUY)
+نقطه ورود: ۰.۷۰۹۲۰
+تارگت اول: ۰.۷۰۱۱۰
+تارگت دوم: ۰.۷۱۳۵۰
+حد ضرر: ۰.۷۰۷۳۰";
+        var msg = CreateMessage(text);
+
+        // Act
+        var result = await _extractor.ExtractAsync(msg);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        result.EntryPrice.Should().Be(0.70920m);
+        result.TakeProfits[0].Price.Should().Be(0.70110m);
+        result.TakeProfits[1].Price.Should().Be(0.71350m);
+        result.StopLoss.Should().Be(0.70730m);
+    }
+
+    [Fact]
     public void NormalizeText_ShouldHandleFullWidthAndPersianDigits()
     {
         // Arrange

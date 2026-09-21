@@ -6,7 +6,7 @@ public class SymbolRules
 {
     public List<string> AllowedSymbols { get; set; } = new()
     {
-        "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "EURUSD", "GBPUSD", "XAUUSD", "GOLD", "BTC", "ETH", "SOL", "XRP", "LTC"
+        "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY", "XAUUSD", "GOLD", "BTC", "ETH", "SOL", "XRP", "LTC"
     };
 
     public Dictionary<string, string> SymbolMappings { get; set; } = new()
@@ -22,23 +22,23 @@ public class SymbolRules
 
 public class SideRules
 {
-    public List<string> BuyKeywords { get; set; } = new() { "BUY", "LONG", "شراء", "لانگ" };
+    public List<string> BuyKeywords { get; set; } = new() { "BUY", "LONG", "خرید", "شراء", "لانگ" };
     public List<string> SellKeywords { get; set; } = new() { "SELL", "SHORT", "فروش", "شورت" };
 }
 
 public class EntryRules
 {
-    public List<string> EntryKeywords { get; set; } = new() { "ENTRY", "OPEN", "ورود", "ENTRY ZONE" };
+    public List<string> EntryKeywords { get; set; } = new() { "نقطه ورود", "نقطه ورود:", "قیمت ورود", "قیمت ورود:", "ورود", "ورود:", "ENTRY", "ENTRY:", "OPEN", "ENTRY ZONE" };
 }
 
 public class SLRules
 {
-    public List<string> StopLossKeywords { get; set; } = new() { "SL", "STOP LOSS", "STOPLOSS", "استاپ", "حد ضرر" };
+    public List<string> StopLossKeywords { get; set; } = new() { "حد ضرر", "حد ضرر (Stop Loss)", "حد ضرر:", "STOP LOSS", "STOPLOSS", "SL", "استاپ" };
 }
 
 public class TPRules
 {
-    public List<string> TakeProfitKeywords { get; set; } = new() { "TP", "TARGET", "هدف", "حد سود" };
+    public List<string> TakeProfitKeywords { get; set; } = new() { "تارگت اول", "تارگت دوم", "تارگت سوم", "تارگت", "حد سود", "TP", "TARGET", "هدف" };
 }
 
 public class ExtractionRulesOptions
