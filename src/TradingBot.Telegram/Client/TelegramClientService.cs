@@ -11,6 +11,7 @@ using WTelegram;
 using TL;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Interfaces.Persistence;
+using TradingBot.Application.Models;
 using TradingBot.Telegram.Configuration;
 using TradingBot.Telegram.Exceptions;
 using TradingBot.Telegram.Interfaces;

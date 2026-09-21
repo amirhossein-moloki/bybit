@@ -42,6 +42,9 @@ public static class DependencyInjection
         // Register Telegram Source Service
         services.AddScoped<ITelegramSourceService, TelegramSourceService>();
 
+        // Register Message Reprocessing Service
+        services.AddScoped<IMessageReprocessingService, MessageReprocessingService>();
+
         return services;
     }
 }

@@ -19,7 +19,6 @@ using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Domain.SignalIntelligence.Models;
 using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Interfaces;
-using TradingBot.Telegram.Models;
 
 namespace TradingBot.Parser.Services;
 

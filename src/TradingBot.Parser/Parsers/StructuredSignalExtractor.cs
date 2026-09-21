@@ -14,7 +14,7 @@ using TradingBot.Domain.SignalIntelligence.Enums;
 using TradingBot.Domain.SignalIntelligence.Events;
 using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Interfaces;
-using TradingBot.Parser.Models;
+using TradingBot.Application.SignalIntelligence.Contracts;
 
 namespace TradingBot.Parser.Parsers;
 

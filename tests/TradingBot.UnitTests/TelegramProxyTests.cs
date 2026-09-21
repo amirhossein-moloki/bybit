@@ -165,6 +165,6 @@ public class TelegramProxyTests
 
     private class DummyMessageReceiver : TradingBot.Telegram.Interfaces.ITelegramMessageReceiver
     {
-        public System.Threading.Tasks.Task ReceiveMessageAsync(TradingBot.Telegram.Models.TelegramMessageDto message) => System.Threading.Tasks.Task.CompletedTask;
+        public System.Threading.Tasks.Task ReceiveMessageAsync(TradingBot.Application.Models.TelegramMessageDto message) => System.Threading.Tasks.Task.CompletedTask;
     }
 }

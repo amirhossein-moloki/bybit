@@ -1,5 +1,4 @@
 using System.Threading.Tasks;
-using TradingBot.Telegram.Models;
 using TradingBot.Application.Models;
 
 namespace TradingBot.Application.Interfaces;
