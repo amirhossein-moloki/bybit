@@ -51,10 +51,14 @@ public class MessageContextBuilder : IMessageContextBuilder
             {
                 MessageId = message.MessageId,
                 ChannelId = message.ChannelId,
+                ChannelName = message.ChannelName,
                 SenderId = message.SenderId,
+                Author = message.SenderId != 0 ? message.SenderId.ToString() : message.ChannelName,
                 Text = message.Text,
                 Date = message.Date,
-                ReplyToMessageId = message.ReplyToMessageId
+                ReplyToMessageId = message.ReplyToMessageId,
+                MediaInfo = message.MediaInfo,
+                EditInfo = message.EditInfo
             }
         };
 
@@ -97,6 +101,8 @@ public class MessageContextBuilder : IMessageContextBuilder
                     if (origMsg != null)
                     {
                         context.ReplyContext.OriginalMessageText = origMsg.Content;
+                        context.ReplyContext.OriginalMessageTimestamp = origMsg.ReceivedAt;
+                        context.ReplyContext.Author = origMsg.SenderId?.ToString();
                     }
                 }
                 catch (Exception ex)
@@ -116,6 +122,7 @@ public class MessageContextBuilder : IMessageContextBuilder
                         context.ReplyContext.AssociatedSignalId = origSignal.Id;
                         context.ReplyContext.AssociatedSignalStatus = origSignal.Status.ToString();
                         context.ReplyContext.Symbol = origSignal.Symbol;
+                        context.ReplyContext.Classification = "EntrySignal";
                     }
                 }
                 catch (Exception ex)
@@ -139,10 +146,14 @@ public class MessageContextBuilder : IMessageContextBuilder
                         {
                             MessageId = m.MessageId,
                             ChannelId = m.ChannelId,
+                            ChannelName = message.ChannelName,
                             SenderId = m.SenderId,
+                            Author = m.SenderId?.ToString() ?? string.Empty,
                             Text = m.Content,
                             Date = m.ReceivedAt,
-                            ReplyToMessageId = m.ReplyToMessageId
+                            ReplyToMessageId = m.ReplyToMessageId,
+                            MediaInfo = m.MediaInfo,
+                            EditInfo = m.EditInfo
                         })
                         .ToList();
                 }

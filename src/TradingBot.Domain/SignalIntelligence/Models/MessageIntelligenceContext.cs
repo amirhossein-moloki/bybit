@@ -7,16 +7,23 @@ public class CurrentMessageContext
 {
     public long MessageId { get; set; }
     public long ChannelId { get; set; }
+    public string ChannelName { get; set; } = string.Empty;
     public long? SenderId { get; set; }
+    public string Author { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
     public DateTime Date { get; set; }
     public long? ReplyToMessageId { get; set; }
+    public string? MediaInfo { get; set; }
+    public string? EditInfo { get; set; }
 }
 
 public class ReplyContextInfo
 {
     public long ReplyToMessageId { get; set; }
     public string OriginalMessageText { get; set; } = string.Empty;
+    public DateTime? OriginalMessageTimestamp { get; set; }
+    public string? Author { get; set; }
+    public string? Classification { get; set; }
     public Guid? AssociatedSignalId { get; set; }
     public string? AssociatedSignalStatus { get; set; }
     public string? Symbol { get; set; }
@@ -43,6 +50,7 @@ public class PositionContextInfo
     public string Side { get; set; } = string.Empty;
     public decimal EntryPrice { get; set; }
     public decimal CurrentStopLoss { get; set; }
+    public List<decimal> TakeProfits { get; set; } = new();
     public decimal Quantity { get; set; }
     public string Status { get; set; } = string.Empty;
 }

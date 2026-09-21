@@ -37,7 +37,23 @@ public class IntentSafetyValidator : IIntentSafetyValidator
             return Task.FromResult((false, "Intent does not require execution."));
         }
 
-        // 1. Confidence Threshold Check
+        // 1. Resolution Status Check
+        if (intent.ResolutionStatus != ResolutionStatus.Resolved)
+        {
+            _logger.LogWarning("IntentSafetyValidator: Intent ResolutionStatus is {Status} (not Resolved). Reason: {Reason}",
+                intent.ResolutionStatus, intent.Reason);
+            return Task.FromResult((false, $"Execution blocked: Intent resolution status is '{intent.ResolutionStatus}'."));
+        }
+
+        // 2. Execution Mode Check (Conditional commands MUST NOT be executed immediately)
+        if (intent.ExecutionMode != ExecutionMode.Immediate)
+        {
+            _logger.LogWarning("IntentSafetyValidator: Intent ExecutionMode is {Mode} (not Immediate). Execution deferred/blocked. Reason: {Reason}",
+                intent.ExecutionMode, intent.Reason);
+            return Task.FromResult((false, $"Execution blocked: Execution mode is '{intent.ExecutionMode}'. Conditional/informational instructions cannot be executed immediately."));
+        }
+
+        // 3. Confidence Threshold Check
         if (intent.Confidence < _options.MinimumConfidence)
         {
             _logger.LogWarning("IntentSafetyValidator: Intent confidence {Confidence} is below required threshold {Threshold}. Reason: {Reason}",
@@ -45,7 +61,7 @@ public class IntentSafetyValidator : IIntentSafetyValidator
             return Task.FromResult((false, $"Confidence {intent.Confidence} below required minimum {_options.MinimumConfidence}."));
         }
 
-        // 2. Critical Trading Command Validation against actual Domain Context
+        // 4. Critical Trading Command Validation against actual Domain Context
         switch (intent.Intent)
         {
             case TradingIntent.RISK_FREE:
