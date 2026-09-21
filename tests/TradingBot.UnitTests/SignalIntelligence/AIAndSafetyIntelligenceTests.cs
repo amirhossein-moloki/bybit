@@ -33,8 +33,8 @@ public class AIAndSafetyIntelligenceTests
             ""intent"": ""RISK_FREE"",
             ""scope"": ""SYMBOL"",
             ""targets"": [""EURUSD""],
-            ""confidence"": 0.95,
             ""requiresExecution"": true,
+            ""confidence"": 0.95,
             ""reason"": ""AI classified risk free command""
         }";
 
@@ -125,6 +125,8 @@ public class AIAndSafetyIntelligenceTests
             MessageType = IntelligenceMessageType.COMMAND,
             Intent = TradingIntent.RISK_FREE,
             RequiresExecution = true,
+            IsTradeRelated = true,
+            IsExecutableCandidate = true,
             Confidence = 0.90m
         };
 
@@ -158,6 +160,8 @@ public class AIAndSafetyIntelligenceTests
             MessageType = IntelligenceMessageType.COMMAND,
             Intent = TradingIntent.RISK_FREE,
             RequiresExecution = true,
+            IsTradeRelated = true,
+            IsExecutableCandidate = true,
             Confidence = 0.90m
         };
 
@@ -177,6 +181,7 @@ public class AIAndSafetyIntelligenceTests
         // Assert
         Assert.NotNull(resolved);
         Assert.False(resolved.RequiresExecution); // Execution disabled due to ambiguity!
+        Assert.Equal(ResolutionStatus.Ambiguous, resolved.ResolutionStatus);
     }
 
     [Fact]
@@ -191,11 +196,16 @@ public class AIAndSafetyIntelligenceTests
             MessageType = IntelligenceMessageType.COMMAND,
             Intent = TradingIntent.RISK_FREE,
             RequiresExecution = true,
+            ResolutionStatus = ResolutionStatus.Resolved,
+            ExecutionMode = ExecutionMode.Immediate,
             Confidence = 0.70m, // Below 0.85
             Targets = new List<string> { "EURUSD" }
         };
 
-        var context = new MessageIntelligenceContext();
+        var context = new MessageIntelligenceContext
+        {
+            ActivePositions = new List<PositionContextInfo> { new PositionContextInfo { Symbol = "EURUSD" } }
+        };
 
         // Act
         var (isSafe, reason) = await validator.ValidateSafetyAsync(lowConfidenceIntent, context);

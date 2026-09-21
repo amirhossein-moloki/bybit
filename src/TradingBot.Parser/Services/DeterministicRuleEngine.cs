@@ -137,6 +137,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = targets,
                 Confidence = 0.96m,
                 RequiresExecution = true,
+                IsTradeRelated = true,
+                IsExecutableCandidate = true,
+                ExecutionMode = ExecutionMode.Immediate,
+                ResolutionStatus = ResolutionStatus.Resolved,
                 Reason = "Deterministic fast-path matched Risk Free command.",
                 DetectionMethod = "RULE"
             };
@@ -177,6 +181,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = targets,
                 Confidence = 0.95m,
                 RequiresExecution = true,
+                IsTradeRelated = true,
+                IsExecutableCandidate = true,
+                ExecutionMode = ExecutionMode.Immediate,
+                ResolutionStatus = ResolutionStatus.Resolved,
                 Reason = "Deterministic fast-path matched Close Position command.",
                 DetectionMethod = "RULE"
             };
@@ -226,6 +234,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = targets,
                 Confidence = 0.97m,
                 RequiresExecution = true,
+                IsTradeRelated = true,
+                IsExecutableCandidate = true,
+                ExecutionMode = ExecutionMode.Immediate,
+                ResolutionStatus = ResolutionStatus.Resolved,
                 Reason = "Deterministic fast-path matched Cancel Orders command.",
                 DetectionMethod = "RULE"
             };
@@ -249,6 +261,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = new List<string>(),
                 Confidence = 0.94m,
                 RequiresExecution = true,
+                IsTradeRelated = true,
+                IsExecutableCandidate = true,
+                ExecutionMode = ExecutionMode.Immediate,
+                ResolutionStatus = ResolutionStatus.Resolved,
                 Reason = "Deterministic fast-path matched Restore Orders command.",
                 DetectionMethod = "RULE"
             };
@@ -274,6 +290,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = sym != null ? new List<string> { sym } : new List<string>(),
                 Confidence = 0.93m,
                 RequiresExecution = true,
+                IsTradeRelated = true,
+                IsExecutableCandidate = true,
+                ExecutionMode = ExecutionMode.Immediate,
+                ResolutionStatus = ResolutionStatus.Resolved,
                 Reason = "Deterministic fast-path matched Re-entry signal update.",
                 DetectionMethod = "RULE"
             };
@@ -297,6 +317,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = new List<string>(),
                 Confidence = 0.95m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message is channel market commentary.",
                 DetectionMethod = "RULE"
             };
@@ -313,6 +337,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = sym != null ? new List<string> { sym } : new List<string>(),
                 Confidence = 0.92m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message is signal validation commentary.",
                 DetectionMethod = "RULE"
             };
@@ -329,6 +357,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = new List<string>(),
                 Confidence = 0.94m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message is a status question/request to members.",
                 DetectionMethod = "RULE"
             };
@@ -352,6 +384,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = sym != null ? new List<string> { sym } : new List<string>(),
                 Confidence = 0.98m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message reports risk free status reached.",
                 DetectionMethod = "RULE"
             };
@@ -368,6 +404,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = context.ReplyContext?.Symbol != null ? new List<string> { context.ReplyContext.Symbol } : new List<string>(),
                 Confidence = 0.95m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message reports trade or signal active status.",
                 DetectionMethod = "RULE"
             };
@@ -384,6 +424,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = sym != null ? new List<string> { sym } : new List<string>(),
                 Confidence = 0.96m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message reports take profit target hit status.",
                 DetectionMethod = "RULE"
             };
@@ -400,6 +444,10 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
                 Targets = sym != null ? new List<string> { sym } : new List<string>(),
                 Confidence = 0.98m,
                 RequiresExecution = false,
+                IsTradeRelated = false,
+                IsExecutableCandidate = false,
+                ExecutionMode = ExecutionMode.Informational,
+                ResolutionStatus = ResolutionStatus.NotTradingRelated,
                 Reason = "Message reports stop loss hit status.",
                 DetectionMethod = "RULE"
             };
@@ -442,7 +490,7 @@ public class DeterministicRuleEngine : IDeterministicRuleEngine
         var match = Regex.Match(text, @"\b([A-Z]{6}|[A-Z]{3}/[A-Z]{3}|BTCUSDT|ETHUSDT|EURUSD|GBPUSD|XAUUSD|USDJPY)\b", RegexOptions.IgnoreCase);
         if (match.Success)
         {
-            symbol = match.Value.Replace("/", "").ToUpperInvariant();
+            symbol = match.Value.Replace("/", "").Replace("-", "").ToUpperInvariant();
             return true;
         }
 
