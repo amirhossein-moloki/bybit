@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TradingBot.Application.SignalIntelligence.Contracts;
 using TradingBot.Parser.Configuration;
 using TradingBot.Parser.Interfaces;
@@ -72,12 +73,13 @@ public static class ParserDependencyInjection
         services.AddScoped<IStructuredSignalExtractor, StructuredSignalExtractor>();
 
         // Message Intelligence Engine Services
-        services.AddScoped<IMessageContextBuilder, TradingBot.Parser.Services.MessageContextBuilder>();
-        services.AddScoped<IDeterministicRuleEngine, TradingBot.Parser.Services.DeterministicRuleEngine>();
-        services.AddScoped<IAIIntentInterpreter, TradingBot.Parser.Services.AIIntentInterpreter>();
-        services.AddScoped<ITargetResolver, TradingBot.Parser.Services.TargetResolver>();
-        services.AddScoped<IIntentSafetyValidator, TradingBot.Parser.Services.IntentSafetyValidator>();
-        services.AddScoped<IIntentExecutionRouter, TradingBot.Parser.Services.IntentExecutionRouter>();
+        services.TryAddScoped<IMessageContextBuilder, TradingBot.Parser.Services.MessageContextBuilder>();
+        services.TryAddScoped<IDeterministicRuleEngine, TradingBot.Parser.Services.DeterministicRuleEngine>();
+        services.TryAddScoped<IAIIntentInterpreter, TradingBot.Parser.Services.AIIntentInterpreter>();
+        services.TryAddScoped<ITargetResolver, TradingBot.Parser.Services.TargetResolver>();
+        services.TryAddScoped<IIntentSafetyValidator, TradingBot.Parser.Services.IntentSafetyValidator>();
+        services.TryAddScoped<IIntentExecutionRouter, TradingBot.Parser.Services.IntentExecutionRouter>();
+        services.TryAddScoped<IMessageReprocessingService, TradingBot.Application.Services.MessageReprocessingService>();
 
         // Register Validation Engine and Rules
         services.AddScoped<IValidationRule, SymbolValidationRule>();

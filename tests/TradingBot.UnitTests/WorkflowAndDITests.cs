@@ -118,6 +118,43 @@ public class WorkflowAndDITests
     }
 
     [Fact]
+    public void ServiceRegistration_ShouldResolveMessageReprocessingService_WhenDIContainerBuilt()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        var myConfiguration = new Dictionary<string, string>
+        {
+            {"Application:Environment", "Development"},
+            {"Database:ConnectionString", "Data Source=test.db"},
+            {"Exchange:SelectedExchange", "Bybit"},
+            {"Security:EncryptionKey", "12345678123456781234567812345678"}
+        };
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(myConfiguration!)
+            .Build();
+
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddLogging();
+
+        services.AddApplication(configuration);
+        services.AddInfrastructure(configuration);
+        services.AddParser(configuration);
+
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        // Act
+        var reprocessingService = scope.ServiceProvider.GetService<TradingBot.Application.SignalIntelligence.Contracts.IMessageReprocessingService>();
+        var contextBuilder = scope.ServiceProvider.GetService<TradingBot.Application.SignalIntelligence.Contracts.IMessageContextBuilder>();
+
+        // Assert
+        reprocessingService.Should().NotBeNull();
+        contextBuilder.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task OrderService_ShouldAtomicallyCreateOrderAndSaveOnExchange()
     {
         // Arrange

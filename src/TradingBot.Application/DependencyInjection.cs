@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TradingBot.Application.Interfaces;
 using TradingBot.Application.Models;
 using TradingBot.Application.Services;
@@ -43,7 +44,7 @@ public static class DependencyInjection
         services.AddScoped<ITelegramSourceService, TelegramSourceService>();
 
         // Register Message Reprocessing Service
-        services.AddScoped<IMessageReprocessingService, MessageReprocessingService>();
+        services.TryAddScoped<IMessageReprocessingService, MessageReprocessingService>();
 
         return services;
     }
