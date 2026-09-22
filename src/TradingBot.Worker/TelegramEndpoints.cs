@@ -315,10 +315,26 @@ public static class TelegramEndpoints
             IMessageReprocessingService reprocessingService,
             Guid messageId,
             ReprocessMessageRequestDto? request,
+            HttpContext httpContext,
             CancellationToken ct) =>
         {
-            var result = await reprocessingService.ReprocessMessageAsync(messageId, request ?? new ReprocessMessageRequestDto(), ct);
-            return Results.Ok(new { status = "success", data = result });
+            var correlationId = httpContext.TraceIdentifier;
+            if (string.IsNullOrWhiteSpace(correlationId))
+            {
+                correlationId = Guid.NewGuid().ToString("N");
+            }
+
+            try
+            {
+                var result = await reprocessingService.ReprocessMessageAsync(messageId, request ?? new ReprocessMessageRequestDto(), ct);
+                return Results.Ok(new { status = "success", data = result });
+            }
+            catch (Exception ex)
+            {
+                var logger = httpContext.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("TelegramEndpoints");
+                logger?.LogError(ex, "Failed to reprocess Telegram message {MessageId} [CorrelationId: {CorrelationId}]", messageId, correlationId);
+                throw;
+            }
         });
 
         // 24. Get Processing Attempts History for Telegram Message
